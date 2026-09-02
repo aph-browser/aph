@@ -1,0 +1,10 @@
+build/
+profile/
+repomix.config.json
+repomix-output.xml
+
+# uv / python
+.venv/
+__pycache__/
+*.pyc
+.python-version
