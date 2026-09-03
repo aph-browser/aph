@@ -19,3 +19,6 @@ user_pref("browser.startup.homepage.abouthome_cache.enabled", false);
 
 // 5. Keep window open when last tab is closed
 user_pref("browser.tabs.closeWindowWithLastTab", false);
+
+// 6. Open new tabs immediately after the current one
+user_pref("browser.tabs.insertAfterCurrent", true);

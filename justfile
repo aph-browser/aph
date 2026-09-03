@@ -3,6 +3,12 @@ set shell := ["bash", "-cu"]
 default:
     @just --list
 
+# Full bootstrap: download, extract, rebrand, and launch
+bootstrap:
+    uv run python scripts/fetch.py
+    just rebrand
+    @echo "Ready to launch: just dev"
+
 # Download and extract LibreWolf into build/
 setup *args:
     uv run python scripts/fetch.py {{args}}
@@ -23,10 +29,9 @@ run *args: (dev args)
 rebrand:
     uv run python scripts/rebrand.py
 
-# Show profile and overrides status
+# Show profile and build status
 status:
     @echo "profile: $(test -d profile && echo exists || echo missing)"
-    @echo "overrides: $(test -f config/librewolf.overrides.cfg && echo ready || echo missing)"
     @echo "config: $(test -f config/user.js && echo ready || echo missing)"
     @test -f profile/user.js && diff -u config/user.js profile/user.js | head -n 20 || echo "profile user.js not yet copied (run: just dev)"
     @echo "omni.ja: $(test -f build/librewolf/browser/omni.ja.bak && echo rebranded || echo original)"

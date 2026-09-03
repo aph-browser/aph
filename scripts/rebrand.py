@@ -5,6 +5,7 @@ Gecko requires omni.ja entries to be ZIP_STORED (no compression) for memory-mapp
 """
 
 import io
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -29,6 +30,14 @@ BLANK_WORDMARK = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1" wid
 BRAND_FTL_SRC = BRANDING_DIR / "brand.ftl"
 BRANDINGS_FTL_SRC = BRANDING_DIR / "brandings.ftl"
 SYNC_BRAND_FTL_SRC = BRANDING_DIR / "sync-brand.ftl"
+
+# Workspaces: single JS file injected into the browser window.
+WORKSPACES_JS_SRC = BRANDING_DIR / "workspaces.js"
+WORKSPACES_JA_PATH = "chrome/browser/content/browser/workspaces.js"
+WORKSPACES_XHTML_PATH = "chrome/browser/content/browser/browser.xhtml"
+WORKSPACES_SCRIPT_TAG = (
+    '<script src="chrome://browser/content/workspaces.js"></script>'
+)
 
 BRAND_PROPERTIES_TEMPLATE = """brandShorterName=Aph
 brandShortName=Aph
@@ -92,11 +101,12 @@ def slice_icons() -> dict[int, bytes]:
 
 def _patch_single_ja(
     ja_path: Path, brand_ftl_data: bytes, brandings_ftl_data: bytes,
-    sync_ftl_data: bytes, logos: dict[str, bytes]
-) -> tuple[int, int, int, int, int, int]:
+    sync_ftl_data: bytes, logos: dict[str, bytes],
+    workspaces_js: bytes | None = None,
+) -> tuple[int, int, int, int, int, int, int, int]:
     """Patch a single omni.ja from its pristine backup.
 
-    Return counts (brand_ftl, brandings_ftl, sync_ftl, props, dtd, logos).
+    Return counts (brand_ftl, brandings_ftl, sync_ftl, props, dtd, logos, xhtml, wsjs).
     """
     backup = ja_path.with_suffix(".ja.bak")
     if not backup.exists():
@@ -107,8 +117,12 @@ def _patch_single_ja(
     src_ja = backup
 
     count_brand = count_brandings = count_sync = count_props = count_dtd = count_logo = 0
-    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".ja", dir=str(ja_path.parent))
-    tmp_path = Path(tmp_path)
+    count_xhtml = count_wsjs = 0
+    # mkstemp returns an open handle we never use (ZipFile opens by path).
+    # Close it at once: holding it across shutil.move breaks Windows (file lock).
+    tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".ja", dir=str(ja_path.parent))
+    os.close(tmp_fd)
+    tmp_path = Path(tmp_path_str)
 
     try:
         with (
@@ -117,6 +131,7 @@ def _patch_single_ja(
                 tmp_path, "w", compression=zipfile.ZIP_STORED
             ) as zout,
         ):
+            existing = set(zin.namelist())
             for info in zin.infolist():
                 data = zin.read(info.filename)
                 fname = info.filename.lower()
@@ -140,6 +155,12 @@ def _patch_single_ja(
                 elif info.filename in logos:
                     data = logos[info.filename]
                     count_logo += 1
+                elif (
+                    workspaces_js is not None
+                    and info.filename == WORKSPACES_XHTML_PATH
+                ):
+                    data = _inject_workspaces_script(data)
+                    count_xhtml += 1
 
                 new_info = zipfile.ZipInfo(
                     filename=info.filename,
@@ -149,17 +170,47 @@ def _patch_single_ja(
                 new_info.external_attr = info.external_attr
                 zout.writestr(new_info, data)
 
+            # Append workspaces.js as a new entry (browser omni only).
+            if (
+                workspaces_js is not None
+                and WORKSPACES_XHTML_PATH in existing
+                and WORKSPACES_JA_PATH not in existing
+            ):
+                new_info = zipfile.ZipInfo(filename=WORKSPACES_JA_PATH)
+                new_info.compress_type = zipfile.ZIP_STORED
+                # Regular file with 0644 perms
+                new_info.external_attr = 0o644 << 16
+                zout.writestr(new_info, workspaces_js)
+                count_wsjs += 1
+
         shutil.move(str(tmp_path), str(ja_path))
-        return count_brand, count_brandings, count_sync, count_props, count_dtd, count_logo
+        return count_brand, count_brandings, count_sync, count_props, count_dtd, count_logo, count_xhtml, count_wsjs
     finally:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
-        try:
-            import os
 
-            os.close(tmp_fd)
-        except Exception:
-            pass
+
+def _inject_workspaces_script(xhtml_bytes: bytes) -> bytes:
+    """Insert the workspaces.js <script> tag into browser.xhtml (idempotent)."""
+    try:
+        text = xhtml_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        return xhtml_bytes
+    if WORKSPACES_SCRIPT_TAG in text:
+        return xhtml_bytes
+    anchor = '<script src="chrome://browser/content/browser-main.js"></script>'
+    injection = anchor + "\n  " + WORKSPACES_SCRIPT_TAG
+    if anchor in text:
+        text = text.replace(anchor, injection, 1)
+    elif "</head>" in text:
+        text = text.replace("</head>", "  " + WORKSPACES_SCRIPT_TAG + "\n</head>", 1)
+    else:
+        # Last resort: append before closing body/html per spec.
+        for closing in ("</html:body>", "</body>", "</html>"):
+            if closing in text:
+                text = text.replace(closing, "  " + WORKSPACES_SCRIPT_TAG + "\n" + closing, 1)
+                break
+    return text.encode("utf-8")
 
 
 def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
@@ -227,16 +278,26 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
     for size, data in icon_buffers.items():
         logos[f"chrome/browser/content/branding/icon{size}.png"] = data
 
+    # 5. Minimal workspaces payload (single JS, browser window only).
+    workspaces_js: bytes | None = None
+    if WORKSPACES_JS_SRC.is_file():
+        workspaces_js = WORKSPACES_JS_SRC.read_bytes()
+    else:
+        print(f"WARNING: {WORKSPACES_JS_SRC} not found, skipping workspaces injection.")
+
     ok = True
     for ja_path in targets:
         try:
-            c_brand, c_brandings, c_sync, c_props, c_dtd, c_logo = _patch_single_ja(
-                ja_path, brand_ftl_data, brandings_ftl_data, sync_ftl_data, logos
+            (c_brand, c_brandings, c_sync, c_props, c_dtd, c_logo,
+             c_xhtml, c_wsjs) = _patch_single_ja(
+                ja_path, brand_ftl_data, brandings_ftl_data, sync_ftl_data, logos,
+                workspaces_js,
             )
             print(
                 f"Rebranded {ja_path.relative_to(ROOT)}: "
                 f"{c_brand} brand.ftl, {c_brandings} brandings.ftl, {c_sync} sync-brand.ftl, "
-                f"{c_props} brand.properties, {c_dtd} brand.dtd, {c_logo} logos"
+                f"{c_props} brand.properties, {c_dtd} brand.dtd, {c_logo} logos, "
+                f"{c_xhtml} browser.xhtml, {c_wsjs} workspaces.js"
             )
         except Exception as e:
             print(f"ERROR patching {ja_path}: {e}")

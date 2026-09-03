@@ -7,6 +7,18 @@
       "Title": "Aph",
       "URL": "https://localhost/"
     },
+    "ExtensionSettings": {
+      "{446900e4-71c2-419f-a6a7-df9c091e268b}": {
+        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/bitwarden-password-manager/latest.xpi",
+        "installation_mode": "normal_installed",
+        "private_browsing": true
+      },
+      "sponsorBlocker@ajay.app": {
+        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/sponsorblock/latest.xpi",
+        "installation_mode": "normal_installed",
+        "private_browsing": true
+      }
+    },
     "3rdparty": {
       "Extensions": {
         "uBlock0@raymondhill.net": {
@@ -30,6 +42,7 @@
               "adguard-spyware-url",
               "https://raw.githubusercontent.com/DandelionSprout/adfilt/master/LegitimateURLShortener.txt",
 
+              "ublock-cookies-easylist",
               "ublock-cookies-adguard",
               "adguard-cookies",
               "fanboy-cookiemonster",
