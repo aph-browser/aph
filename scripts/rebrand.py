@@ -26,6 +26,10 @@ ICON_SIZES = [16, 32, 48, 64, 128]
 # Blank wordmark to erase LibreWolf/Firefox text, leaving only logo
 BLANK_WORDMARK = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1" width="1" height="1"></svg>'
 
+BRAND_FTL_SRC = BRANDING_DIR / "brand.ftl"
+BRANDINGS_FTL_SRC = BRANDING_DIR / "brandings.ftl"
+SYNC_BRAND_FTL_SRC = BRANDING_DIR / "sync-brand.ftl"
+
 BRAND_PROPERTIES_TEMPLATE = """brandShorterName=Aph
 brandShortName=Aph
 brandFullName=Aph Browser
@@ -87,9 +91,13 @@ def slice_icons() -> dict[int, bytes]:
 
 
 def _patch_single_ja(
-    ja_path: Path, brand_ftl_data: bytes, logos: dict[str, bytes]
-) -> tuple[int, int, int, int]:
-    """Patch a single omni.ja from its pristine backup. Return counts (ftl, props, dtd, logos)."""
+    ja_path: Path, brand_ftl_data: bytes, brandings_ftl_data: bytes,
+    sync_ftl_data: bytes, logos: dict[str, bytes]
+) -> tuple[int, int, int, int, int, int]:
+    """Patch a single omni.ja from its pristine backup.
+
+    Return counts (brand_ftl, brandings_ftl, sync_ftl, props, dtd, logos).
+    """
     backup = ja_path.with_suffix(".ja.bak")
     if not backup.exists():
         shutil.copy2(ja_path, backup)
@@ -98,7 +106,7 @@ def _patch_single_ja(
     # ALWAYS read from pristine backup to prevent cascading corruption
     src_ja = backup
 
-    count_ftl = count_props = count_dtd = count_logo = 0
+    count_brand = count_brandings = count_sync = count_props = count_dtd = count_logo = 0
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".ja", dir=str(ja_path.parent))
     tmp_path = Path(tmp_path)
 
@@ -113,12 +121,16 @@ def _patch_single_ja(
                 data = zin.read(info.filename)
                 fname = info.filename.lower()
 
-                # Surgical replacements only — NO blanket search-and-replace
-                if fname.endswith("brand.ftl") or fname.endswith(
-                    "brandings.ftl"
-                ):
+                # Surgical replacements — each FTL file matched by exact name
+                if fname.endswith("brand.ftl"):
                     data = brand_ftl_data
-                    count_ftl += 1
+                    count_brand += 1
+                elif fname.endswith("brandings.ftl"):
+                    data = brandings_ftl_data
+                    count_brandings += 1
+                elif fname.endswith("sync-brand.ftl"):
+                    data = sync_ftl_data
+                    count_sync += 1
                 elif fname.endswith("brand.properties"):
                     data = BRAND_PROPERTIES_TEMPLATE.encode("utf-8")
                     count_props += 1
@@ -138,7 +150,7 @@ def _patch_single_ja(
                 zout.writestr(new_info, data)
 
         shutil.move(str(tmp_path), str(ja_path))
-        return count_ftl, count_props, count_dtd, count_logo
+        return count_brand, count_brandings, count_sync, count_props, count_dtd, count_logo
     finally:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
@@ -162,7 +174,7 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
     if OMNI_JA not in targets:
         print(f"WARNING: {OMNI_JA} missing, only patching {[str(p) for p in targets]}")
 
-    brand_ftl = BRANDING_DIR / "brand.ftl"
+    brand_ftl = BRAND_FTL_SRC
     if not brand_ftl.is_file():
         print(f"ERROR: {brand_ftl} not found.")
         return False
@@ -170,6 +182,18 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
     brand_ftl_data = brand_ftl.read_bytes()
     if not brand_ftl_data.endswith(b"\n"):
         brand_ftl_data += b"\n"
+
+    brandings_ftl_data = b""
+    if BRANDINGS_FTL_SRC.is_file():
+        brandings_ftl_data = BRANDINGS_FTL_SRC.read_bytes()
+        if not brandings_ftl_data.endswith(b"\n"):
+            brandings_ftl_data += b"\n"
+
+    sync_ftl_data = b""
+    if SYNC_BRAND_FTL_SRC.is_file():
+        sync_ftl_data = SYNC_BRAND_FTL_SRC.read_bytes()
+        if not sync_ftl_data.endswith(b"\n"):
+            sync_ftl_data += b"\n"
 
     logos: dict[str, bytes] = {}
 
@@ -206,10 +230,13 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
     ok = True
     for ja_path in targets:
         try:
-            c_ftl, c_props, c_dtd, c_logo = _patch_single_ja(ja_path, brand_ftl_data, logos)
-            # Icons only exist in browser/omni.ja, root will have 0 logos
+            c_brand, c_brandings, c_sync, c_props, c_dtd, c_logo = _patch_single_ja(
+                ja_path, brand_ftl_data, brandings_ftl_data, sync_ftl_data, logos
+            )
             print(
-                f"Rebranded {ja_path.relative_to(ROOT)}: {c_ftl} brand.ftl, {c_props} brand.properties, {c_dtd} brand.dtd, {c_logo} logos"
+                f"Rebranded {ja_path.relative_to(ROOT)}: "
+                f"{c_brand} brand.ftl, {c_brandings} brandings.ftl, {c_sync} sync-brand.ftl, "
+                f"{c_props} brand.properties, {c_dtd} brand.dtd, {c_logo} logos"
             )
         except Exception as e:
             print(f"ERROR patching {ja_path}: {e}")

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Launch LibreWolf with Aph overrides - Python replacement for dev.sh."""
 
+import json
 import shutil
 import subprocess
 import sys
@@ -33,17 +34,66 @@ def ensure_rebranded(root: Path) -> None:
         print(f"Warning: rebrand check failed: {e}", file=sys.stderr)
 
 
+def merge_policies(root: Path) -> None:
+    """Safely merge config/policies.json into LibreWolf's policies using a pristine backup."""
+    custom_policies_file = root / "config" / "policies.json"
+    dist_dir = root / "build" / "librewolf" / "distribution"
+    target_policies_file = dist_dir / "policies.json"
+    backup_policies_file = dist_dir / "policies.json.bak"
+
+    if not target_policies_file.is_file() and not backup_policies_file.is_file():
+        return
+
+    # Create pristine backup on first run (never modified)
+    if not backup_policies_file.exists():
+        shutil.copy2(target_policies_file, backup_policies_file)
+        print(f"Created pristine policies backup: {backup_policies_file}")
+
+    # ALWAYS read from the pristine backup as the base
+    try:
+        base_data = json.loads(backup_policies_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"Warning: Failed to read policies backup: {e}", file=sys.stderr)
+        base_data = {"policies": {}}
+
+    # If no custom policies exist, restore the pristine backup and exit
+    if not custom_policies_file.is_file():
+        shutil.copy2(backup_policies_file, target_policies_file)
+        return
+
+    # Load custom Aph policies
+    try:
+        custom_data = json.loads(custom_policies_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"ERROR parsing config/policies.json: {e}", file=sys.stderr)
+        return
+
+    def deep_merge(base: dict, update: dict) -> dict:
+        for k, v in update.items():
+            if isinstance(v, dict) and k in base and isinstance(base[k], dict):
+                deep_merge(base[k], v)
+            else:
+                base[k] = v
+        return base
+
+    merged_data = deep_merge(base_data, custom_data)
+    target_policies_file.write_text(json.dumps(merged_data, indent=2) + "\n", encoding="utf-8")
+
+
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
     profile = root / "profile"
-    overrides_src = root / "config" / "librewolf.overrides.cfg"
-    overrides_dst = profile / "librewolf.overrides.cfg"
+    user_js_src = root / "config" / "user.js"
+    user_js_dst = profile / "user.js"
     binary = root / "build" / "librewolf" / "librewolf"
 
     profile.mkdir(parents=True, exist_ok=True)
 
-    if overrides_src.is_file():
-        shutil.copy2(overrides_src, overrides_dst)
+    if user_js_src.is_file():
+        shutil.copy2(user_js_src, user_js_dst)
+
+    # Auto-merge enterprise policies & extensions
+    merge_policies(root)
 
     # Auto-rebrand browser/omni.ja
     ensure_rebranded(root)

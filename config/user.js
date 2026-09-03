@@ -1,0 +1,21 @@
+// Aph Browser Settings
+
+// 1. Usability / Timezone / Dark mode
+user_pref("privacy.resistFingerprinting", false);
+user_pref("privacy.clearOnShutdown.cookies", false);
+
+// 2. DRM Playback (Netflix / Spotify)
+user_pref("media.eme.enabled", true);
+user_pref("media.gmp-widevinecdm.enabled", true);
+user_pref("media.gmp-provider.enabled", true);
+
+// 3. Force Vertical Tabs
+user_pref("sidebar.revamp", true);
+user_pref("sidebar.verticalTabs", true);
+user_pref("sidebar.visibility", "always-show");
+
+// 4. Disable pre-rendered New Tab cache during development
+user_pref("browser.startup.homepage.abouthome_cache.enabled", false);
+
+// 5. Keep window open when last tab is closed
+user_pref("browser.tabs.closeWindowWithLastTab", false);

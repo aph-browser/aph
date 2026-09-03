@@ -1,0 +1,53 @@
+{
+  "policies": {
+    "EncryptedMediaExtensions": {
+      "Enabled": true
+    },
+    "SupportMenu": {
+      "Title": "Aph",
+      "URL": "https://localhost/"
+    },
+    "3rdparty": {
+      "Extensions": {
+        "uBlock0@raymondhill.net": {
+          "adminSettings": {
+            "userSettings": {
+              "externalLists": "https://raw.githubusercontent.com/DandelionSprout/adfilt/master/LegitimateURLShortener.txt"
+            },
+            "selectedFilterLists": [
+              "user-filters",
+              "ublock-filters",
+              "ublock-badware",
+              "ublock-privacy",
+              "ublock-quick-fixes",
+              "ublock-unbreak",
+              "easylist",
+              "easyprivacy",
+              "urlhaus-1",
+              "plowe-0",
+              "curben-phishing",
+
+              "adguard-spyware-url",
+              "https://raw.githubusercontent.com/DandelionSprout/adfilt/master/LegitimateURLShortener.txt",
+
+              "ublock-cookies-adguard",
+              "adguard-cookies",
+              "fanboy-cookiemonster",
+              "ublock-annoyances",
+
+              "fanboy-ai-suggestions",
+              "easylist-chat",
+              "easylist-newsletters",
+              "easylist-notifications",
+              "easylist-annoyances",
+
+              "fanboy-social",
+              "adguard-social",
+              "fanboy-thirdparty_social"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

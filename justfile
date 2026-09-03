@@ -3,6 +3,15 @@ set shell := ["bash", "-cu"]
 default:
     @just --list
 
+# Download and extract LibreWolf into build/
+setup *args:
+    uv run python scripts/fetch.py {{args}}
+
+# Remove current LibreWolf and re-download
+refetch *args:
+    rm -rf build/librewolf
+    uv run python scripts/fetch.py {{args}}
+
 # Launch LibreWolf with Aph profile (replaces ./dev.sh)
 dev *args:
     uv run python scripts/dev.py {{args}}
@@ -18,7 +27,8 @@ rebrand:
 status:
     @echo "profile: $(test -d profile && echo exists || echo missing)"
     @echo "overrides: $(test -f config/librewolf.overrides.cfg && echo ready || echo missing)"
-    @test -f profile/librewolf.overrides.cfg && diff -u config/librewolf.overrides.cfg profile/librewolf.overrides.cfg | head -n 20 || echo "profile overrides not yet copied (run: just dev)"
+    @echo "config: $(test -f config/user.js && echo ready || echo missing)"
+    @test -f profile/user.js && diff -u config/user.js profile/user.js | head -n 20 || echo "profile user.js not yet copied (run: just dev)"
     @echo "omni.ja: $(test -f build/librewolf/browser/omni.ja.bak && echo rebranded || echo original)"
     @test -f build/librewolf/browser/omni.ja && uv run python -c "import zipfile; print(open('build/librewolf/browser/omni.ja','rb').read().find(b'Aph'))" | grep -q "^-1" && echo "brand: LibreWolf" || echo "brand: Aph"
 
@@ -35,6 +45,9 @@ clean: nuke
 clear-profile: nuke
 wipe: nuke
 
-# Restore original omni.ja from backup
+# Restore original omni.ja and policies.json from pristine backups
 restore:
-    test -f build/librewolf/browser/omni.ja.bak && cp build/librewolf/browser/omni.ja.bak build/librewolf/browser/omni.ja && echo "restored" || echo "no backup"
+    test -f build/librewolf/browser/omni.ja.bak && cp build/librewolf/browser/omni.ja.bak build/librewolf/browser/omni.ja || true
+    test -f build/librewolf/omni.ja.bak && cp build/librewolf/omni.ja.bak build/librewolf/omni.ja || true
+    test -f build/librewolf/distribution/policies.json.bak && cp build/librewolf/distribution/policies.json.bak build/librewolf/distribution/policies.json || true
+    @echo "Restored pristine omni.ja and policies.json"

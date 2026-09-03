@@ -1,3 +1,3 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="240" height="48" viewBox="0 0 240 48">
-  <text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-family="sans-serif" font-size="32" font-weight="700" fill="#EDEDED" letter-spacing="1.5">Aph Browser</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 52" width="90" height="52" overflow="visible">
+  <text x="0" y="44%" dominant-baseline="central" text-anchor="start" font-family="system-ui, -apple-system, sans-serif" font-size="30" font-weight="700" fill="#EDEDED" letter-spacing="1">Aph</text>
 </svg>
