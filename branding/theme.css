@@ -1,66 +1,102 @@
 /* ==========================================================================
-   CRIMSON & ASH — Volcanic Phoenix (Ember Red on Smoky Charcoal)
+   1. Window Frame & Next-Gen Auto-Hide Navigation Bar
    ========================================================================== */
+
 :root {
-  /* Depth Layering */
-  --bg-sidebar:     #121318; /* Darker than the page for true elevation */
-  --bg-main:        #181920; /* Main new tab & web canvas */
-  --bg-element:     #22242e; /* URL bar, search bar, active tab */
-
-  /* Borders & Dividers */
-  --border-subtle:  rgba(255, 255, 255, 0.07); /* Clean, invisible divider */
-  --border-glow:    rgba(255, 59, 78, 0.25);   /* Subtle fire glow */
-
-  /* Text */
-  --text-primary:   #f1f2f6; /* Sharp white for "Aph" */
-  --text-muted:     #a3a8b8; /* Inactive tab titles, icons (readable) */
-  --text-dim:       #8a8f9e;
-
-  /* Accents (Unified with your logo) */
-  --accent-red:     #ff3855; /* Matches the phoenix wing highlight */
-  --accent-hover:   #ff546c;
-
-  /* Mapping to existing Aph tokens */
-  --aph-bg-deep:     var(--bg-main);
-  --aph-bg-sidebar:  var(--bg-sidebar);
-  --aph-bg-elevated: var(--bg-element);
-  --aph-bg-surface:  var(--bg-element);
-  --aph-bg-hover:    #2b2e3c;
-  --aph-bg-active:   #343848;
-
-  --aph-border:        var(--border-subtle);
-  --aph-border-strong: rgba(255, 255, 255, 0.14);
-  --aph-border-subtle: rgba(255, 255, 255, 0.04);
-
-  --aph-text:       var(--text-primary);
-  --aph-text-muted: var(--text-muted);
-  --aph-text-dim:   var(--text-dim);
-
-  --aph-accent:       var(--accent-red);
-  --aph-accent-hover: var(--accent-hover);
-  --aph-accent-tab:   #4a1220;
-  --aph-accent-tint:  rgba(255, 56, 85, 0.22);
-  --aph-accent-glow:  rgba(255, 56, 85, 0.6);
-
-  --aph-neon-pink:    #ff3855;
-  --aph-neon-cyan:    #ff6b81;
-  --aph-neon-orange:  #ffa263;
-  --aph-neon-green:   #ffb3a7;
-
-  --aph-radius-xs: 4px;
-  --aph-radius-sm: 6px;
-  --aph-radius-md: 8px;
-  --aph-radius-lg: 12px;
-  --aph-radius-pill: 9999px;
-  --aph-transition: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 4px hotzone & 320ms hover intent */
+  --aph-nav-hotzone:   4px;                           /* 4px ceiling trigger */
+  --aph-nav-intent:    0.32s;                         /* 320ms delay: prevents accidental drops */
+  --aph-nav-dwell:     0.35s;                         /* 350ms grace period before tucking away */
+  --aph-nav-speed-in:  0.14s;                         /* Fast drop-down */
+  --aph-nav-speed-out: 0.18s;                         /* Smooth slide up */
+  --aph-nav-ease-in:   cubic-bezier(0.16, 1, 0.3, 1);
+  --aph-nav-ease-out:  cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ==========================================================================
-   1. Window Frame & Clean Navigation Bar
-   ========================================================================== */
+/* 1. Hotzone: 4px trigger with 0px layout gap */
 #navigator-toolbox {
-  background-color: var(--aph-bg-deep) !important;
-  border-bottom: 1px solid var(--aph-bg-sidebar) !important;
+  position: relative !important;
+  min-height: var(--aph-nav-hotzone) !important;
+  margin-bottom: calc(-1 * var(--aph-nav-hotzone)) !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  z-index: 100 !important;
+  border: none !important;
+}
+
+/* 2. Hidden State:
+   margin-top: -42px collapses the physical box so there is no gap */
+#nav-bar {
+  margin-top: -42px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+
+  background-color: var(--aph-bg-elevated) !important;
+  border-bottom: 1px solid var(--border-glow) !important;
+  border-radius: 0 0 var(--aph-radius-md) var(--aph-radius-md) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 1px var(--border-glow) !important;
+  padding: 4px 10px !important;
+
+  will-change: margin-top, opacity !important;
+
+  /* Exit transition */
+  transition:
+    margin-top var(--aph-nav-speed-out) var(--aph-nav-ease-out) var(--aph-nav-dwell),
+    opacity var(--aph-nav-speed-out) ease var(--aph-nav-dwell) !important;
+}
+
+/* 2b. URL Bar retraction sync */
+#urlbar {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity var(--aph-nav-speed-out) ease var(--aph-nav-dwell) !important;
+}
+
+/* 3. Revealed via Keyboard / Focus / Popups (Instant 0s delay) */
+#navigator-toolbox:focus-within #nav-bar,
+#navigator-toolbox:has([open="true"]) #nav-bar,
+#navigator-toolbox:has(#urlbar[focused="true"]) #nav-bar,
+#navigator-toolbox:has(#urlbar[breakout-extend="true"]) #nav-bar,
+#nav-bar:focus-within,
+#nav-bar[customizing="true"] {
+  margin-top: 0 !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+
+  transition:
+    margin-top var(--aph-nav-speed-in) var(--aph-nav-ease-in) 0s,
+    opacity var(--aph-nav-speed-in) ease 0s !important;
+}
+
+#navigator-toolbox:focus-within #urlbar,
+#navigator-toolbox:has([open="true"]) #urlbar,
+#navigator-toolbox:has(#urlbar[focused="true"]) #urlbar,
+#navigator-toolbox:has(#urlbar[breakout-extend="true"]) #urlbar,
+#nav-bar:focus-within #urlbar,
+#nav-bar[customizing="true"] #urlbar,
+#urlbar[focused="true"],
+#urlbar[breakout-extend="true"] {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transition: opacity var(--aph-nav-speed-in) ease 0s !important;
+}
+
+/* 4. Revealed via Mouse Hover (Requires the 320ms intent delay) */
+#navigator-toolbox:hover #nav-bar {
+  margin-top: 0 !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+
+  transition:
+    margin-top var(--aph-nav-speed-in) var(--aph-nav-ease-in) var(--aph-nav-intent),
+    opacity var(--aph-nav-speed-in) ease var(--aph-nav-intent) !important;
+}
+
+#navigator-toolbox:hover #urlbar {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transition: opacity var(--aph-nav-speed-in) ease var(--aph-nav-intent) !important;
 }
 
 /* Hides top horizontal tabs bar */
@@ -72,216 +108,4 @@
 #sidebar-header,
 #sidebar-panel-header {
   display: none !important;
-}
-
-#nav-bar {
-  background-color: var(--aph-bg-deep) !important;
-  box-shadow: none !important;
-  padding: 4px 8px !important;
-}
-
-/* Ember Menu Button */
-#PanelUI-menu-button {
-  fill: var(--aph-accent) !important;
-  filter: drop-shadow(0 0 6px var(--aph-accent-tint)) !important;
-}
-
-#PanelUI-menu-button:hover {
-  fill: var(--aph-accent-hover) !important;
-  filter: drop-shadow(0 0 8px var(--aph-accent-glow)) !important;
-}
-
-/* Nav Bar Buttons */
-.toolbarbutton-1 {
-  border-radius: var(--aph-radius-sm) !important;
-  transition: background-color var(--aph-transition), fill var(--aph-transition) !important;
-}
-
-.toolbarbutton-1:hover:not([disabled="true"]) {
-  background-color: var(--aph-bg-hover) !important;
-}
-
-.toolbarbutton-1 image {
-  fill: var(--aph-text-muted) !important;
-}
-
-.toolbarbutton-1:hover image {
-  fill: var(--aph-accent-hover) !important;
-  filter: drop-shadow(0 0 4px var(--aph-accent-tint)) !important;
-}
-
-/* ==========================================================================
-   2. Address Bar (Ember Focus Glow)
-   ========================================================================== */
-#urlbar-background {
-  background-color: var(--aph-bg-elevated) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  border-radius: var(--aph-radius-md) !important;
-  transition: all var(--aph-transition) !important;
-}
-
-#urlbar:hover:not([focused="true"]) #urlbar-background {
-  border-color: rgba(255, 255, 255, 0.16) !important;
-}
-
-#urlbar[focused="true"] #urlbar-background,
-#urlbar[breakout-extend="true"] #urlbar-background {
-  background-color: var(--aph-bg-element) !important;
-  border: 1px solid var(--aph-accent) !important;
-  box-shadow: 0 0 0 3px var(--aph-accent-glow), 0 0 20px var(--aph-accent-tint) !important;
-}
-
-#urlbar-input {
-  color: var(--aph-text) !important;
-}
-
-#urlbar-input::placeholder {
-  color: var(--aph-text-dim) !important;
-}
-
-/* URL scheme — warm ember tint */
-.urlbar-scheme {
-  color: var(--aph-accent-hover) !important;
-}
-
-/* Search Dropdown */
-.urlbarView {
-  background-color: var(--aph-bg-sidebar) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  border-radius: var(--aph-radius-md) !important;
-  color: var(--aph-text) !important;
-}
-
-.urlbarView-row[selected] {
-  background-color: var(--aph-bg-hover) !important;
-  border-inline-start: 3px solid var(--aph-accent) !important;
-}
-
-.urlbarView-row:hover:not([selected]) {
-  background-color: var(--aph-bg-hover) !important;
-}
-
-.urlbarView-row[selected] .urlbarView-title {
-  color: var(--aph-accent-hover) !important;
-  font-weight: 600 !important;
-}
-
-/* ==========================================================================
-   3. Vertical Tabs Sidebar Container
-   ========================================================================== */
-#sidebar-main,
-#sidebar-box,
-#tabbrowser-tabs {
-  background-color: var(--aph-bg-sidebar) !important;
-  border-right: 1px solid var(--aph-border-subtle) !important;
-}
-
-/* ==========================================================================
-   4. Vertical Tab Cards (Ember Highlight)
-   ========================================================================== */
-.tabbrowser-tab:not([pinned]) {
-  margin: 1px 8px !important;
-  min-height: 36px !important;
-}
-
-.tab-background {
-  border-radius: var(--aph-radius-sm) !important;
-  border: 1px solid transparent !important;
-  transition: all var(--aph-transition) !important;
-}
-
-/* INACTIVE TABS: Transparent — melt into the sidebar */
-.tabbrowser-tab:not([selected="true"]) .tab-background {
-  background-color: transparent !important;
-  border-color: transparent !important;
-}
-
-.tabbrowser-tab:not([selected="true"]) .tab-label {
-  color: var(--aph-text-muted) !important;
-}
-
-/* HOVERED TAB: Soft, faint wash — present but subtle */
-.tabbrowser-tab:not([selected="true"]):hover .tab-background {
-  background-color: rgba(255, 255, 255, 0.05) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
-}
-
-/* ==========================================================================
-   ACTIVE TAB (NATIVE VERTICAL TABS)
-   In Firefox's vertical-tab revamp the selected fill is painted from the
-   --tab-* design tokens and the indicator is the .tab-context-line element.
-   We override the tokens under the vertical-tabs pref media query AND hit
-   the DOM directly with maximal specificity. Both routes + !important mean
-   the internal tab css cannot clobber it.
-   ========================================================================== */
-@media -moz-pref("sidebar.verticalTabs") {
-  :root,
-  #tabbrowser-tabs,
-  #vertical-tabs {
-    --tab-selected-bgcolor: var(--aph-bg-elevated) !important;
-    --tab-selected-textcolor: #ffffff !important;
-  }
-
-  /* Ember bar pinned to the LEFT edge of the active tab only */
-  #tabbrowser-tabs .tabbrowser-tab[visuallyselected] .tab-context-line {
-    background-color: var(--aph-accent) !important;
-    width: 3px !important;
-    inset-inline-start: 0 !important;
-    inset-inline-end: auto !important;
-    box-shadow: 0 0 10px var(--aph-accent-tint) !important;
-  }
-
-  #tabbrowser-tabs .tabbrowser-tab[visuallyselected] .tab-background {
-    background-color: var(--aph-bg-elevated) !important;
-    box-shadow: inset 3px 0 0 var(--aph-accent-tint) !important;
-  }
-
-  #tabbrowser-tabs .tabbrowser-tab[visuallyselected] .tab-label {
-    color: #ffffff !important;
-    font-weight: 600 !important;
-  }
-}
-
-/* Sound / mute icons — soft ember tint */
-.tab-icon-overlay[soundplaying="true"] {
-  fill: var(--aph-accent-hover) !important;
-  filter: drop-shadow(0 0 4px var(--aph-accent-tint)) !important;
-}
-
-.tab-icon-overlay[muted="true"] {
-  fill: var(--aph-text-dim) !important;
-}
-
-/* Close button on tabs */
-.tab-close-button:hover {
-  background-color: var(--aph-accent-tint) !important;
-  fill: var(--aph-accent-hover) !important;
-}
-
-/* ==========================================================================
-   5. Interactive Accents & Text Selection
-   ========================================================================== */
-::selection {
-  background-color: var(--aph-accent-tint) !important;
-  color: var(--aph-accent-hover) !important;
-}
-
-/* Ash Scrollbars with a warm ember thumb */
-* {
-  scrollbar-color: var(--aph-accent-tab) var(--aph-bg-deep) !important;
-  scrollbar-width: thin !important;
-}
-
-/* Focus outlines — soft ember glow */
-:focus-visible {
-  outline: 2px solid var(--aph-accent) !important;
-  outline-offset: 2px !important;
-  box-shadow: 0 0 8px var(--aph-accent-tint) !important;
-}
-
-/* Firefox menu panel hover — warm tint */
-#appMenu-popup .menuitem-highlighted-task,
-#appMenu-popup .subviewbutton:hover {
-  background-color: var(--aph-accent-tint) !important;
-  color: var(--aph-accent-hover) !important;
 }

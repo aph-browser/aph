@@ -318,6 +318,9 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
     else:
         print(f"WARNING: {THEME_CSS_SRC} not found, skipping theme injection.")
 
+    # 7. (nav-hover removed: auto-hide nav-bar is pure CSS now, via an 8px
+    #    min-height hover strip on #navigator-toolbox in theme.css.)
+
     ok = True
     for ja_path in targets:
         try:
