@@ -17,6 +17,10 @@
         "install_url": "https://addons.mozilla.org/firefox/downloads/latest/sponsorblock/latest.xpi",
         "installation_mode": "normal_installed",
         "private_browsing": true
+      },
+      "@testpilot-containers": {
+        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/multi-account-containers/latest.xpi",
+        "installation_mode": "normal_installed"
       }
     },
     "3rdparty": {

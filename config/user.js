@@ -22,3 +22,6 @@ user_pref("browser.tabs.closeWindowWithLastTab", false);
 
 // 6. Open new tabs immediately after the current one
 user_pref("browser.tabs.insertAfterCurrent", true);
+
+// 7. Restore previous windows and tabs on launch
+user_pref("browser.startup.page", 3);

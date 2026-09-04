@@ -1,4 +1,5 @@
-/* Aph workspaces: IDs "1"-"9", zero UI. Alt+Shift+1..9 jumps to a workspace.
+/* Aph workspaces: IDs "1"-"9", zero UI. Alt+Shift+1..9 jumps to a workspace,
+ * Ctrl+Alt+1..9 sends the active tab there (stay here, focus next).
  * Tags persist via SessionStore; pinned tabs are global; native tab groups
  * live inside workspaces (one shared tag, header synced, collapsed kept).
  * Injected into browser.xhtml via rebrand.py (chrome://browser/content/workspaces.js).
@@ -8,6 +9,27 @@
   const WIN_KEY = "aphWsCurrent";
   let current = "1";
   const lastSelected = Object.create(null); // workspaceId -> last tab
+  // Tabs that arrived via cross-window drag (TabOpen detail.adoptedTab).
+  // They join the destination's visible workspace; anchorGroup lets them
+  // drag the whole group instead of being healed back to the source tag.
+  const adoptedTabs = new WeakSet();
+
+  // Disposable container tabs (Ctrl+Alt+T). Stock path first, this build's
+  // packaged path second — wrapped so the shortcut never dies if both fail.
+  let IdentityService = null;
+  try {
+    ({ ContextualIdentityService: IdentityService } = ChromeUtils.importESModule(
+      "resource://gre/modules/ContextualIdentityService.sys.mjs"
+    ));
+  } catch (e) {
+    try {
+      ({ ContextualIdentityService: IdentityService } = ChromeUtils.importESModule(
+        "moz-src:///toolkit/components/contextualidentity/ContextualIdentityService.sys.mjs"
+      ));
+    } catch (e2) {}
+  }
+  let tempCounter = 1;
+  const tempContainers = new Set(); // userContextIds created here
 
   function isValidId(v) {
     return v >= "1" && v <= "9" && v.length === 1;
@@ -97,6 +119,20 @@
     const members = groupMembers(group).filter((t) => !t.pinned);
     if (members.length < 2) {
       return;
+    }
+    // Cross-window drop wins over majority: a freshly adopted member drags
+    // the whole group to the destination's visible workspace. Without this,
+    // SessionStore's preserved tag (Bug 2002643) keeps the source WS and the
+    // majority vote heals the adopted tab back instead of migrating the group.
+    if (isValidId(current)) {
+      for (const m of members) {
+        if (adoptedTabs.has(m)) {
+          for (const o of members) {
+            setWs(o, current);
+          }
+          return;
+        }
+      }
     }
     const votes = Object.create(null);
     for (const m of members) {
@@ -219,10 +255,104 @@
     rememberCurrent(tabs);
     current = target;
     try {
+      gBrowser.tabContainer.setAttribute("data-aph-ws", target);
+    } catch (e) {}
+    try {
       SessionStore.setCustomWindowValue(window, WIN_KEY, target);
     } catch (e) {}
     anchorAllGroups();
     reconcile(target, tabs);
+  }
+
+  // Send active tab to WS N and stay: eject from group (groups are
+  // single-WS), retag, reconcile to focus next + hide sent tab (hideTab
+  // refuses the selected tab, so selection must move first — reconcile does).
+  function sendTabTo(target) {
+    if (!isValidId(target) || target === current) {
+      return;
+    }
+    let tab = null;
+    try {
+      tab = gBrowser.selectedTab;
+    } catch (e) {
+      return;
+    }
+    if (!tab || tab.pinned || tab.closing) {
+      return;
+    }
+    try {
+      if (tab.group) {
+        gBrowser.ungroupTab(tab);
+      }
+    } catch (e) {}
+    setWs(tab, target);
+    anchorAllGroups();
+    try {
+      reconcile(current, Array.from(gBrowser.tabs));
+    } catch (e) {}
+  }
+
+  // Open a clean disposable container tab in the current workspace. Falls
+  // back to a normal tab if the identity service is unavailable.
+  function openTempTab(url = "about:newtab") {
+    const ws = isValidId(current) ? current : "1";
+    if (!IdentityService) {
+      try {
+        const t = gBrowser.addTrustedTab(url);
+        setWs(t, ws);
+        gBrowser.selectedTab = t;
+      } catch (e) {}
+      return;
+    }
+    try {
+      const identity = IdentityService.create(`Tmp ${tempCounter++}`, "fingerprint", "purple");
+      const tab = gBrowser.addTrustedTab(url, { userContextId: identity.userContextId });
+      // insertAfterCurrent births tabs inside the selected tab's group — eject.
+      try {
+        gBrowser.ungroupTab(tab);
+      } catch (e) {}
+      tempContainers.add(identity.userContextId);
+      setWs(tab, ws);
+      try {
+        gBrowser.showTab(tab);
+      } catch (e) {}
+      gBrowser.selectedTab = tab;
+    } catch (e) {}
+  }
+
+  // If a disposable container's last tab closed (any window), remove the
+  // identity — remove() also wipes its cookies/storage/cache internally.
+  function cleanupTempContainer(tab) {
+    let id = null;
+    try {
+      id = tab.userContextId;
+    } catch (e) {
+      return;
+    }
+    if (!id || !IdentityService || !tempContainers.has(id)) {
+      return;
+    }
+    setTimeout(() => {
+      try {
+        const en = Services.wm.getEnumerator("navigator:browser");
+        while (en.hasMoreElements()) {
+          const w = en.getNext();
+          if (!w || w.closed || !w.gBrowser) {
+            continue;
+          }
+          for (const t of w.gBrowser.tabs) {
+            if (!t.closing && t.userContextId === id) {
+              return; // still in use
+            }
+          }
+        }
+        tempContainers.delete(id);
+        IdentityService.remove(id);
+        if (tempContainers.size === 0) {
+          tempCounter = 1; // Clean slate: next round starts at Tmp 1
+        }
+      } catch (e) {}
+    }, 100);
   }
 
   // e.code, not e.key: Shift turns "1" into "!".
@@ -232,11 +362,24 @@
   }
 
   function onKey(e) {
-    if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) {
+    if (!e.altKey || e.metaKey) {
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && e.code === "KeyT") {
+      e.preventDefault();
+      e.stopPropagation();
+      openTempTab();
       return;
     }
     const d = digitFromCode(e.code);
-    if (d) {
+    if (!d) {
+      return;
+    }
+    if (e.ctrlKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      sendTabTo(d);
+    } else if (e.shiftKey) {
       e.preventDefault();
       e.stopPropagation();
       switchTo(d);
@@ -268,7 +411,30 @@
   }
 
   function onTabOpen(e) {
-    stampTab(e.target);
+    const tab = e.target;
+    // Cross-window drag (TabOpen detail.adoptedTab, Bug 1244496): join the
+    // destination's visible workspace. SessionStore preserves the source tag
+    // across adopt, so without this a WS2 group dropped on a WS1 window
+    // keeps WS2 and hides / migrates wrong on next switch.
+    if (e.detail && e.detail.adoptedTab && tab && !tab.pinned && isValidId(current)) {
+      setWs(tab, current);
+      try {
+        adoptedTabs.add(tab);
+      } catch (err) {}
+      try {
+        if (getWs(tab) === current) {
+          gBrowser.showTab(tab);
+        }
+      } catch (err) {}
+      try {
+        if (tab.group) {
+          setTimeout(() => unifyGroup(tab.group), 0);
+        }
+      } catch (err) {}
+      syncGroupHeaders(current);
+      return;
+    }
+    stampTab(tab);
   }
 
   // Restored tabs arrive after load, past init and TabOpen.
@@ -295,6 +461,7 @@
         delete lastSelected[id];
       }
     }
+    cleanupTempContainer(tab);
   }
 
   // TabGroupCreate fires before members are adopted — defer past the settle.
@@ -310,17 +477,81 @@
     }
   }
 
-  function init() {
+  // New windows (Ctrl+N) inherit the source window's workspace instead of
+  // falling back to "1". Stored value wins (session restore); else opener,
+  // else most-recent / any open browser window; else "1".
+  function initialWorkspace() {
     try {
       const w = SessionStore.getCustomWindowValue(window, WIN_KEY);
       if (isValidId(w)) {
-        current = w;
+        return w;
+      }
+    } catch (e) {}
+    try {
+      const op = window.opener;
+      if (op && op !== window && !op.closed) {
+        const ow = SessionStore.getCustomWindowValue(op, WIN_KEY);
+        if (isValidId(ow)) {
+          return ow;
+        }
+      }
+    } catch (e) {}
+    try {
+      if (typeof Services !== "undefined" && Services.wm) {
+        const recent = Services.wm.getMostRecentWindow("navigator:browser");
+        if (recent && recent !== window && !recent.closed) {
+          const rw = SessionStore.getCustomWindowValue(recent, WIN_KEY);
+          if (isValidId(rw)) {
+            return rw;
+          }
+        }
+        const en = Services.wm.getEnumerator("navigator:browser");
+        while (en.hasMoreElements()) {
+          const w = en.getNext();
+          if (!w || w === window || w.closed) {
+            continue;
+          }
+          try {
+            const v = SessionStore.getCustomWindowValue(w, WIN_KEY);
+            if (isValidId(v)) {
+              return v;
+            }
+          } catch (_e) {}
+        }
+      }
+    } catch (e) {}
+    return "1";
+  }
+
+  function init() {
+    current = initialWorkspace();
+    // Minimal workspace indicator: #tabbrowser-tabs renders its own
+    // ::before from data-aph-ws. No tab-strip nodes, no extra files.
+    try {
+      if (!document.getElementById("aph-ws-indicator-style")) {
+        const style = document.createElement("style");
+        style.id = "aph-ws-indicator-style";
+        style.textContent = [
+          "#tabbrowser-tabs::before {",
+          "  content: attr(data-aph-ws);",
+          "  display: block;",
+          "  padding: 6px 0 2px 14px;",
+          "  font: 700 12px monospace;",
+          "  color: inherit;",
+          "  opacity: 0.85;",
+          "  pointer-events: none;",
+          "}",
+        ].join("\n");
+        document.head.appendChild(style);
+      }
+      if (isValidId(current)) {
+        gBrowser.tabContainer.setAttribute("data-aph-ws", current);
       }
     } catch (e) {}
     try {
       for (const t of gBrowser.tabs) {
         if (!t.pinned && !rawWs(t)) {
-          setWs(t, "1");
+          setWs(t, isValidId(current) ? current : "1");
         }
       }
     } catch (e) {}
