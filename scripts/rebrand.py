@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rebrand LibreWolf omni.ja to Aph — swaps brand.ftl, logos, slices icons, clears cache.
+"""Rebrand LibreWolf omni.ja to Aph — swaps brand.ftl, logos, slices icons, injects theme, clears cache.
 
 Gecko requires omni.ja entries to be ZIP_STORED (no compression) for memory-mapping.
 """
@@ -38,6 +38,11 @@ WORKSPACES_XHTML_PATH = "chrome/browser/content/browser/browser.xhtml"
 WORKSPACES_SCRIPT_TAG = (
     '<script src="chrome://browser/content/workspaces.js"></script>'
 )
+
+# Theme: dedicated CSS injected alongside workspaces.js.
+THEME_CSS_SRC = BRANDING_DIR / "theme.css"
+THEME_JA_PATH = "chrome/browser/content/browser/aph-theme.css"
+THEME_LINK_TAG = '<link rel="stylesheet" href="chrome://browser/content/aph-theme.css" />'
 
 BRAND_PROPERTIES_TEMPLATE = """brandShorterName=Aph
 brandShortName=Aph
@@ -102,11 +107,11 @@ def slice_icons() -> dict[int, bytes]:
 def _patch_single_ja(
     ja_path: Path, brand_ftl_data: bytes, brandings_ftl_data: bytes,
     sync_ftl_data: bytes, logos: dict[str, bytes],
-    workspaces_js: bytes | None = None,
-) -> tuple[int, int, int, int, int, int, int, int]:
+    workspaces_js: bytes | None = None, theme_css: bytes | None = None,
+) -> tuple[int, int, int, int, int, int, int, int, int]:
     """Patch a single omni.ja from its pristine backup.
 
-    Return counts (brand_ftl, brandings_ftl, sync_ftl, props, dtd, logos, xhtml, wsjs).
+    Return counts (brand_ftl, brandings_ftl, sync_ftl, props, dtd, logos, xhtml, wsjs, css).
     """
     backup = ja_path.with_suffix(".ja.bak")
     if not backup.exists():
@@ -117,7 +122,7 @@ def _patch_single_ja(
     src_ja = backup
 
     count_brand = count_brandings = count_sync = count_props = count_dtd = count_logo = 0
-    count_xhtml = count_wsjs = 0
+    count_xhtml = count_wsjs = count_css = 0
     # mkstemp returns an open handle we never use (ZipFile opens by path).
     # Close it at once: holding it across shutil.move breaks Windows (file lock).
     tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".ja", dir=str(ja_path.parent))
@@ -136,16 +141,16 @@ def _patch_single_ja(
                 data = zin.read(info.filename)
                 fname = info.filename.lower()
 
-                # Surgical replacements — each FTL file matched by exact name
-                if fname.endswith("brand.ftl"):
+                # Surgical replacements — sync-brand before brand (suffix overlap).
+                if fname.endswith("sync-brand.ftl"):
+                    data = sync_ftl_data
+                    count_sync += 1
+                elif fname.endswith("brand.ftl"):
                     data = brand_ftl_data
                     count_brand += 1
                 elif fname.endswith("brandings.ftl"):
                     data = brandings_ftl_data
                     count_brandings += 1
-                elif fname.endswith("sync-brand.ftl"):
-                    data = sync_ftl_data
-                    count_sync += 1
                 elif fname.endswith("brand.properties"):
                     data = BRAND_PROPERTIES_TEMPLATE.encode("utf-8")
                     count_props += 1
@@ -183,33 +188,54 @@ def _patch_single_ja(
                 zout.writestr(new_info, workspaces_js)
                 count_wsjs += 1
 
+            # Append aph-theme.css as a new entry (browser omni only).
+            if (
+                theme_css is not None
+                and WORKSPACES_XHTML_PATH in existing
+                and THEME_JA_PATH not in existing
+            ):
+                new_info = zipfile.ZipInfo(filename=THEME_JA_PATH)
+                new_info.compress_type = zipfile.ZIP_STORED
+                new_info.external_attr = 0o644 << 16
+                zout.writestr(new_info, theme_css)
+                count_css += 1
+
         shutil.move(str(tmp_path), str(ja_path))
-        return count_brand, count_brandings, count_sync, count_props, count_dtd, count_logo, count_xhtml, count_wsjs
+        return count_brand, count_brandings, count_sync, count_props, count_dtd, count_logo, count_xhtml, count_wsjs, count_css
     finally:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
 
 
 def _inject_workspaces_script(xhtml_bytes: bytes) -> bytes:
-    """Insert the workspaces.js <script> tag into browser.xhtml (idempotent)."""
+    """Insert workspaces.js <script> and aph-theme.css <link> into browser.xhtml."""
     try:
         text = xhtml_bytes.decode("utf-8")
     except UnicodeDecodeError:
         return xhtml_bytes
-    if WORKSPACES_SCRIPT_TAG in text:
+
+    tags_to_inject = []
+    if THEME_LINK_TAG not in text:
+        tags_to_inject.append(THEME_LINK_TAG)
+    if WORKSPACES_SCRIPT_TAG not in text:
+        tags_to_inject.append(WORKSPACES_SCRIPT_TAG)
+
+    if not tags_to_inject:
         return xhtml_bytes
+
+    payload = "\n  " + "\n  ".join(tags_to_inject)
+
     anchor = '<script src="chrome://browser/content/browser-main.js"></script>'
-    injection = anchor + "\n  " + WORKSPACES_SCRIPT_TAG
     if anchor in text:
-        text = text.replace(anchor, injection, 1)
+        text = text.replace(anchor, anchor + payload, 1)
     elif "</head>" in text:
-        text = text.replace("</head>", "  " + WORKSPACES_SCRIPT_TAG + "\n</head>", 1)
+        text = text.replace("</head>", payload + "\n</head>", 1)
     else:
-        # Last resort: append before closing body/html per spec.
-        for closing in ("</html:body>", "</body>", "</html>"):
+        for closing in ("</html:body>", "</body>", "</html>", "</window>"):
             if closing in text:
-                text = text.replace(closing, "  " + WORKSPACES_SCRIPT_TAG + "\n" + closing, 1)
+                text = text.replace(closing, payload + "\n" + closing, 1)
                 break
+
     return text.encode("utf-8")
 
 
@@ -285,19 +311,26 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
     else:
         print(f"WARNING: {WORKSPACES_JS_SRC} not found, skipping workspaces injection.")
 
+    # 6. Theme CSS (linked in browser.xhtml, styles the chrome UI).
+    theme_css: bytes | None = None
+    if THEME_CSS_SRC.is_file():
+        theme_css = THEME_CSS_SRC.read_bytes()
+    else:
+        print(f"WARNING: {THEME_CSS_SRC} not found, skipping theme injection.")
+
     ok = True
     for ja_path in targets:
         try:
             (c_brand, c_brandings, c_sync, c_props, c_dtd, c_logo,
-             c_xhtml, c_wsjs) = _patch_single_ja(
+             c_xhtml, c_wsjs, c_css) = _patch_single_ja(
                 ja_path, brand_ftl_data, brandings_ftl_data, sync_ftl_data, logos,
-                workspaces_js,
+                workspaces_js, theme_css,
             )
             print(
                 f"Rebranded {ja_path.relative_to(ROOT)}: "
                 f"{c_brand} brand.ftl, {c_brandings} brandings.ftl, {c_sync} sync-brand.ftl, "
                 f"{c_props} brand.properties, {c_dtd} brand.dtd, {c_logo} logos, "
-                f"{c_xhtml} browser.xhtml, {c_wsjs} workspaces.js"
+                f"{c_xhtml} browser.xhtml, {c_wsjs} workspaces.js, {c_css} theme.css"
             )
         except Exception as e:
             print(f"ERROR patching {ja_path}: {e}")

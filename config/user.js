@@ -28,3 +28,9 @@ user_pref("browser.startup.page", 3);
 
 // 8. Never show bookmarks toolbar
 user_pref("browser.toolbars.bookmarks.visibility", "never");
+
+// 9. Enable Chrome devtools
+user_pref("devtools.chrome.enabled", true);
+
+// 10. Enable remote debugging
+user_pref("devtools.debugger.remote-enabled", true);

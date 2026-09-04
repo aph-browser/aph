@@ -130,6 +130,11 @@
           for (const o of members) {
             setWs(o, current);
           }
+          // Consume the flag so future anchorGroup calls don't re-drag the
+          // group into whatever workspace happens to be active at the time.
+          for (const o of members) {
+            adoptedTabs.delete(o);
+          }
           return;
         }
       }
@@ -466,6 +471,15 @@
       return;
     }
     stampTab(tab);
+    // Hide restored tabs that belong to another workspace so they don't leak
+    // into the active tab strip (e.g. lazy restore after init's reconcile).
+    if (isValidId(current) && getWs(tab) !== current && !tab.hidden) {
+      try {
+        if (gBrowser.selectedTab !== tab) {
+          gBrowser.hideTab(tab);
+        }
+      } catch (err) {}
+    }
     try {
       if (tab.group) {
         setTimeout(() => unifyGroup(tab.group), 0);
@@ -547,102 +561,11 @@
 
   function init() {
     current = initialWorkspace();
-    // Aph Zinc & Crimson theme + workspace indicator. Same <style> id is
-    // reused so re-rebrands upgrade the stylesheet in place (idempotent).
-    try {
-      const css = [
-        ":root {",
-        "  --aph-bg-deep: #09090b;",
-        "  --aph-bg-sidebar: #121215;",
-        "  --aph-bg-elevated: #18181c;",
-        "  --aph-border: rgba(255, 255, 255, 0.07);",
-        "  --aph-text: #f4f4f5;",
-        "  --aph-text-muted: #71717a;",
-        "  --aph-crimson: #e11d48;",
-        "  --aph-crimson-tint: rgba(225, 29, 72, 0.15);",
-        "}",
-        "#nav-bar {",
-        "  background-color: var(--aph-bg-deep) !important;",
-        "  border-bottom: 1px solid var(--aph-border) !important;",
-        "  box-shadow: none !important;",
-        "}",
-        "#urlbar-background {",
-        "  background-color: var(--aph-bg-elevated) !important;",
-        "  border: 1px solid var(--aph-border) !important;",
-        "  border-radius: 8px !important;",
-        "  box-shadow: none !important;",
-        "  transition: border-color 0.15s ease, box-shadow 0.15s ease !important;",
-        "}",
-        '#urlbar[focused="true"] #urlbar-background,',
-        '#urlbar[focused] #urlbar-background,',
-        '#urlbar[open="true"] #urlbar-background,',
-        '#urlbar[open] #urlbar-background {',
-        "  border-color: rgba(225, 29, 72, 0.5) !important;",
-        "  box-shadow: 0 0 0 3px var(--aph-crimson-tint) !important;",
-        "}",
-        "#tabbrowser-tabs {",
-        "  background-color: var(--aph-bg-sidebar) !important;",
-        "  border-right: 1px solid var(--aph-border) !important;",
-        "}",
-        "tab.tabbrowser-tab {",
-        "  border-radius: 6px !important;",
-        "  margin: 1px 8px !important;",
-        "}",
-        "/* Firefox paints the visible tab fill on the inner .tab-background,",
-        "   which fully covers the parent <tab>: hover/selected state is painted",
-        '   on .tab-background itself. Both [selected] and [selected="true"] are',
-        "   matched: XUL sets the attr either way across versions. */",
-        "tab.tabbrowser-tab .tab-background {",
-        "  background: transparent !important;",
-        "  border: none !important;",
-        "  box-shadow: none !important;",
-        "  outline: none !important;",
-        "}",
-        'tab.tabbrowser-tab:hover:not([selected]):not([selected="true"]) .tab-background {',
-        "  background-color: rgba(255, 255, 255, 0.04) !important;",
-        "  border-radius: 6px !important;",
-        "}",
-        'tab.tabbrowser-tab[selected] .tab-background,',
-        'tab.tabbrowser-tab[selected="true"] .tab-background {',
-        "  background-color: rgba(255, 255, 255, 0.08) !important;",
-        "  border-radius: 6px !important;",
-        "  box-shadow: inset 2px 0 0 var(--aph-crimson) !important;",
-        "}",
-        'tab.tabbrowser-tab[selected] .tab-label,',
-        'tab.tabbrowser-tab[selected="true"] .tab-label {',
-        "  color: var(--aph-text) !important;",
-        "  font-weight: 500 !important;",
-        "}",
-        'tab.tabbrowser-tab:not([selected]):not([selected="true"]) .tab-label {',
-        "  color: var(--aph-text-muted) !important;",
-        "}",
-        "#tabbrowser-tabs::before {",
-        "  content: attr(data-aph-ws);",
-        "  display: block;",
-        "  padding: 8px 0 4px 14px;",
-        "  font: 700 11px monospace;",
-        "  color: var(--aph-text-muted);",
-        "  letter-spacing: 0.5px;",
-        "  pointer-events: none;",
-        "  transition: color 0.2s ease;",
-        "}",
-        '#tabbrowser-tabs[data-aph-ws-pulse="1"]::before {',
-        "  color: var(--aph-crimson) !important;",
-        "}",
-      ].join("\n");
-      let style = document.getElementById("aph-ws-indicator-style");
-      if (!style) {
-        style = document.createElement("style");
-        style.id = "aph-ws-indicator-style";
-        document.head.appendChild(style);
-      }
-      if (style.textContent !== css) {
-        style.textContent = css;
-      }
-      if (isValidId(current)) {
+    if (isValidId(current)) {
+      try {
         gBrowser.tabContainer.setAttribute("data-aph-ws", current);
-      }
-    } catch (e) {}
+      } catch (e) {}
+    }
     try {
       for (const t of gBrowser.tabs) {
         if (!t.pinned && !rawWs(t)) {
