@@ -1,35 +1,43 @@
-/* Aph workspaces: dynamic IDs ("1"-"9"), zero UI, shortcut-driven.
- * Only shortcut: Alt+Shift+1..9 -> switch directly to that workspace.
- * Pinned tabs are global (never hidden). Workspace tags persist via
- * SessionStore custom tab values across restarts/session restore.
- * Active-tab memory ({ workspaceId: tab }) restores the exact tab left off on.
+/* Aph workspaces: IDs "1"-"9", zero UI. Alt+Shift+1..9 jumps to a workspace.
+ * Tags persist via SessionStore; pinned tabs are global; native tab groups
+ * live inside workspaces (one shared tag, header synced, collapsed kept).
  * Injected into browser.xhtml via rebrand.py (chrome://browser/content/workspaces.js).
  */
 (function () {
   const KEY = "aphWs";
   const WIN_KEY = "aphWsCurrent";
   let current = "1";
-  // Active-tab memory: workspaceId -> last selected tab in that workspace.
-  const lastSelected = Object.create(null);
+  const lastSelected = Object.create(null); // workspaceId -> last tab
 
   function isValidId(v) {
-    return v === "1" || v === "2" || v === "3" || v === "4" || v === "5" ||
-      v === "6" || v === "7" || v === "8" || v === "9";
+    return v >= "1" && v <= "9" && v.length === 1;
+  }
+
+  function rawWs(tab) {
+    try {
+      const v = SessionStore.getCustomTabValue(tab, KEY);
+      return isValidId(v) ? v : null;
+    } catch (e) {
+      return null;
+    }
   }
 
   function getWs(tab) {
-    try {
-      const v = SessionStore.getCustomTabValue(tab, KEY);
-      return isValidId(v) ? v : "1";
-    } catch (e) {
-      return "1";
-    }
+    return rawWs(tab) || "1";
   }
 
   function setWs(tab, ws) {
     try {
       SessionStore.setCustomTabValue(tab, KEY, ws);
     } catch (e) {}
+  }
+
+  function groupMembers(group) {
+    try {
+      return Array.from(group.tabs || []).filter((t) => !t.closing);
+    } catch (e) {
+      return [];
+    }
   }
 
   function rememberCurrent(tabs) {
@@ -44,39 +52,131 @@
     } catch (e) {}
   }
 
-  // Pick the tab to focus when entering `target`: remembered tab if it is
-  // still alive and belongs to target, else the first target tab.
+  // First visible candidate wins; first collapsed one is the fallback.
+  // Single pass over [remembered, ...tabs] — order-preserving.
   function resolveTargetTab(target, tabs) {
-    const mem = lastSelected[target];
-    if (mem && !mem.closing && tabs.includes(mem) && getWs(mem) === target && !mem.pinned) {
-      return mem;
-    }
-    for (const t of tabs) {
-      if (!t.pinned && !t.closing && getWs(t) === target) {
-        return t;
+    const candidates = [lastSelected[target], ...tabs];
+    let fallback = null;
+    for (const t of candidates) {
+      if (t && !t.pinned && !t.closing && tabs.includes(t) && getWs(t) === target) {
+        if (!t.group?.collapsed || t.selected) {
+          return t;
+        }
+        if (!fallback) {
+          fallback = t;
+        }
       }
     }
-    return null;
+    return fallback;
   }
 
-  // Single-pass state reconciliation: one loop shows target tabs and hides
-  // everything else. Selection happens BEFORE the loop because hideTab()
-  // refuses to hide the selected tab — but the focus tab MUST be unhidden
-  // BEFORE selecting it. Selecting a still-hidden tab either blanks the
-  // window or is ignored (stranding the old tab selected, so hideTab()
-  // then refuses to hide it and the switch visibly "never happens").
+  // A <tab-group> renders its label regardless of member visibility, so hide
+  // the element itself when it holds no target tabs. Collapse is group-level
+  // CSS, untouched here, so groups never expand as a side effect.
+  function syncGroupHeaders(target) {
+    let groups = [];
+    try {
+      groups = gBrowser.tabGroups || [];
+    } catch (e) {
+      return;
+    }
+    for (const group of groups) {
+      const members = groupMembers(group);
+      if (members.length) {
+        try {
+          group.hidden = !members.some((t) => !t.pinned && getWs(t) === target);
+        } catch (e) {}
+      }
+    }
+  }
+
+  // A group lives in exactly one workspace: majority of real tags wins (never
+  // DOM position — a lone mistag must heal, not migrate the group). Ties go
+  // to current, else lowest. Idempotent: unanimous groups are a no-op.
+  function anchorGroup(group) {
+    const members = groupMembers(group).filter((t) => !t.pinned);
+    if (members.length < 2) {
+      return;
+    }
+    const votes = Object.create(null);
+    for (const m of members) {
+      const v = rawWs(m);
+      if (v) {
+        votes[v] = (votes[v] || 0) + 1;
+      }
+    }
+    const ids = Object.keys(votes).sort();
+    let anchor = isValidId(current) ? current : "1";
+    if (ids.length) {
+      anchor = ids[0];
+      for (const id of ids) {
+        if (votes[id] > votes[anchor] || (votes[id] === votes[anchor] && id === current)) {
+          anchor = id;
+        }
+      }
+    }
+    for (const m of members) {
+      setWs(m, anchor);
+    }
+  }
+
+  function anchorAllGroups() {
+    let groups = [];
+    try {
+      groups = gBrowser.tabGroups || [];
+    } catch (e) {
+      return;
+    }
+    for (const group of groups) {
+      anchorGroup(group);
+    }
+  }
+
+  // Heal a membership change now: anchor, hide strays (never selected), sync.
+  function unifyGroup(group) {
+    anchorGroup(group);
+    if (!isValidId(current)) {
+      return;
+    }
+    let selectedTab = null;
+    try {
+      selectedTab = gBrowser.selectedTab;
+    } catch (e) {}
+    for (const m of groupMembers(group).filter((t) => !t.pinned)) {
+      if (getWs(m) !== current && m !== selectedTab && !m.hidden) {
+        try {
+          gBrowser.hideTab(m);
+        } catch (e) {}
+      }
+    }
+    syncGroupHeaders(current);
+  }
+
+  // One loop shows target tabs and hides the rest. The focus tab is unhidden
+  // (and its group unhidden + expanded if needed) BEFORE selecting, because
+  // hideTab refuses the selected tab and hidden tabs may not select.
   function reconcile(target, tabs) {
     let focus = resolveTargetTab(target, tabs);
     if (!focus) {
-      // Empty-state safeguard: never leave a workspace with zero tabs.
       try {
         focus = gBrowser.addTrustedTab("about:newtab");
+        // insertAfterCurrent births tabs inside the selected tab's group —
+        // eject before tagging, or the stray drags the group cross-workspace.
+        try {
+          gBrowser.ungroupTab(focus);
+        } catch (e) {}
         setWs(focus, target);
         tabs = Array.from(gBrowser.tabs);
       } catch (e) {
         return;
       }
     }
+    try {
+      if (focus && focus.group?.collapsed && !focus.selected) {
+        focus.group.collapsed = false;
+      }
+    } catch (e) {}
+    syncGroupHeaders(target);
     try {
       gBrowser.showTab(focus);
     } catch (e) {}
@@ -85,7 +185,6 @@
       if (!sel || sel.pinned || sel.closing || getWs(sel) !== target) {
         gBrowser.selectedTab = focus;
       }
-      // Verify the selection landed; retry once if Gecko ignored it.
       if (gBrowser.selectedTab !== focus) {
         gBrowser.showTab(focus);
         gBrowser.selectedTab = focus;
@@ -103,7 +202,6 @@
         }
       } catch (e) {}
     }
-    // Record the tab we actually landed on, never a tab we failed to select.
     try {
       const sel = gBrowser.selectedTab;
       lastSelected[target] =
@@ -123,28 +221,16 @@
     try {
       SessionStore.setCustomWindowValue(window, WIN_KEY, target);
     } catch (e) {}
+    anchorAllGroups();
     reconcile(target, tabs);
   }
 
-  // NOTE: e.code (not e.key) for digits — Shift alters e.key
-  // ("1" becomes "!"), while e.code stays physical.
+  // e.code, not e.key: Shift turns "1" into "!".
   function digitFromCode(code) {
-    if (code && code.startsWith("Digit")) {
-      const d = code.slice(5);
-      if (d >= "1" && d <= "9") {
-        return d;
-      }
-    }
-    if (code && code.startsWith("Numpad")) {
-      const d = code.slice(6);
-      if (d >= "1" && d <= "9") {
-        return d;
-      }
-    }
-    return null;
+    const m = code && code.match(/^(?:Digit|Numpad)([1-9])$/);
+    return m ? m[1] : null;
   }
 
-  // Sole shortcut: Alt+Shift+1..9 jumps directly to that workspace.
   function onKey(e) {
     if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) {
       return;
@@ -157,25 +243,52 @@
     }
   }
 
+  // Stamp fresh tabs (restored keep theirs); inherit a grouped sibling's tag.
+  function stampTab(tab) {
+    if (!tab || tab.pinned || rawWs(tab)) {
+      return false;
+    }
+    let ws = isValidId(current) ? current : "1";
+    try {
+      const g = tab.group;
+      if (g) {
+        for (const s of groupMembers(g)) {
+          if (s !== tab) {
+            const sw = rawWs(s);
+            if (sw) {
+              ws = sw;
+              break;
+            }
+          }
+        }
+      }
+    } catch (ex) {}
+    setWs(tab, ws);
+    return true;
+  }
+
   function onTabOpen(e) {
+    stampTab(e.target);
+  }
+
+  // Restored tabs arrive after load, past init and TabOpen.
+  function onTabRestored(e) {
     const tab = e.target;
     if (!tab || tab.pinned) {
       return;
     }
-    let existing = null;
+    stampTab(tab);
     try {
-      existing = SessionStore.getCustomTabValue(tab, KEY);
-    } catch (ex) {
-      existing = null;
-    }
-    // Only stamp fresh tabs; restored tabs keep their persisted tag.
-    if (!isValidId(existing)) {
-      setWs(tab, isValidId(current) ? current : "1");
+      if (tab.group) {
+        setTimeout(() => unifyGroup(tab.group), 0);
+      }
+    } catch (err) {}
+    if (isValidId(current)) {
+      syncGroupHeaders(current);
     }
   }
 
   function onTabClose(e) {
-    // Drop stale memory references to the closed tab.
     const tab = e.target;
     for (const id of Object.keys(lastSelected)) {
       if (lastSelected[id] === tab) {
@@ -184,44 +297,44 @@
     }
   }
 
+  // TabGroupCreate fires before members are adopted — defer past the settle.
+  function onGroupChange(e) {
+    const group = e.target && e.target.closest ? e.target.closest("tab-group") : null;
+    if (!group) {
+      return;
+    }
+    try {
+      setTimeout(() => unifyGroup(group), 0);
+    } catch (err) {
+      unifyGroup(group);
+    }
+  }
+
   function init() {
-    // Restore current workspace for this window (survives restart).
     try {
       const w = SessionStore.getCustomWindowValue(window, WIN_KEY);
       if (isValidId(w)) {
         current = w;
       }
     } catch (e) {}
-
-    // Stamp any untagged tabs with the default workspace.
     try {
       for (const t of gBrowser.tabs) {
-        if (t.pinned) {
-          continue;
-        }
-        let v = null;
-        try {
-          v = SessionStore.getCustomTabValue(t, KEY);
-        } catch (ex) {
-          v = null;
-        }
-        if (!isValidId(v)) {
+        if (!t.pinned && !rawWs(t)) {
           setWs(t, "1");
         }
       }
     } catch (e) {}
-
-    // Enforce visibility for the restored workspace (session restore
-    // does not always preserve hidden state). Force reconcile even when
-    // current is already "1" by going through the switch path.
+    // Session restore may not preserve hidden state; force a full pass.
     try {
       const saved = isValidId(current) ? current : "1";
-      current = saved === "1" ? "__force__" : "1"; // sentinel: never equals target
+      current = saved === "1" ? "__force__" : "1";
       switchTo(saved);
     } catch (e) {}
-
     gBrowser.tabContainer.addEventListener("TabOpen", onTabOpen);
     gBrowser.tabContainer.addEventListener("TabClose", onTabClose);
+    gBrowser.tabContainer.addEventListener("SSTabRestored", onTabRestored);
+    gBrowser.tabContainer.addEventListener("TabGroupCreate", onGroupChange);
+    gBrowser.tabContainer.addEventListener("TabGroupUpdate", onGroupChange);
     window.addEventListener("keydown", onKey, true);
   }
 
