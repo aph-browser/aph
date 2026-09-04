@@ -13,6 +13,7 @@ user_pref("media.gmp-provider.enabled", true);
 user_pref("sidebar.revamp", true);
 user_pref("sidebar.verticalTabs", true);
 user_pref("sidebar.visibility", "always-show");
+user_pref("sidebar.main.tools", "");
 
 // 4. Disable pre-rendered New Tab cache during development
 user_pref("browser.startup.homepage.abouthome_cache.enabled", false);
