@@ -1,8 +1,13 @@
+/* ==========================================================================
+   Aph Theme: Clean Auto-Hide Top Bar (Negative-Margin Slide Architecture)
+   ========================================================================== */
+
 :root {
-  --aph-pop-in: 0.18s ease;
+  --aph-pop-in: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  --urlbar-container-min-width: 0px !important;
 }
 
-/* Top bar shell: always visible */
+/* 1. Toolbar Shell: Rigid height, zero layout shift */
 #navigator-toolbox {
   background: transparent !important;
   border: none !important;
@@ -14,12 +19,15 @@
 #nav-bar {
   display: flex !important;
   align-items: center !important;
-  min-height: 30px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  max-height: 36px !important;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
-  padding: 2px 10px !important;
+  padding: 0 8px !important;
   margin: 0 !important;
+  box-sizing: border-box !important;
 }
 
 #nav-bar-customization-target {
@@ -27,52 +35,107 @@
   align-items: center !important;
   flex: 1 1 auto !important;
   min-width: 0 !important;
-  gap: 4px !important;
+  gap: 0 !important;
 }
 
-/* URL bar: always visible and fills the bar */
+/* 2. Kill invisible flexible spacers */
+#nav-bar toolbarspring,
+#nav-bar .titlebar-spacer,
+#nav-bar #vertical-spacer {
+  display: none !important;
+}
+
+/* ==========================================================================
+   3. Buttons: Negative Margins at Idle (Cancels physical layout footprint)
+   ========================================================================== */
+
+/* Left-side buttons: collapse by sliding left */
+#nav-bar-customization-target > :is(#alltabs-button, #unified-extensions-button) {
+  margin-inline-start: -34px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: margin-inline-start var(--aph-pop-in), opacity 0.15s ease !important;
+}
+
+/* Right-side buttons inside customization target: collapse by sliding right */
+#nav-bar-customization-target > :is(#forward-button, #back-button, #ublock0_raymondhill_net-browser-action, #sidebar-button) {
+  margin-inline-end: -34px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: margin-inline-end var(--aph-pop-in), opacity 0.15s ease !important;
+}
+
+/* Hamburger button (outside target): collapse by sliding right */
+#PanelUI-button {
+  margin-inline-end: -38px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: margin-inline-end var(--aph-pop-in), opacity 0.15s ease !important;
+}
+
+/* ==========================================================================
+   4. Buttons: Reveal on Hover / Focus (Margins return to normal)
+   ========================================================================== */
+
+#navigator-toolbox:hover #nav-bar-customization-target > :is(#alltabs-button, #unified-extensions-button),
+#nav-bar:hover #nav-bar-customization-target > :is(#alltabs-button, #unified-extensions-button),
+#nav-bar:focus-within #nav-bar-customization-target > :is(#alltabs-button, #unified-extensions-button) {
+  margin-inline-start: 2px !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+#navigator-toolbox:hover #nav-bar-customization-target > :is(#forward-button, #back-button, #ublock0_raymondhill_net-browser-action, #sidebar-button),
+#nav-bar:hover #nav-bar-customization-target > :is(#forward-button, #back-button, #ublock0_raymondhill_net-browser-action, #sidebar-button),
+#nav-bar:focus-within #nav-bar-customization-target > :is(#forward-button, #back-button, #ublock0_raymondhill_net-browser-action, #sidebar-button),
+#navigator-toolbox:hover #PanelUI-button,
+#nav-bar:hover #PanelUI-button,
+#nav-bar:focus-within #PanelUI-button {
+  margin-inline-end: 2px !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+/* Enforce rigid 30px height on buttons */
+#nav-bar toolbarbutton,
+#nav-bar toolbaritem:not(#urlbar-container) {
+  height: 30px !important;
+  min-height: 30px !important;
+  max-height: 30px !important;
+}
+
+/* ==========================================================================
+   5. URL Bar: Balanced Sizing
+   ========================================================================== */
+
 #urlbar-container {
   flex: 1 1 auto !important;
-  min-width: 120px !important;
-  display: flex !important;
-  align-items: center !important;
+  min-width: 0px !important;
+  height: 30px !important;
+  /* At idle: 6% margin centers the bar with clean breathing room */
+  margin-inline: 6% !important;
+  transition: margin-inline var(--aph-pop-in) !important;
+}
+
+/* On hover: Margins tighten so buttons fit with room to spare */
+#navigator-toolbox:hover #urlbar-container,
+#nav-bar:hover #urlbar-container,
+#nav-bar:focus-within #urlbar-container {
+  margin-inline: 8px !important;
 }
 
 #urlbar {
-  position: relative !important;
-  flex: 1 1 auto !important;
-  min-width: 0 !important;
-  box-sizing: border-box !important;
   min-height: 28px !important;
   height: 28px !important;
-  top: auto !important;
-  align-self: center !important;
 }
 
-#urlbar[breakout-extend="true"] {
-  position: absolute !important;
-  flex: none !important;
-  width: 520px !important;
-  max-width: 90vw !important;
-  top: 6px !important;
-  left: 6px !important;
-  z-index: 999999 !important;
+#urlbar-input-container {
+  min-height: 28px !important;
+  height: 28px !important;
+  padding: 0 8px !important;
 }
 
-/* Feature: everything else hidden until hover */
-#nav-bar > *:not(#nav-bar-customization-target),
-#nav-bar-customization-target > *:not(#urlbar-container) {
-  opacity: 0 !important;
-  pointer-events: none !important;
-  transition: opacity var(--aph-pop-in) !important;
-}
-
-#navigator-toolbox:hover #nav-bar > *:not(#nav-bar-customization-target),
-#navigator-toolbox:hover #nav-bar-customization-target > *:not(#urlbar-container),
-#nav-bar:hover > *:not(#nav-bar-customization-target),
-#nav-bar:hover #nav-bar-customization-target > *:not(#urlbar-container),
-#nav-bar:focus-within > *:not(#nav-bar-customization-target),
-#nav-bar:focus-within #nav-bar-customization-target > *:not(#urlbar-container) {
-  opacity: 1 !important;
-  pointer-events: auto !important;
+/* Clean square hamburger icon */
+#PanelUI-menu-button .toolbarbutton-text {
+  display: none !important;
 }
