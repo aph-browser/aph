@@ -25,3 +25,6 @@ user_pref("browser.tabs.insertAfterCurrent", true);
 
 // 7. Restore previous windows and tabs on launch
 user_pref("browser.startup.page", 3);
+
+// 8. Never show bookmarks toolbar
+user_pref("browser.toolbars.bookmarks.visibility", "never");
