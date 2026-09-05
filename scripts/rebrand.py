@@ -152,6 +152,11 @@ def normalize_omni_ja(ja_path: Path) -> bool:
         # offset 42 (from CD entry start) = relative offset of local header (4 bytes LE)
         local_hdr_offset = int.from_bytes(cd_bytes[pos + 42 : pos + 46], "little")
         new_offset = local_hdr_offset - local_start
+        if new_offset < 0:
+            raise ValueError(
+                f"CD entry {fixed} points at file offset {local_hdr_offset}, "
+                f"before local data start {local_start} — unexpected omni.ja layout"
+            )
         cd_bytes[pos + 42 : pos + 46] = new_offset.to_bytes(4, "little", signed=False)
         fixed += 1
         # filename length at offset 28, extra length at 30, comment length at 32

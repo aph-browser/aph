@@ -9,6 +9,7 @@
     "DontCheckDefaultBrowser": true,
     "DisableDefaultBrowserAgent": true,
     "DisableFirefoxAccounts": true,
+    "PasswordManagerEnabled": false,
     "DisableRemoteImprovements": true,
     "DisableAppUpdate": true,
     "AppUpdateURL": "https://localhost",
@@ -53,13 +54,31 @@
       "BlockTrackers": true,
       "EnablePrompting": true
     },
+    "EnableTrackingProtection": {
+      "Value": true,
+      "Cryptomining": true,
+      "Fingerprinting": true,
+      "EmailTracking": true
+    },
+    "AutofillAddressEnabled": false,
+    "AutofillCreditCardEnabled": false,
+    "SearchEngines": {
+      "Default": "DuckDuckGo"
+    },
+    "DNSOverHTTPS": {
+      "Enabled": true,
+      "ProviderURL": "https://cloudflare-dns.com/dns-query",
+      "Fallback": true,
+      "Locked": false
+    },
     "UserMessaging": {
       "ExtensionRecommendations": false,
       "FeatureRecommendations": false,
       "UrlbarInterventions": false,
       "SkipOnboarding": true,
       "MoreFromMozilla": false,
-      "FirefoxLabs": false
+      "FirefoxLabs": false,
+      "WhatsNew": false
     },
     "EncryptedMediaExtensions": {
       "Enabled": true
@@ -76,6 +95,9 @@
         "default_area": "menupanel"
       },
       "uBlock0@raymondhill.net": {
+        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/uBlock0@raymondhill.net/latest.xpi",
+        "installation_mode": "normal_installed",
+        "private_browsing": true,
         "default_area": "navbar"
       },
       "{446900e4-71c2-419f-a6a7-df9c091e268b}": {

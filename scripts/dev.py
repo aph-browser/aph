@@ -35,30 +35,37 @@ def ensure_rebranded(root: Path) -> None:
 
 
 def merge_policies(root: Path) -> None:
-    """Safely merge config/policies.json into Firefox's policies using a pristine backup."""
+    """Write config/policies.json into Firefox's distribution dir.
+
+    Fresh upstream tarballs ship no distribution/ dir at all; in that case
+    there is no pristine base to back up, so merge over an empty policy set.
+    """
     custom_policies_file = root / "config" / "policies.json"
     dist_dir = root / "build" / "firefox" / "distribution"
     target_policies_file = dist_dir / "policies.json"
     backup_policies_file = dist_dir / "policies.json.bak"
 
-    if not target_policies_file.is_file() and not backup_policies_file.is_file():
-        return
+    if target_policies_file.is_file() or backup_policies_file.is_file():
+        # Create pristine backup on first run (never modified)
+        if not backup_policies_file.exists():
+            shutil.copy2(target_policies_file, backup_policies_file)
+            print(f"Created pristine policies backup: {backup_policies_file}")
 
-    # Create pristine backup on first run (never modified)
-    if not backup_policies_file.exists():
-        shutil.copy2(target_policies_file, backup_policies_file)
-        print(f"Created pristine policies backup: {backup_policies_file}")
-
-    # ALWAYS read from the pristine backup as the base
-    try:
-        base_data = json.loads(backup_policies_file.read_text(encoding="utf-8"))
-    except Exception as e:
-        print(f"Warning: Failed to read policies backup: {e}", file=sys.stderr)
+        # ALWAYS read from the pristine backup as the base
+        try:
+            base_data = json.loads(backup_policies_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"Warning: Failed to read policies backup: {e}", file=sys.stderr)
+            base_data = {"policies": {}}
+    else:
+        # No upstream policies to preserve; start from an empty set.
+        dist_dir.mkdir(parents=True, exist_ok=True)
         base_data = {"policies": {}}
 
     # If no custom policies exist, restore the pristine backup and exit
     if not custom_policies_file.is_file():
-        shutil.copy2(backup_policies_file, target_policies_file)
+        if backup_policies_file.is_file():
+            shutil.copy2(backup_policies_file, target_policies_file)
         return
 
     # Load custom Aph policies
@@ -115,8 +122,8 @@ def main() -> None:
         import os
 
         os.execv(cmd[0], cmd)
-    except AttributeError:
-        # Fallback for non-POSIX
+    except (AttributeError, OSError):
+        # Fallback for non-POSIX, or if exec fails (e.g. bad binary)
         result = subprocess.run(cmd, check=False)
         sys.exit(result.returncode)
 

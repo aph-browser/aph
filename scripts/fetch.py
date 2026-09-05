@@ -31,7 +31,7 @@ def detect_arch() -> str:
 def fetch_latest_version() -> str | None:
     url = "https://product-details.mozilla.org/1.0/firefox_versions.json"
     try:
-        with urllib.request.urlopen(url) as resp:
+        with urllib.request.urlopen(url, timeout=30) as resp:
             data = json.loads(resp.read())
             version = data["LATEST_FIREFOX_VERSION"]
             print(f"Latest release: {version}")
@@ -71,7 +71,7 @@ def fetch(version: str, arch: str) -> None:
         tarball = tmp / tarball_name
 
         req = urllib.request.Request(tarball_url)
-        with urllib.request.urlopen(req) as resp, open(tarball, "wb") as f:
+        with urllib.request.urlopen(req, timeout=30) as resp, open(tarball, "wb") as f:
             total = resp.headers.get("Content-Length")
             downloaded = 0
             while True:
@@ -86,13 +86,20 @@ def fetch(version: str, arch: str) -> None:
             print()
 
         print("Verifying checksum ...")
-        sha256sums = urllib.request.urlopen(checksum_url).read().decode()
+        sha256sums = urllib.request.urlopen(checksum_url, timeout=30).read().decode()
         needle = f"{arch}/en-US/{tarball_name}"
         expected = None
         for line in sha256sums.splitlines():
-            if needle in line:
-                expected = line.split()[0]
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] == needle:
+                expected = parts[0]
                 break
+        if expected is None:
+            # Fall back to substring match (older SUMS layouts)
+            for line in sha256sums.splitlines():
+                if needle in line:
+                    expected = line.split()[0]
+                    break
         if expected is None:
             sys.exit(f"Could not find checksum for {needle} in SHA256SUMS")
 
