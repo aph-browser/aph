@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = ROOT / "build"
 FIREFOX_DIR = BUILD_DIR / "firefox"
 
-VERSION = "136.0"
+VERSION = "155.0.1"
 
 MOZILLA_CDN = "https://download-installer.cdn.mozilla.net/pub/firefox/releases"
 ARCH_MAP = {"x86_64": "linux-x86_64", "aarch64": "linux-aarch64", "amd64": "linux-x86_64", "arm64": "linux-aarch64"}
@@ -111,9 +111,9 @@ def fetch(version: str, arch: str) -> None:
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Fetch Firefox release")
-    parser.add_argument("version", nargs="?", default=VERSION, help=f"Release version (default: {VERSION})")
-    parser.add_argument("--latest", action="store_true", help="Use latest release from Mozilla")
+    parser = argparse.ArgumentParser(description="Fetch Firefox release (default: latest from Mozilla)")
+    parser.add_argument("version", nargs="?", default=None, help="Pin a specific release version (default: latest)")
+    parser.add_argument("--latest", action="store_true", help="Use latest release from Mozilla (default behavior)")
     args = parser.parse_args()
 
     if FIREFOX_DIR.is_dir():
@@ -123,7 +123,7 @@ def main() -> None:
             print("Remove build/firefox/ and re-run to upgrade, or pass a version argument.")
             return
 
-    version = fetch_latest_version() if args.latest else args.version
+    version = args.version if args.version else fetch_latest_version()
     arch = detect_arch()
     print(f"Fetching Firefox {version} for {arch} ...")
     fetch(version, arch)
