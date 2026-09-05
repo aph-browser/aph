@@ -28,7 +28,7 @@ def detect_arch() -> str:
     return arch
 
 
-def fetch_latest_version() -> str:
+def fetch_latest_version() -> str | None:
     url = "https://product-details.mozilla.org/1.0/firefox_versions.json"
     try:
         with urllib.request.urlopen(url) as resp:
@@ -37,8 +37,19 @@ def fetch_latest_version() -> str:
             print(f"Latest release: {version}")
             return version
     except Exception as e:
-        print(f"Warning: Failed to query latest version ({e}), using {VERSION}")
-        return VERSION
+        print(f"Warning: Failed to query latest version ({e})")
+        return None
+
+
+def installed_version() -> str | None:
+    ini = FIREFOX_DIR / "application.ini"
+    try:
+        for line in ini.read_text().splitlines():
+            if line.startswith("Version="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return None
 
 
 def sha256(path: Path) -> str:
@@ -116,14 +127,27 @@ def main() -> None:
     parser.add_argument("--latest", action="store_true", help="Use latest release from Mozilla (default behavior)")
     args = parser.parse_args()
 
-    if FIREFOX_DIR.is_dir():
-        binary = FIREFOX_DIR / "firefox"
-        if binary.exists():
-            print(f"Firefox already present at {FIREFOX_DIR}")
-            print("Remove build/firefox/ and re-run to upgrade, or pass a version argument.")
-            return
+    current = installed_version()
+    binary_present = (FIREFOX_DIR / "firefox").is_file()
 
-    version = args.version if args.version else fetch_latest_version()
+    if args.version:
+        version = args.version
+    else:
+        latest = fetch_latest_version()
+        if latest is None:
+            if binary_present and current:
+                print(f"Offline: keeping installed Firefox {current} at {FIREFOX_DIR}")
+                return
+            print(f"Offline: falling back to {VERSION}")
+            version = VERSION
+        else:
+            version = latest
+
+    if binary_present and current == version:
+        print(f"Firefox {current} already up to date at {FIREFOX_DIR}")
+        return
+    if binary_present and current:
+        print(f"Upgrading Firefox {current} -> {version} ...")
     arch = detect_arch()
     print(f"Fetching Firefox {version} for {arch} ...")
     fetch(version, arch)
