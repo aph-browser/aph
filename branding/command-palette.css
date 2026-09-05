@@ -1,0 +1,69 @@
+/* Aph command palette theme (MVP). Dark centered overlay. */
+#aph-palette-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  background: rgba(0, 0, 0, 0.45) !important;
+  z-index: 9999 !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: flex-start !important;
+  padding-top: 12vh !important;
+}
+#aph-palette-overlay[hidden] {
+  display: none !important;
+}
+#aph-palette {
+  width: 560px !important;
+  max-width: 90vw !important;
+  max-height: 60vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  background: var(--aph-bg-elevated, #202028) !important;
+  color: var(--aph-fg, #e8e8ec) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55) !important;
+  font: inherit !important;
+}
+#aph-palette-input {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  padding: 12px 14px !important;
+  font-size: 15px !important;
+  color: inherit !important;
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  outline: none !important;
+}
+#aph-palette-list {
+  overflow-y: auto !important;
+  max-height: calc(60vh - 48px) !important;
+  padding: 6px !important;
+}
+.aph-palette-item {
+  padding: 8px 10px !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  line-height: 1.3 !important;
+}
+.aph-palette-item.selected {
+  background: rgba(255, 255, 255, 0.12) !important;
+}
+.aph-palette-title {
+  font-size: 14px !important;
+}
+.aph-palette-hint {
+  float: right !important;
+  opacity: 0.55 !important;
+  font-size: 12px !important;
+  margin-left: 12px !important;
+}
+.aph-palette-sub {
+  opacity: 0.55 !important;
+  font-size: 12px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}

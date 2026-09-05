@@ -68,7 +68,7 @@
     }
     try {
       const sel = gBrowser.selectedTab;
-      if (sel && !sel.pinned && !sel.closing && tabs.includes(sel)) {
+      if (sel && !sel.pinned && !sel.closing && tabs.includes(sel) && getWs(sel) === current) {
         lastSelected[current] = sel;
       }
     } catch (e) {}
@@ -252,18 +252,111 @@
     }
   }
 
+  // Close unused new tabs in `target`, never the active tab.
+  // Keeps at most 1 new tab total (preferring the selected one).
+  function isNewTab(tab) {
+    try {
+      const uri = tab.linkedBrowser?.currentURI?.spec;
+      if (uri === "about:newtab" || uri === "about:blank" || uri === "about:home") {
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function pruneExtraNewTabs(target) {
+    if (!isValidId(target)) {
+      return;
+    }
+    let sel = null;
+    try {
+      sel = gBrowser.selectedTab;
+    } catch (e) {}
+    const selIsNew = !!(sel && sel !== undefined && isNewTab(sel) && getWs(sel) === target);
+    let keep = selIsNew ? 0 : 1; // inactive spares allowed beyond selected
+    let tabs = [];
+    try {
+      tabs = Array.from(gBrowser.tabs);
+    } catch (e) {
+      return;
+    }
+    for (const t of tabs) {
+      if (t.pinned || t.closing || t === sel) {
+        continue;
+      }
+      if (getWs(t) !== target) {
+        continue;
+      }
+      if (!isNewTab(t)) {
+        continue;
+      }
+      if (keep > 0) {
+        keep--;
+        continue;
+      }
+      try {
+        gBrowser.removeTab(t, { animate: false });
+      } catch (e) {
+        try {
+          gBrowser.removeTab(t);
+        } catch (_e) {}
+      }
+    }
+  }
+
+  // Workspace indicator: just a number. The `data-aph-ws` attribute on
+  // tabContainer already existed but nothing rendered it — this badge does.
+  function ensureIndicator() {
+    try {
+      let el = document.getElementById("aph-ws-indicator");
+      if (el) {
+        return el;
+      }
+      const navBar = document.getElementById("nav-bar");
+      if (!navBar) {
+        return null;
+      }
+      el = document.createElement("div");
+      el.id = "aph-ws-indicator";
+      el.textContent = isValidId(current) ? current : "1";
+      el.title = "Workspace (Alt+Shift+1..9 to switch)";
+      navBar.prepend(el);
+      return el;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function updateIndicator() {
+    try {
+      const el = document.getElementById("aph-ws-indicator") || ensureIndicator();
+      if (el) {
+        el.textContent = isValidId(current) ? current : "1";
+      }
+    } catch (e) {}
+  }
+
   // Crimson pulse timer for the workspace indicator (200ms flash).
   let wsPulseTimer = null;
   function pulseWorkspaceIndicator() {
     try {
       const el = gBrowser.tabContainer;
       el.setAttribute("data-aph-ws-pulse", "1");
+      const badge = document.getElementById("aph-ws-indicator");
+      if (badge) {
+        badge.setAttribute("data-aph-ws-pulse", "1");
+      }
       if (wsPulseTimer) {
         clearTimeout(wsPulseTimer);
       }
       wsPulseTimer = setTimeout(() => {
         try {
           el.removeAttribute("data-aph-ws-pulse");
+        } catch (e) {}
+        try {
+          if (badge) {
+            badge.removeAttribute("data-aph-ws-pulse");
+          }
         } catch (e) {}
         wsPulseTimer = null;
       }, 200);
@@ -280,12 +373,14 @@
     try {
       gBrowser.tabContainer.setAttribute("data-aph-ws", target);
     } catch (e) {}
+    updateIndicator();
     pulseWorkspaceIndicator();
     try {
       SessionStore.setCustomWindowValue(window, WIN_KEY, target);
     } catch (e) {}
     anchorAllGroups();
     reconcile(target, tabs);
+    pruneExtraNewTabs(target);
   }
 
   // Send active tab to WS N and stay: eject from group (groups are
@@ -313,6 +408,7 @@
     anchorAllGroups();
     try {
       reconcile(current, Array.from(gBrowser.tabs));
+      pruneExtraNewTabs(current);
     } catch (e) {}
   }
 
@@ -559,13 +655,99 @@
     return "1";
   }
 
+  // Startup: SessionStore restores window values + tab tags asynchronously,
+  // so the value read in init() can miss. Re-read once session restore
+  // finishes (observer) with a timeout fallback, then land on it.
+  // Falls back to the restored selected tab's workspace when no value yet.
+  function startupRestore() {
+    let target = null;
+    try {
+      const w = SessionStore.getCustomWindowValue(window, WIN_KEY);
+      if (isValidId(w)) {
+        target = w;
+      }
+    } catch (e) {}
+    if (!target) {
+      try {
+        const sel = gBrowser.selectedTab;
+        const sw = sel && !sel.pinned ? rawWs(sel) : null;
+        if (isValidId(sw)) {
+          target = sw;
+        }
+      } catch (e) {}
+    }
+    if (!target || target === current) {
+      try {
+        anchorAllGroups();
+      } catch (e) {}
+      try {
+        reconcile(isValidId(current) ? current : "1", Array.from(gBrowser.tabs));
+      } catch (e) {}
+      try {
+        pruneExtraNewTabs(isValidId(current) ? current : "1");
+      } catch (e) {}
+      return;
+    }
+    // Prefer the restored selected tab when it already lives in target,
+    // so we focus the exact tab left open instead of the first in order.
+    try {
+      const sel = gBrowser.selectedTab;
+      if (sel && !sel.pinned && !sel.closing && rawWs(sel) === target) {
+        lastSelected[target] = sel;
+      }
+    } catch (e) {}
+    try {
+      switchTo(target);
+    } catch (e) {}
+  }
+
+  let startupRestoreDone = false;
+  function runStartupRestoreOnce() {
+    if (startupRestoreDone) {
+      return;
+    }
+    startupRestoreDone = true;
+    try {
+      startupRestore();
+    } catch (e) {}
+  }
+
+  function scheduleStartupRestore() {
+    try {
+      if (typeof Services !== "undefined" && Services.obs) {
+        const observer = {
+          observe() {
+            try {
+              Services.obs.removeObserver(observer, "sessionstore-windows-restored");
+            } catch (e) {}
+            setTimeout(runStartupRestoreOnce, 0);
+          },
+        };
+        Services.obs.addObserver(observer, "sessionstore-windows-restored", false);
+      }
+    } catch (e) {}
+    // Fallback in case the notification already fired or obs is unavailable.
+    setTimeout(runStartupRestoreOnce, 3000);
+  }
+
   function init() {
+    // Public API for command palette (and future chrome UI).
+    try {
+      window.AphWorkspaces = {
+        switchTo,
+        sendTabTo,
+        openTempTab,
+        getCurrent: () => current,
+        getWs,
+      };
+    } catch (e) {}
     current = initialWorkspace();
     if (isValidId(current)) {
       try {
         gBrowser.tabContainer.setAttribute("data-aph-ws", current);
       } catch (e) {}
     }
+    updateIndicator();
     try {
       for (const t of gBrowser.tabs) {
         if (!t.pinned && !rawWs(t)) {
@@ -585,6 +767,7 @@
     gBrowser.tabContainer.addEventListener("TabGroupCreate", onGroupChange);
     gBrowser.tabContainer.addEventListener("TabGroupUpdate", onGroupChange);
     window.addEventListener("keydown", onKey, true);
+    scheduleStartupRestore();
   }
 
   if (document.readyState === "complete") {

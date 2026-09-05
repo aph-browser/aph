@@ -44,6 +44,16 @@ THEME_CSS_SRC = BRANDING_DIR / "theme.css"
 THEME_JA_PATH = "chrome/browser/content/browser/aph-theme.css"
 THEME_LINK_TAG = '<link rel="stylesheet" href="chrome://browser/content/aph-theme.css" />'
 
+# Command palette (MVP): Ctrl+K overlay, JS + CSS injected the same way.
+PALETTE_JS_SRC = BRANDING_DIR / "command-palette.js"
+PALETTE_JA_PATH = "chrome/browser/content/browser/command-palette.js"
+PALETTE_SCRIPT_TAG = (
+    '<script src="chrome://browser/content/command-palette.js"></script>'
+)
+PALETTE_CSS_SRC = BRANDING_DIR / "command-palette.css"
+PALETTE_CSS_JA_PATH = "chrome/browser/content/browser/aph-palette.css"
+PALETTE_LINK_TAG = '<link rel="stylesheet" href="chrome://browser/content/aph-palette.css" />'
+
 BRAND_PROPERTIES_TEMPLATE = """brandShorterName=Aph
 brandShortName=Aph
 brandFullName=Aph Browser
@@ -108,10 +118,11 @@ def _patch_single_ja(
     ja_path: Path, brand_ftl_data: bytes, brandings_ftl_data: bytes,
     sync_ftl_data: bytes, logos: dict[str, bytes],
     workspaces_js: bytes | None = None, theme_css: bytes | None = None,
-) -> tuple[int, int, int, int, int, int, int, int, int]:
+    palette_js: bytes | None = None, palette_css: bytes | None = None,
+) -> tuple[int, int, int, int, int, int, int, int, int, int, int]:
     """Patch a single omni.ja from its pristine backup.
 
-    Return counts (brand_ftl, brandings_ftl, sync_ftl, props, dtd, logos, xhtml, wsjs, css).
+    Return counts (brand_ftl, brandings_ftl, sync_ftl, props, dtd, logos, xhtml, wsjs, css, paljs, palcss).
     """
     backup = ja_path.with_suffix(".ja.bak")
     if not backup.exists():
@@ -122,7 +133,7 @@ def _patch_single_ja(
     src_ja = backup
 
     count_brand = count_brandings = count_sync = count_props = count_dtd = count_logo = 0
-    count_xhtml = count_wsjs = count_css = 0
+    count_xhtml = count_wsjs = count_css = count_paljs = count_palcss = 0
     # mkstemp returns an open handle we never use (ZipFile opens by path).
     # Close it at once: holding it across shutil.move breaks Windows (file lock).
     tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".ja", dir=str(ja_path.parent))
@@ -200,15 +211,39 @@ def _patch_single_ja(
                 zout.writestr(new_info, theme_css)
                 count_css += 1
 
+            # Append command-palette.js as a new entry (browser omni only).
+            if (
+                palette_js is not None
+                and WORKSPACES_XHTML_PATH in existing
+                and PALETTE_JA_PATH not in existing
+            ):
+                new_info = zipfile.ZipInfo(filename=PALETTE_JA_PATH)
+                new_info.compress_type = zipfile.ZIP_STORED
+                new_info.external_attr = 0o644 << 16
+                zout.writestr(new_info, palette_js)
+                count_paljs += 1
+
+            # Append aph-palette.css as a new entry (browser omni only).
+            if (
+                palette_css is not None
+                and WORKSPACES_XHTML_PATH in existing
+                and PALETTE_CSS_JA_PATH not in existing
+            ):
+                new_info = zipfile.ZipInfo(filename=PALETTE_CSS_JA_PATH)
+                new_info.compress_type = zipfile.ZIP_STORED
+                new_info.external_attr = 0o644 << 16
+                zout.writestr(new_info, palette_css)
+                count_palcss += 1
+
         shutil.move(str(tmp_path), str(ja_path))
-        return count_brand, count_brandings, count_sync, count_props, count_dtd, count_logo, count_xhtml, count_wsjs, count_css
+        return count_brand, count_brandings, count_sync, count_props, count_dtd, count_logo, count_xhtml, count_wsjs, count_css, count_paljs, count_palcss
     finally:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
 
 
 def _inject_workspaces_script(xhtml_bytes: bytes) -> bytes:
-    """Insert workspaces.js <script> and aph-theme.css <link> into browser.xhtml."""
+    """Insert Aph <script>/<link> tags (workspaces, palette, theme) into browser.xhtml."""
     try:
         text = xhtml_bytes.decode("utf-8")
     except UnicodeDecodeError:
@@ -217,8 +252,12 @@ def _inject_workspaces_script(xhtml_bytes: bytes) -> bytes:
     tags_to_inject = []
     if THEME_LINK_TAG not in text:
         tags_to_inject.append(THEME_LINK_TAG)
+    if PALETTE_LINK_TAG not in text:
+        tags_to_inject.append(PALETTE_LINK_TAG)
     if WORKSPACES_SCRIPT_TAG not in text:
         tags_to_inject.append(WORKSPACES_SCRIPT_TAG)
+    if PALETTE_SCRIPT_TAG not in text:
+        tags_to_inject.append(PALETTE_SCRIPT_TAG)
 
     if not tags_to_inject:
         return xhtml_bytes
@@ -318,6 +357,19 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
     else:
         print(f"WARNING: {THEME_CSS_SRC} not found, skipping theme injection.")
 
+    # 6b. Command palette JS/CSS (Ctrl+K overlay).
+    palette_js: bytes | None = None
+    if PALETTE_JS_SRC.is_file():
+        palette_js = PALETTE_JS_SRC.read_bytes()
+    else:
+        print(f"WARNING: {PALETTE_JS_SRC} not found, skipping palette injection.")
+
+    palette_css: bytes | None = None
+    if PALETTE_CSS_SRC.is_file():
+        palette_css = PALETTE_CSS_SRC.read_bytes()
+    else:
+        print(f"WARNING: {PALETTE_CSS_SRC} not found, skipping palette CSS injection.")
+
     # 7. (nav-hover removed: auto-hide nav-bar is pure CSS now, via an 8px
     #    min-height hover strip on #navigator-toolbox in theme.css.)
 
@@ -325,15 +377,16 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
     for ja_path in targets:
         try:
             (c_brand, c_brandings, c_sync, c_props, c_dtd, c_logo,
-             c_xhtml, c_wsjs, c_css) = _patch_single_ja(
+             c_xhtml, c_wsjs, c_css, c_paljs, c_palcss) = _patch_single_ja(
                 ja_path, brand_ftl_data, brandings_ftl_data, sync_ftl_data, logos,
-                workspaces_js, theme_css,
+                workspaces_js, theme_css, palette_js, palette_css,
             )
             print(
                 f"Rebranded {ja_path.relative_to(ROOT)}: "
                 f"{c_brand} brand.ftl, {c_brandings} brandings.ftl, {c_sync} sync-brand.ftl, "
                 f"{c_props} brand.properties, {c_dtd} brand.dtd, {c_logo} logos, "
-                f"{c_xhtml} browser.xhtml, {c_wsjs} workspaces.js, {c_css} theme.css"
+                f"{c_xhtml} browser.xhtml, {c_wsjs} workspaces.js, {c_css} theme.css, "
+                f"{c_paljs} palette.js, {c_palcss} palette.css"
             )
         except Exception as e:
             print(f"ERROR patching {ja_path}: {e}")

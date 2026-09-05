@@ -35,3 +35,6 @@ user_pref("devtools.chrome.enabled", true);
 
 // 10. Enable remote debugging
 user_pref("devtools.debugger.remote-enabled", true);
+
+// 11. Enable Nova
+user_pref("browser.nova.enabled", true);
