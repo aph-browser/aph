@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Bootstrap: download, verify, and extract LibreWolf into build/."""
+"""Bootstrap: download, verify, and extract Firefox into build/."""
 
 import hashlib
+import json
 import platform
 import shutil
 import sys
@@ -11,12 +12,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = ROOT / "build"
-LIBREWOLF_DIR = BUILD_DIR / "librewolf"
+FIREFOX_DIR = BUILD_DIR / "firefox"
 
-VERSION = "155.0-1"
+VERSION = "136.0"
 
-CODEBERG_API = "https://codeberg.org/api/packages/librewolf/generic/librewolf"
-ARCH_MAP = {"x86_64": "x86_64", "aarch64": "arm64", "amd64": "x86_64", "arm64": "arm64"}
+MOZILLA_CDN = "https://download-installer.cdn.mozilla.net/pub/firefox/releases"
+ARCH_MAP = {"x86_64": "linux-x86_64", "aarch64": "linux-aarch64", "amd64": "linux-x86_64", "arm64": "linux-aarch64"}
 
 
 def detect_arch() -> str:
@@ -27,17 +28,17 @@ def detect_arch() -> str:
     return arch
 
 
-def fetch_latest_tag() -> str:
-    url = "https://codeberg.org/api/v1/repos/librewolf/bsys6/releases/latest"
+def fetch_latest_version() -> str:
+    url = "https://product-details.mozilla.org/1.0/firefox_versions.json"
     try:
         with urllib.request.urlopen(url) as resp:
-            data = resp.read()
-            import json
-            tag = json.loads(data)["tag_name"]
-            print(f"Latest release: {tag}")
-            return tag
+            data = json.loads(resp.read())
+            version = data["LATEST_FIREFOX_VERSION"]
+            print(f"Latest release: {version}")
+            return version
     except Exception as e:
-        sys.exit(f"Failed to query latest release: {e}")
+        print(f"Warning: Failed to query latest version ({e}), using {VERSION}")
+        return VERSION
 
 
 def sha256(path: Path) -> str:
@@ -49,9 +50,9 @@ def sha256(path: Path) -> str:
 
 
 def fetch(version: str, arch: str) -> None:
-    tarball_name = f"librewolf-{version}-linux-{arch}-package.tar.xz"
-    tarball_url = f"{CODEBERG_API}/{version}/{tarball_name}"
-    checksum_url = f"{tarball_url}.sha256sum"
+    tarball_name = f"firefox-{version}.tar.xz"
+    tarball_url = f"{MOZILLA_CDN}/{version}/{arch}/en-US/{tarball_name}"
+    checksum_url = f"{MOZILLA_CDN}/{version}/SHA256SUMS"
 
     print(f"Downloading {tarball_name} ...")
     with tempfile.TemporaryDirectory() as tmp:
@@ -74,7 +75,16 @@ def fetch(version: str, arch: str) -> None:
             print()
 
         print("Verifying checksum ...")
-        expected = urllib.request.urlopen(checksum_url).read().decode().strip()
+        sha256sums = urllib.request.urlopen(checksum_url).read().decode()
+        needle = f"{arch}/en-US/{tarball_name}"
+        expected = None
+        for line in sha256sums.splitlines():
+            if needle in line:
+                expected = line.split()[0]
+                break
+        if expected is None:
+            sys.exit(f"Could not find checksum for {needle} in SHA256SUMS")
+
         actual = sha256(tarball)
         if actual != expected:
             sys.exit(f"Checksum mismatch!\n  expected: {expected}\n  actual:   {actual}")
@@ -83,39 +93,39 @@ def fetch(version: str, arch: str) -> None:
         print("Extracting ...")
         BUILD_DIR.mkdir(parents=True, exist_ok=True)
         shutil.unpack_archive(str(tarball), str(tmp))
-        extracted = tmp / "librewolf"
+        extracted = tmp / "firefox"
         if not extracted.is_dir():
             sys.exit(f"Expected extracted directory {extracted} not found")
 
-        if LIBREWOLF_DIR.exists():
-            shutil.rmtree(LIBREWOLF_DIR)
-        shutil.move(str(extracted), str(LIBREWOLF_DIR))
+        if FIREFOX_DIR.exists():
+            shutil.rmtree(FIREFOX_DIR)
+        shutil.move(str(extracted), str(FIREFOX_DIR))
 
-        binary = LIBREWOLF_DIR / "librewolf"
+        binary = FIREFOX_DIR / "firefox"
         if binary.exists():
             binary.chmod(binary.stat().st_mode | 0o111)
 
-    print(f"LibreWolf {version} ready at {LIBREWOLF_DIR}")
+    print(f"Firefox {version} ready at {FIREFOX_DIR}")
 
 
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Fetch LibreWolf release")
+    parser = argparse.ArgumentParser(description="Fetch Firefox release")
     parser.add_argument("version", nargs="?", default=VERSION, help=f"Release version (default: {VERSION})")
-    parser.add_argument("--latest", action="store_true", help="Use latest release from Codeberg")
+    parser.add_argument("--latest", action="store_true", help="Use latest release from Mozilla")
     args = parser.parse_args()
 
-    if LIBREWOLF_DIR.is_dir():
-        binary = LIBREWOLF_DIR / "librewolf"
+    if FIREFOX_DIR.is_dir():
+        binary = FIREFOX_DIR / "firefox"
         if binary.exists():
-            print(f"LibreWolf already present at {LIBREWOLF_DIR}")
-            print("Remove build/librewolf/ and re-run to upgrade, or pass a version argument.")
+            print(f"Firefox already present at {FIREFOX_DIR}")
+            print("Remove build/firefox/ and re-run to upgrade, or pass a version argument.")
             return
 
-    version = fetch_latest_tag() if args.latest else args.version
+    version = fetch_latest_version() if args.latest else args.version
     arch = detect_arch()
-    print(f"Fetching LibreWolf {version} for {arch} ...")
+    print(f"Fetching Firefox {version} for {arch} ...")
     fetch(version, arch)
 
 

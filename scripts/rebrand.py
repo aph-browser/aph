@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rebrand LibreWolf omni.ja to Aph — swaps brand.ftl, logos, slices icons, injects theme, clears cache.
+"""Rebrand Firefox omni.ja to Aph — swaps brand.ftl, logos, slices icons, injects theme, clears cache.
 
 Gecko requires omni.ja entries to be ZIP_STORED (no compression) for memory-mapping.
 """
@@ -13,18 +13,18 @@ import zipfile
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-OMNI_JA = ROOT / "build" / "librewolf" / "browser" / "omni.ja"
-ROOT_OMNI_JA = ROOT / "build" / "librewolf" / "omni.ja"
+OMNI_JA = ROOT / "build" / "firefox" / "browser" / "omni.ja"
+ROOT_OMNI_JA = ROOT / "build" / "firefox" / "omni.ja"
 BRANDING_DIR = ROOT / "branding"
 ICONS_DIR = (
-    ROOT / "build" / "librewolf" / "browser" / "chrome" / "icons" / "default"
+    ROOT / "build" / "firefox" / "browser" / "chrome" / "icons" / "default"
 )
 PROFILE_DIR = ROOT / "profile"
 
 # Sizes for window manager icons (WM spec) and tab favicons
 ICON_SIZES = [16, 32, 48, 64, 128]
 
-# Blank wordmark to erase LibreWolf/Firefox text, leaving only logo
+# Blank wordmark to erase Firefox text, leaving only logo
 BLANK_WORDMARK = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1" width="1" height="1"></svg>'
 
 BRAND_FTL_SRC = BRANDING_DIR / "brand.ftl"
@@ -285,7 +285,7 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
     # Filter to existing files
     targets = [p for p in targets if p.is_file()]
     if not targets:
-        print(f"ERROR: {OMNI_JA} not found. Extract LibreWolf first.")
+        print(f"ERROR: {OMNI_JA} not found. Extract Firefox first.")
         return False
     if OMNI_JA not in targets:
         print(f"WARNING: {OMNI_JA} missing, only patching {[str(p) for p in targets]}")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch LibreWolf with Aph overrides - Python replacement for dev.sh."""
+"""Launch Firefox with Aph overrides - Python replacement for dev.sh."""
 
 import json
 import shutil
@@ -16,7 +16,7 @@ def ensure_rebranded(root: Path) -> None:
             sys.path.insert(0, str(root))
         from scripts.rebrand import rebrand  # type: ignore
 
-        omni = root / "build" / "librewolf" / "browser" / "omni.ja"
+        omni = root / "build" / "firefox" / "browser" / "omni.ja"
         backup = omni.with_suffix(".ja.bak")
         # Only rebrand if backup missing (first run) or branding newer than omni.ja
         if not omni.is_file():
@@ -35,9 +35,9 @@ def ensure_rebranded(root: Path) -> None:
 
 
 def merge_policies(root: Path) -> None:
-    """Safely merge config/policies.json into LibreWolf's policies using a pristine backup."""
+    """Safely merge config/policies.json into Firefox's policies using a pristine backup."""
     custom_policies_file = root / "config" / "policies.json"
-    dist_dir = root / "build" / "librewolf" / "distribution"
+    dist_dir = root / "build" / "firefox" / "distribution"
     target_policies_file = dist_dir / "policies.json"
     backup_policies_file = dist_dir / "policies.json.bak"
 
@@ -85,7 +85,7 @@ def main() -> None:
     profile = root / "profile"
     user_js_src = root / "config" / "user.js"
     user_js_dst = profile / "user.js"
-    binary = root / "build" / "librewolf" / "librewolf"
+    binary = root / "build" / "firefox" / "firefox"
 
     profile.mkdir(parents=True, exist_ok=True)
 
@@ -99,7 +99,7 @@ def main() -> None:
     ensure_rebranded(root)
 
     if not binary.is_file():
-        print(f"ERROR: {binary} not found. Extract LibreWolf first.", file=sys.stderr)
+        print(f"ERROR: {binary} not found. Extract Firefox first.", file=sys.stderr)
         sys.exit(1)
 
     # Always pass -purgecaches if cache was cleared

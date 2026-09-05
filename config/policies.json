@@ -1,5 +1,19 @@
 {
   "policies": {
+    "DisableTelemetry": true,
+    "DisableFirefoxStudies": true,
+    "DisablePocket": true,
+    "DisableFeedbackCommands": true,
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": "",
+    "DontCheckDefaultBrowser": true,
+    "UserMessaging": {
+      "ExtensionRecommendations": false,
+      "FeatureRecommendations": false,
+      "UrlbarInterventions": false,
+      "SkipOnboarding": true,
+      "MoreFromMozilla": false
+    },
     "EncryptedMediaExtensions": {
       "Enabled": true
     },

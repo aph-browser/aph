@@ -9,16 +9,16 @@ bootstrap:
     just rebrand
     @echo "Ready to launch: just dev"
 
-# Download and extract LibreWolf into build/
+# Download and extract Firefox into build/
 setup *args:
     uv run python scripts/fetch.py {{args}}
 
-# Remove current LibreWolf and re-download
+# Remove current Firefox and re-download
 refetch *args:
-    rm -rf build/librewolf
+    rm -rf build/firefox
     uv run python scripts/fetch.py {{args}}
 
-# Launch LibreWolf with Aph profile (replaces ./dev.sh)
+# Launch Firefox with Aph profile (replaces ./dev.sh)
 dev *args:
     uv run python scripts/dev.py {{args}}
 
@@ -34,8 +34,8 @@ status:
     @echo "profile: $(test -d profile && echo exists || echo missing)"
     @echo "config: $(test -f config/user.js && echo ready || echo missing)"
     @test -f profile/user.js && diff -u config/user.js profile/user.js | head -n 20 || echo "profile user.js not yet copied (run: just dev)"
-    @echo "omni.ja: $(test -f build/librewolf/browser/omni.ja.bak && echo rebranded || echo original)"
-    @test -f build/librewolf/browser/omni.ja && uv run python -c "import zipfile; print(open('build/librewolf/browser/omni.ja','rb').read().find(b'Aph'))" | grep -q "^-1" && echo "brand: LibreWolf" || echo "brand: Aph"
+    @echo "omni.ja: $(test -f build/firefox/browser/omni.ja.bak && echo rebranded || echo original)"
+    @test -f build/firefox/browser/omni.ja && uv run python -c "import zipfile; print(open('build/firefox/browser/omni.ja','rb').read().find(b'Aph'))" | grep -q "^-1" && echo "brand: Firefox" || echo "brand: Aph"
 
 # Delete profile (full wipe) - explicit command
 nuke:
@@ -52,7 +52,7 @@ wipe: nuke
 
 # Restore original omni.ja and policies.json from pristine backups
 restore:
-    test -f build/librewolf/browser/omni.ja.bak && cp build/librewolf/browser/omni.ja.bak build/librewolf/browser/omni.ja || true
-    test -f build/librewolf/omni.ja.bak && cp build/librewolf/omni.ja.bak build/librewolf/omni.ja || true
-    test -f build/librewolf/distribution/policies.json.bak && cp build/librewolf/distribution/policies.json.bak build/librewolf/distribution/policies.json || true
+    test -f build/firefox/browser/omni.ja.bak && cp build/firefox/browser/omni.ja.bak build/firefox/browser/omni.ja || true
+    test -f build/firefox/omni.ja.bak && cp build/firefox/omni.ja.bak build/firefox/omni.ja || true
+    test -f build/firefox/distribution/policies.json.bak && cp build/firefox/distribution/policies.json.bak build/firefox/distribution/policies.json || true
     @echo "Restored pristine omni.ja and policies.json"

@@ -1,7 +1,7 @@
 [project]
 name = "aph"
 version = "0.1.0"
-description = "Aph Browser — LibreWolf-based browser with native overrides"
+description = "Aph Browser — Firefox-based browser with native overrides"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["Pillow>=11"]
