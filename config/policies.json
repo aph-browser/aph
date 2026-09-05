@@ -7,12 +7,58 @@
     "OverrideFirstRunPage": "",
     "OverridePostUpdatePage": "",
     "DontCheckDefaultBrowser": true,
+    "DisableDefaultBrowserAgent": true,
+    "DisableRemoteImprovements": true,
+    "DisableAppUpdate": true,
+    "AppUpdateURL": "https://localhost",
+    "NoDefaultBookmarks": true,
+    "SkipTermsOfUse": true,
+    "HttpsOnlyMode": "enabled",
+    "AIControls": {
+      "Translations": {
+        "Value": "available"
+      },
+      "PDFAltText": {
+        "Value": "blocked"
+      },
+      "SmartTabGroups": {
+        "Value": "blocked"
+      },
+      "LinkPreviewKeyPoints": {
+        "Value": "blocked"
+      },
+      "SidebarChatbot": {
+        "Value": "blocked"
+      },
+      "SmartWindow": {
+        "Value": "blocked"
+      }
+    },
+    "FirefoxHome": {
+      "Weather": false,
+      "TopSites": false,
+      "SponsoredTopSites": false,
+      "Highlights": false,
+      "Stories": false,
+      "SponsoredStories": false
+    },
+    "FirefoxSuggest": {
+      "WebSuggestions": false,
+      "SponsoredSuggestions": false,
+      "ImproveSuggest": false
+    },
+    "LocalNetworkAccess": {
+      "Enabled": true,
+      "BlockTrackers": true,
+      "EnablePrompting": true
+    },
     "UserMessaging": {
       "ExtensionRecommendations": false,
       "FeatureRecommendations": false,
       "UrlbarInterventions": false,
       "SkipOnboarding": true,
-      "MoreFromMozilla": false
+      "MoreFromMozilla": false,
+      "FirefoxLabs": false
     },
     "EncryptedMediaExtensions": {
       "Enabled": true
@@ -23,6 +69,9 @@
     },
     "ExtensionSettings": {
       "*": {
+        "installation_mode": "allowed",
+        "allowed_types": ["dictionary", "extension", "sitepermission", "theme"],
+        "blocked_install_message": "Aph does not allow installing Language Packs.",
         "default_area": "menupanel"
       },
       "uBlock0@raymondhill.net": {
