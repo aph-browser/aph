@@ -4,6 +4,9 @@
 
 :root {
   --aph-pop-in: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  /* Hide grace: show instantly, hide after this delay. 0.5s is the sweet
+     spot — <0.2s still flickers, >1s feels sticky (macOS dock ≈0.5s). */
+  --aph-hide-delay: 0.5s;
   --urlbar-container-min-width: 0px !important;
 }
 
@@ -47,53 +50,78 @@
 
 /* ==========================================================================
    3. Buttons: Negative Margins at Idle (Cancels physical layout footprint)
+   Hide is DELAYED via --aph-hide-delay; show is instant (see §4).
+   NOTE: visibility (not pointer-events) gates clickability — pointer-events
+   flips instantly and would kill clicks during the hide delay, while
+   visibility respects the transition delay and still blocks hit-testing
+   once fully hidden.
    ========================================================================== */
 
 /* Left-side buttons: collapse by sliding left */
 #nav-bar-customization-target > :is(#alltabs-button, #unified-extensions-button) {
   margin-inline-start: -34px !important;
   opacity: 0 !important;
-  pointer-events: none !important;
-  transition: margin-inline-start var(--aph-pop-in), opacity 0.15s ease !important;
+  visibility: hidden !important;
+  transition: margin-inline-start var(--aph-pop-in) var(--aph-hide-delay), opacity 0.15s ease var(--aph-hide-delay), visibility 0s linear var(--aph-hide-delay) !important;
 }
 
 /* Right-side buttons inside customization target: collapse by sliding right */
 #nav-bar-customization-target > :is(#forward-button, #back-button, #ublock0_raymondhill_net-browser-action, #sidebar-button) {
   margin-inline-end: -34px !important;
   opacity: 0 !important;
-  pointer-events: none !important;
-  transition: margin-inline-end var(--aph-pop-in), opacity 0.15s ease !important;
+  visibility: hidden !important;
+  transition: margin-inline-end var(--aph-pop-in) var(--aph-hide-delay), opacity 0.15s ease var(--aph-hide-delay), visibility 0s linear var(--aph-hide-delay) !important;
 }
 
 /* Hamburger button (outside target): collapse by sliding right */
 #PanelUI-button {
   margin-inline-end: -38px !important;
   opacity: 0 !important;
-  pointer-events: none !important;
-  transition: margin-inline-end var(--aph-pop-in), opacity 0.15s ease !important;
+  visibility: hidden !important;
+  transition: margin-inline-end var(--aph-pop-in) var(--aph-hide-delay), opacity 0.15s ease var(--aph-hide-delay), visibility 0s linear var(--aph-hide-delay) !important;
 }
 
 /* ==========================================================================
-   4. Buttons: Reveal on Hover / Focus (Margins return to normal)
+   4. Buttons: Reveal on Hover / Focus / Open Popup (Margins return to normal,
+   no delay)
+   Transition spec comes from the DESTINATION state, so :hover's 0s delay
+   = instant show, idle's var(--aph-hide-delay) = delayed hide.
+   :has([open]) + [data-aph-popup-open] keep the bar pinned while a menu
+   (uBO, extensions, hamburger, all-tabs) is open — otherwise the anchor
+   slides away under the mouse and the popup closes.
    ========================================================================== */
 
 #navigator-toolbox:hover #nav-bar-customization-target > :is(#alltabs-button, #unified-extensions-button),
 #nav-bar:hover #nav-bar-customization-target > :is(#alltabs-button, #unified-extensions-button),
-#nav-bar:focus-within #nav-bar-customization-target > :is(#alltabs-button, #unified-extensions-button) {
+#nav-bar:focus-within #nav-bar-customization-target > :is(#alltabs-button, #unified-extensions-button),
+#navigator-toolbox:has(#nav-bar :is(toolbarbutton, toolbaritem)[open="true"]) #nav-bar-customization-target > :is(#alltabs-button, #unified-extensions-button),
+#nav-bar:has(:is(toolbarbutton, toolbaritem)[open="true"]) #nav-bar-customization-target > :is(#alltabs-button, #unified-extensions-button),
+#navigator-toolbox[data-aph-popup-open] #nav-bar-customization-target > :is(#alltabs-button, #unified-extensions-button),
+#nav-bar[data-aph-popup-open] #nav-bar-customization-target > :is(#alltabs-button, #unified-extensions-button) {
   margin-inline-start: 2px !important;
   opacity: 1 !important;
-  pointer-events: auto !important;
+  visibility: visible !important;
+  transition: margin-inline-start var(--aph-pop-in) 0s, opacity 0.15s ease 0s, visibility 0s linear 0s !important;
 }
 
 #navigator-toolbox:hover #nav-bar-customization-target > :is(#forward-button, #back-button, #ublock0_raymondhill_net-browser-action, #sidebar-button),
 #nav-bar:hover #nav-bar-customization-target > :is(#forward-button, #back-button, #ublock0_raymondhill_net-browser-action, #sidebar-button),
 #nav-bar:focus-within #nav-bar-customization-target > :is(#forward-button, #back-button, #ublock0_raymondhill_net-browser-action, #sidebar-button),
+#navigator-toolbox:has(#nav-bar :is(toolbarbutton, toolbaritem)[open="true"]) #nav-bar-customization-target > :is(#forward-button, #back-button, #ublock0_raymondhill_net-browser-action, #sidebar-button),
+#nav-bar:has(:is(toolbarbutton, toolbaritem)[open="true"]) #nav-bar-customization-target > :is(#forward-button, #back-button, #ublock0_raymondhill_net-browser-action, #sidebar-button),
+#navigator-toolbox[data-aph-popup-open] #nav-bar-customization-target > :is(#forward-button, #back-button, #ublock0_raymondhill_net-browser-action, #sidebar-button),
+#nav-bar[data-aph-popup-open] #nav-bar-customization-target > :is(#forward-button, #back-button, #ublock0_raymondhill_net-browser-action, #sidebar-button),
 #navigator-toolbox:hover #PanelUI-button,
 #nav-bar:hover #PanelUI-button,
-#nav-bar:focus-within #PanelUI-button {
+#nav-bar:focus-within #PanelUI-button,
+#navigator-toolbox:has(#nav-bar :is(toolbarbutton, toolbaritem)[open="true"]) #PanelUI-button,
+#nav-bar:has(#PanelUI-button[open="true"]) #PanelUI-button,
+#navigator-toolbox[data-aph-popup-open] #PanelUI-button,
+#nav-bar[data-aph-popup-open] #PanelUI-button {
   margin-inline-end: 2px !important;
   opacity: 1 !important;
-  pointer-events: auto !important;
+  visibility: visible !important;
+  transition: margin-inline-end var(--aph-pop-in) 0s, opacity 0.15s ease 0s, visibility 0s linear 0s !important;
 }
 
 /* Enforce rigid 30px height on buttons */
@@ -112,16 +140,25 @@
   flex: 1 1 auto !important;
   min-width: 0px !important;
   height: 30px !important;
-  /* At idle: 6% margin centers the bar with clean breathing room */
+  /* At idle: 6% margin centers the bar with clean breathing room.
+     Delayed like the buttons so the whole bar doesn't snap back early. */
   margin-inline: 6% !important;
-  transition: margin-inline var(--aph-pop-in) !important;
+  transition: margin-inline var(--aph-pop-in) var(--aph-hide-delay) !important;
 }
 
-/* On hover: Margins tighten so buttons fit with room to spare */
+/* On hover: Margins tighten so buttons fit with room to spare (instant).
+   Also pinned while a popup is open or urlbar dropdown is open. */
 #navigator-toolbox:hover #urlbar-container,
 #nav-bar:hover #urlbar-container,
-#nav-bar:focus-within #urlbar-container {
+#nav-bar:focus-within #urlbar-container,
+#navigator-toolbox:has(#nav-bar :is(toolbarbutton, toolbaritem)[open="true"]) #urlbar-container,
+#nav-bar:has(:is(toolbarbutton, toolbaritem)[open="true"]) #urlbar-container,
+#navigator-toolbox[data-aph-popup-open] #urlbar-container,
+#nav-bar[data-aph-popup-open] #urlbar-container,
+#navigator-toolbox:has(#nav-bar #urlbar[open]) #urlbar-container,
+#nav-bar:has(#urlbar[open]) #urlbar-container {
   margin-inline: 8px !important;
+  transition: margin-inline var(--aph-pop-in) 0s !important;
 }
 
 /* Clamp height ONLY while closed; when the dropdown opens, let the

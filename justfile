@@ -35,12 +35,11 @@ status:
     @echo "config: $(test -f config/user.js && echo ready || echo missing)"
     @test -f profile/user.js && diff -u config/user.js profile/user.js | head -n 20 || echo "profile user.js not yet copied (run: just dev)"
     @echo "omni.ja: $(test -f build/firefox/browser/omni.ja.bak && echo rebranded || echo original)"
-    @test -f build/firefox/browser/omni.ja && uv run python -c "import zipfile; print(open('build/firefox/browser/omni.ja','rb').read().find(b'Aph'))" | grep -q "^-1" && echo "brand: Firefox" || echo "brand: Aph"
+    @test -f build/firefox/browser/omni.ja && uv run python -c "print(open('build/firefox/browser/omni.ja','rb').read().find(b'Aph'))" | grep -q "^-1" && echo "brand: Firefox" || echo "brand: Aph"
 
 # Delete profile (full wipe) - explicit command
 nuke:
     rm -rf profile
-    rm -f profile/.purgecache_done
     @echo "profile deleted"
 
 # Clean test profile (alias of nuke)

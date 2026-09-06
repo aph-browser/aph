@@ -17,7 +17,7 @@ def ensure_rebranded(root: Path) -> None:
         from scripts.rebrand import rebrand  # type: ignore
 
         omni = root / "build" / "firefox" / "browser" / "omni.ja"
-        backup = omni.with_suffix(".ja.bak")
+        root_omni = root / "build" / "firefox" / "omni.ja"
         # Only rebrand if backup missing (first run) or branding newer than omni.ja
         if not omni.is_file():
             return
@@ -26,8 +26,12 @@ def ensure_rebranded(root: Path) -> None:
             root / "scripts" / "rebrand.py"
         ]
         newest_source = max(f.stat().st_mtime for f in watch_files if f.is_file())
-        omni_mtime = omni.stat().st_mtime
-        if not backup.exists() or newest_source > omni_mtime:
+        # Both browser and root omni.ja get patched — a missing backup or a
+        # stale timestamp on EITHER one must trigger a rebrand.
+        targets = [p for p in (omni, root_omni) if p.is_file()]
+        if any(not p.with_suffix(".ja.bak").exists() for p in targets) or newest_source > min(
+            p.stat().st_mtime for p in targets
+        ):
             print("Rebranding omni.ja to Aph...")
             rebrand()
     except Exception as e:

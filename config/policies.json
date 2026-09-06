@@ -54,11 +54,22 @@
       "BlockTrackers": true,
       "EnablePrompting": true
     },
+    "Permissions": {
+      "Notifications": {
+        "BlockNewRequests": true
+      },
+      "Location": {
+        "BlockNewRequests": true
+      }
+    },
     "EnableTrackingProtection": {
       "Value": true,
+      "Locked": true,
       "Cryptomining": true,
       "Fingerprinting": true,
-      "EmailTracking": true
+      "EmailTracking": true,
+      "BaselineExceptions": true,
+      "ConvenienceExceptions": false
     },
     "AutofillAddressEnabled": false,
     "AutofillCreditCardEnabled": false,
@@ -71,6 +82,7 @@
       "Fallback": true,
       "Locked": false
     },
+    "CaptivePortal": false,
     "UserMessaging": {
       "ExtensionRecommendations": false,
       "FeatureRecommendations": false,

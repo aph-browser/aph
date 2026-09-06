@@ -8,6 +8,7 @@ user_pref("privacy.clearOnShutdown.cookies", false);
 user_pref("media.eme.enabled", true);
 user_pref("media.gmp-widevinecdm.enabled", true);
 user_pref("media.gmp-provider.enabled", true);
+user_pref("media.ffmpeg.vaapi.enabled", true); // GPU video decode (VA-API)
 
 // 3. Force Vertical Tabs
 user_pref("sidebar.revamp", true);

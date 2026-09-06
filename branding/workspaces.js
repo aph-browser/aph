@@ -730,6 +730,106 @@
     setTimeout(runStartupRestoreOnce, 3000);
   }
 
+  // Keep the auto-hide top bar pinned while a nav-bar popup (uBO,
+  // extensions, hamburger, all-tabs) is open. Pure `:hover` loses when the
+  // mouse moves from the button into the panel, the anchor slides away, and
+  // the popup closes. CSS `:has([open])` covers it when supported; this JS
+  // sets [data-aph-popup-open] as the bulletproof fallback.
+  function initNavPopupHold() {
+    let toolbox = null;
+    let navBar = null;
+    try {
+      toolbox = document.getElementById("navigator-toolbox");
+      navBar = document.getElementById("nav-bar");
+    } catch (e) {}
+    if (!toolbox || !navBar) {
+      return;
+    }
+    const openPopups = new Set();
+
+    function syncHold() {
+      let hasOpen = false;
+      try {
+        hasOpen = !!navBar.querySelector(
+          ":is(toolbarbutton, toolbaritem)[open='true'], :is(toolbarbutton, toolbaritem)[open]"
+        );
+      } catch (e) {}
+      const held = hasOpen || openPopups.size > 0;
+      for (const el of [toolbox, navBar]) {
+        try {
+          if (held) {
+            el.setAttribute("data-aph-popup-open", "1");
+          } else {
+            el.removeAttribute("data-aph-popup-open");
+          }
+        } catch (e) {}
+      }
+    }
+
+    function popupAnchorInNavBar(popup) {
+      try {
+        const anchor = popup.triggerNode || popup.anchorNode;
+        if (anchor && anchor.nodeType === 1) {
+          if (typeof anchor.closest === "function" && anchor.closest("#nav-bar")) {
+            return true;
+          }
+          try {
+            if (navBar.contains(anchor)) {
+              return true;
+            }
+          } catch (e) {}
+        }
+      } catch (e) {}
+      // Extension popups don't always expose triggerNode — if a nav-bar
+      // button is currently [open], assume the popup belongs to it.
+      try {
+        if (navBar.querySelector(":is(toolbarbutton, toolbaritem)[open]")) {
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    }
+
+    try {
+      const obs = new MutationObserver(syncHold);
+      obs.observe(navBar, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["open", "aria-expanded"],
+      });
+    } catch (e) {}
+
+    window.addEventListener(
+      "popupshowing",
+      (e) => {
+        try {
+          const p = e.target;
+          if (!p || (p.localName !== "menupopup" && p.localName !== "panel")) {
+            return;
+          }
+          if (popupAnchorInNavBar(p)) {
+            openPopups.add(p);
+            syncHold();
+          }
+        } catch (err) {}
+      },
+      true
+    );
+    const onHide = (e) => {
+      try {
+        const p = e.target;
+        if (openPopups.has(p)) {
+          openPopups.delete(p);
+        }
+      } catch (err) {}
+      // popuphidden fires before [open] clears — defer one tick.
+      setTimeout(syncHold, 0);
+    };
+    window.addEventListener("popuphidden", onHide, true);
+    window.addEventListener("popuphiding", onHide, true);
+    syncHold();
+  }
+
   function init() {
     // Public API for command palette (and future chrome UI).
     try {
@@ -767,6 +867,9 @@
     gBrowser.tabContainer.addEventListener("TabGroupCreate", onGroupChange);
     gBrowser.tabContainer.addEventListener("TabGroupUpdate", onGroupChange);
     window.addEventListener("keydown", onKey, true);
+    try {
+      initNavPopupHold();
+    } catch (e) {}
     scheduleStartupRestore();
   }
 
