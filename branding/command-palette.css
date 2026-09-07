@@ -67,3 +67,9 @@
   overflow: hidden !important;
   text-overflow: ellipsis !important;
 }
+/* Fuzzy-match highlight: why this row matched the query. */
+.aph-palette-mark {
+  background: rgba(125, 190, 255, 0.28) !important;
+  border-radius: 2px !important;
+  color: inherit !important;
+}

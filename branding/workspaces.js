@@ -1,7 +1,19 @@
 /* Aph workspaces: IDs "1"-"9", zero UI. Alt+Shift+1..9 jumps to a workspace,
  * Ctrl+Alt+1..9 sends the active tab there (stay here, focus next).
- * Tags persist via SessionStore; pinned tabs are global; native tab groups
+ * Tags persist via SessionStore; pinned tabs are per-workspace (each WS has
+ * its own pinned strip, shown/hidden on switch); native tab groups
  * live inside workspaces (one shared tag, header synced, collapsed kept).
+ * Container bindings: each workspace may be bound to one Firefox container
+ * (Ctrl+Alt+B binds current WS to the selected tab's container,
+ * Ctrl+Alt+Shift+B clears). Bound workspaces open new tabs (Ctrl+T,
+ * + button) in that container; Ctrl+Alt+T stays disposable-temp always.
+ * Domain routes: a host may be bound to a workspace ("github.com" -> "2",
+ * managed from the command palette). Fresh top-level navigations matching
+ * a rule are retagged pre-paint and reopened in the target workspace's
+ * bound container; settled tabs never route (no OAuth/SSO hijack).
+ * Workspace names ("2" -> "💼 Work", pref aph.workspaces.names): badge
+ * pill, palette titles and tooltip; rename via badge click, Ctrl+Alt+R,
+ * or the palette rename command.
  * Injected into browser.xhtml via rebrand.py (chrome://browser/content/workspaces.js).
  */
 (function () {
@@ -31,6 +43,431 @@
   let tempCounter = 1;
   const tempContainers = new Set(); // userContextIds created here
 
+  // Workspace ↔ container bindings: each workspace may be bound to one
+  // Firefox container (userContextId). New tabs in a bound workspace land
+  // in that container. Persisted as JSON in a plain pref (survives
+  // restarts); bindings whose container vanished are pruned lazily on
+  // read. Disposable temp containers can never be bound.
+  const WS_CONTAINER_PREF = "aph.workspaces.containerBindings";
+  let wsBindings = null; // lazy-loaded {wsId: userContextId}
+  const CONTAINER_HEX = {
+    blue: "#37adff", turquoise: "#00c79a", green: "#51cf66",
+    yellow: "#e8d44d", orange: "#ff8a36", red: "#ff375f",
+    pink: "#ff7ab2", purple: "#af51f5",
+  };
+
+  function loadBindings() {
+    if (wsBindings) {
+      return wsBindings;
+    }
+    wsBindings = Object.create(null);
+    try {
+      let raw = "";
+      try {
+        raw = Services.prefs.getStringPref(WS_CONTAINER_PREF, "");
+      } catch (e) {}
+      if (raw) {
+        const obj = JSON.parse(raw);
+        for (const k of Object.keys(obj || {})) {
+          const id = Number(obj[k]);
+          if (isValidId(k) && Number.isInteger(id) && id > 0) {
+            wsBindings[k] = id;
+          }
+        }
+      }
+    } catch (e) {}
+    return wsBindings;
+  }
+
+  function saveBindings() {
+    try {
+      const plain = {};
+      const map = loadBindings();
+      for (const k of Object.keys(map)) {
+        plain[k] = map[k];
+      }
+      Services.prefs.setStringPref(WS_CONTAINER_PREF, JSON.stringify(plain));
+    } catch (e) {}
+  }
+
+  function describeContainer(id) {
+    try {
+      const nid = Number(id) || 0;
+      if (!nid || !IdentityService) {
+        return null;
+      }
+      const ident = IdentityService.getPublicIdentityFromId(nid);
+      if (!ident) {
+        return null;
+      }
+      return { name: ident.name || "", color: ident.color || "", icon: ident.icon || "" };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Validated binding for `ws` (0 = none). Prunes stale entries.
+  function getWsContainerId(ws) {
+    if (!isValidId(ws) || !IdentityService) {
+      return 0;
+    }
+    const map = loadBindings();
+    const id = Number(map[ws]) || 0;
+    if (!id) {
+      return 0;
+    }
+    let ok = false;
+    try {
+      ok = !tempContainers.has(id) && !!IdentityService.getPublicIdentityFromId(id);
+    } catch (e) {
+      ok = false;
+    }
+    if (!ok) {
+      try {
+        delete map[ws];
+        saveBindings();
+      } catch (e) {}
+      return 0;
+    }
+    return id;
+  }
+
+  function getAllBindings() {
+    const out = Object.create(null);
+    for (let i = 1; i <= 9; i++) {
+      const ws = String(i);
+      const id = getWsContainerId(ws);
+      if (id) {
+        out[ws] = { userContextId: id, ...(describeContainer(id) || {}) };
+      }
+    }
+    return out;
+  }
+
+  // Bind the current workspace to the selected tab's container.
+  // On a default (containerless) tab this clears the binding instead.
+  // Refuses disposable temp containers (they are deleted on last close).
+  function bindCurrentWsToSelectedTab() {
+    if (!isValidId(current)) {
+      return { ok: false, reason: "no-workspace" };
+    }
+    let tab = null;
+    try {
+      tab = gBrowser.selectedTab;
+    } catch (e) {}
+    if (!tab) {
+      return { ok: false, reason: "no-tab" };
+    }
+    let id = 0;
+    try {
+      id = tab.userContextId || 0;
+    } catch (e) {}
+    if (!id) {
+      clearWsBinding(current);
+      return { ok: true, cleared: true };
+    }
+    try {
+      if (tempContainers.has(id)) {
+        return { ok: false, reason: "temp" };
+      }
+    } catch (e) {}
+    const ident = describeContainer(id);
+    if (!ident) {
+      return { ok: false, reason: "unknown" };
+    }
+    loadBindings()[current] = id;
+    saveBindings();
+    updateIndicator();
+    pulseWorkspaceIndicator();
+    return { ok: true, userContextId: id, name: ident.name };
+  }
+
+  function clearWsBinding(ws) {
+    const target = isValidId(ws) ? ws : isValidId(current) ? current : null;
+    if (!target) {
+      return;
+    }
+    try {
+      delete loadBindings()[target];
+      saveBindings();
+    } catch (e) {}
+    updateIndicator();
+  }
+
+  // New tab in `ws` using its bound container (plain tab when unbound).
+  function openBoundTab(url = "about:newtab", wsArg) {
+    const ws = isValidId(wsArg) ? wsArg : isValidId(current) ? current : "1";
+    const bound = getWsContainerId(ws);
+    try {
+      const t = bound
+        ? gBrowser.addTrustedTab(url, { userContextId: bound })
+        : gBrowser.addTrustedTab(url);
+      // insertAfterCurrent births tabs inside the selected tab's group — eject.
+      try {
+        gBrowser.ungroupTab(t);
+      } catch (e) {}
+      setWs(t, ws);
+      aphShowTab(t);
+      gBrowser.selectedTab = t;
+      return t;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // The + button / menu opens tabs we can't intercept pre-creation (the
+  // container is immutable after TabOpen), so repair selected, still-empty
+  // newtab pages one tick later by swapping in a correctly-containered tab.
+  // ONLY about:newtab/about:home — never about:blank — so window.open
+  // popups and in-flight link loads (blank at TabOpen) are never touched.
+  function armContainerRepair(tab) {
+    try {
+      if (!tab || rawWs(tab) || !isValidId(current)) {
+        return false;
+      }
+      const bound = getWsContainerId(current);
+      if (!bound) {
+        return false;
+      }
+      if ((tab.userContextId || 0) !== 0) {
+        return false;
+      }
+      // NOTE: selection is NOT checked here — at TabOpen time the opener
+      // often hasn't selected the tab yet (+ button selects right after).
+      // Selection is verified in the deferred callback instead.
+      tab.__aphRepairArmed = bound;
+      setTimeout(() => {
+        let armed = 0;
+        try {
+          armed = tab.__aphRepairArmed || 0;
+          delete tab.__aphRepairArmed;
+        } catch (e) {}
+        try {
+          if (!armed || tab.closing || !gBrowser.tabs.includes(tab)) {
+            return;
+          }
+          if (gBrowser.selectedTab !== tab) {
+            // Background tab — leave it alone, tag normally.
+            stampTab(tab);
+            return;
+          }
+          if (rawWs(tab) || (tab.userContextId || 0) !== 0) {
+            return;
+          }
+          const uri = tab.linkedBrowser?.currentURI?.spec;
+          if (uri !== "about:newtab" && uri !== "about:home") {
+            // Navigated away meanwhile (link load, popup) — tag normally.
+            stampTab(tab);
+            return;
+          }
+          if (!isValidId(current) || getWsContainerId(current) !== armed) {
+            stampTab(tab);
+            return;
+          }
+          const replacement = gBrowser.addTrustedTab("about:newtab", { userContextId: armed });
+          try {
+            gBrowser.ungroupTab(replacement);
+          } catch (e) {}
+          setWs(replacement, current);
+          aphShowTab(replacement);
+          try {
+            gBrowser.selectedTab = replacement;
+          } catch (e) {}
+          try {
+            gBrowser.removeTab(tab, { animate: false });
+          } catch (e) {
+            try {
+              gBrowser.removeTab(tab);
+            } catch (_e) {}
+          }
+        } catch (e) {}
+      }, 0);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Domain → workspace routing: each host may be bound to one workspace
+  // ("github.com" -> "2", managed from the command palette). Persisted as
+  // JSON in a plain pref (survives restarts); entries pointing at invalid
+  // workspace IDs are ignored on read. Cross-window sync via the pref
+  // observer registered in init().
+  const WS_ROUTES_PREF = "aph.workspaces.domainRoutes";
+  let wsRoutes = null; // lazy-loaded {host: wsId}
+
+  function normalizeHost(host) {
+    try {
+      return String(host || "").toLowerCase().replace(/\.$/, "");
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function loadRoutes() {
+    if (wsRoutes) {
+      return wsRoutes;
+    }
+    wsRoutes = Object.create(null);
+    try {
+      let raw = "";
+      try {
+        raw = Services.prefs.getStringPref(WS_ROUTES_PREF, "");
+      } catch (e) {}
+      if (raw) {
+        const obj = JSON.parse(raw);
+        for (const k of Object.keys(obj || {})) {
+          const h = normalizeHost(k);
+          if (h && isValidId(obj[k])) {
+            wsRoutes[h] = obj[k];
+          }
+        }
+      }
+    } catch (e) {}
+    return wsRoutes;
+  }
+
+  function saveRoutes() {
+    try {
+      const plain = {};
+      const map = loadRoutes();
+      for (const k of Object.keys(map)) {
+        plain[k] = map[k];
+      }
+      Services.prefs.setStringPref(WS_ROUTES_PREF, JSON.stringify(plain));
+    } catch (e) {}
+  }
+
+  // Longest-suffix wins: "aws.amazon.com" beats "amazon.com", which beats
+  // nothing. Single-label hosts (localhost) only match exactly.
+  function matchRoute(host) {
+    const start = normalizeHost(host);
+    if (!start) {
+      return null;
+    }
+    const rules = loadRoutes();
+    let h = start;
+    for (;;) {
+      if (Object.hasOwn(rules, h)) {
+        const v = rules[h];
+        if (isValidId(v)) {
+          return { pattern: h, ws: v };
+        }
+      }
+      const dot = h.indexOf(".");
+      if (dot === -1) {
+        return null;
+      }
+      h = h.slice(dot + 1);
+    }
+  }
+
+  function setRoute(host, wsId) {
+    const h = normalizeHost(host);
+    if (!h || !isValidId(wsId)) {
+      return false;
+    }
+    loadRoutes()[h] = wsId;
+    saveRoutes();
+    return true;
+  }
+
+  function deleteRoute(host) {
+    const h = normalizeHost(host);
+    if (!h) {
+      return false;
+    }
+    try {
+      if (!Object.hasOwn(loadRoutes(), h)) {
+        return false;
+      }
+      delete loadRoutes()[h];
+      saveRoutes();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function getAllRoutes() {
+    const out = Object.create(null);
+    try {
+      const map = loadRoutes();
+      for (const k of Object.keys(map)) {
+        out[k] = map[k];
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  // Workspace names ("2" -> "💼 Work"). Persisted as JSON in a plain pref.
+  // Empty/blank clears back to the default "Workspace N". Cross-window
+  // sync via the pref observer registered in init().
+  const WS_NAMES_PREF = "aph.workspaces.names";
+  const WS_NAME_MAX = 40;
+  let wsNames = null; // lazy-loaded {wsId: name}
+
+  function loadWsNames() {
+    if (wsNames) {
+      return wsNames;
+    }
+    wsNames = Object.create(null);
+    try {
+      let raw = "";
+      try {
+        raw = Services.prefs.getStringPref(WS_NAMES_PREF, "");
+      } catch (e) {}
+      if (raw) {
+        const obj = JSON.parse(raw);
+        for (const k of Object.keys(obj || {})) {
+          const v = String(obj[k] || "").trim();
+          if (isValidId(k) && v) {
+            wsNames[k] = v.slice(0, WS_NAME_MAX);
+          }
+        }
+      }
+    } catch (e) {}
+    return wsNames;
+  }
+
+  function saveWsNames() {
+    try {
+      const plain = {};
+      const map = loadWsNames();
+      for (const k of Object.keys(map)) {
+        plain[k] = map[k];
+      }
+      Services.prefs.setStringPref(WS_NAMES_PREF, JSON.stringify(plain));
+    } catch (e) {}
+  }
+
+  function getWsName(wsId) {
+    try {
+      return loadWsNames()[wsId] || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function setWsName(wsId, name) {
+    if (!isValidId(wsId)) {
+      return false;
+    }
+    const trimmed = String(name || "").trim().slice(0, WS_NAME_MAX);
+    try {
+      if (trimmed) {
+        loadWsNames()[wsId] = trimmed;
+      } else {
+        delete loadWsNames()[wsId];
+      }
+      saveWsNames();
+    } catch (e) {
+      return false;
+    }
+    updateIndicator();
+    return true;
+  }
+
   function isValidId(v) {
     return v >= "1" && v <= "9" && v.length === 1;
   }
@@ -54,6 +491,74 @@
     } catch (e) {}
   }
 
+  // Per-workspace pinned tabs: stock gBrowser.hideTab() refuses pinned tabs
+  // (`aTab.pinned` early-return), so pinned could only ever be global. These
+  // helpers mirror stock show/hide semantics but work for pinned tabs too
+  // (direct `hidden` attribute + cache invalidation + TabShow/TabHide).
+  // All workspace visibility changes go through these — never stock hideTab.
+  function aphShowTab(tab) {
+    try {
+      gBrowser.showTab(tab);
+    } catch (e) {
+      try {
+        if (tab && tab.hidden) {
+          tab.removeAttribute("hidden");
+        }
+      } catch (_e) {}
+    }
+  }
+
+  function aphHideTab(tab, source) {
+    try {
+      if (!tab || tab.hidden || tab.closing) {
+        return;
+      }
+      try {
+        if (tab.selected) {
+          return;
+        }
+      } catch (e) {}
+      try {
+        if (gBrowser.selectedTab === tab) {
+          return;
+        }
+      } catch (e) {}
+      try {
+        if (tab.linkedBrowser?._sharingState?.webRTC?.sharing) {
+          return;
+        }
+      } catch (e) {}
+      tab.setAttribute("hidden", "true");
+      try {
+        gBrowser.tabContainer._invalidateCachedVisibleTabs();
+      } catch (e) {}
+      try {
+        gBrowser.tabContainer._updateCloseButtons();
+      } catch (e) {}
+      try {
+        if (tab.multiselected) {
+          gBrowser._updateMultiselectedTabCloseButtonTooltip();
+        }
+      } catch (e) {}
+      try {
+        gBrowser.replaceInSuccession(tab, tab.successor);
+      } catch (e) {}
+      try {
+        gBrowser.setSuccessor(tab, null);
+      } catch (e) {}
+      try {
+        const event = document.createEvent("Events");
+        event.initEvent("TabHide", true, false);
+        tab.dispatchEvent(event);
+      } catch (e) {}
+      if (source) {
+        try {
+          SessionStore.setCustomTabValue(tab, "hiddenBy", source);
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
   function groupMembers(group) {
     try {
       return Array.from(group.tabs || []).filter((t) => !t.closing);
@@ -68,7 +573,7 @@
     }
     try {
       const sel = gBrowser.selectedTab;
-      if (sel && !sel.pinned && !sel.closing && tabs.includes(sel) && getWs(sel) === current) {
+      if (sel && !sel.closing && tabs.includes(sel) && getWs(sel) === current) {
         lastSelected[current] = sel;
       }
     } catch (e) {}
@@ -80,7 +585,7 @@
     const candidates = [lastSelected[target], ...tabs];
     let fallback = null;
     for (const t of candidates) {
-      if (t && !t.pinned && !t.closing && tabs.includes(t) && getWs(t) === target) {
+      if (t && !t.closing && tabs.includes(t) && getWs(t) === target) {
         if (!t.group?.collapsed || t.selected) {
           return t;
         }
@@ -115,6 +620,8 @@
   // A group lives in exactly one workspace: majority of real tags wins (never
   // DOM position — a lone mistag must heal, not migrate the group). Ties go
   // to current, else lowest. Idempotent: unanimous groups are a no-op.
+  // (Pinned tabs are excluded below only because Firefox forbids grouping
+  // pinned tabs — not a workspace rule; pinned tabs are per-workspace too.)
   function anchorGroup(group) {
     const members = groupMembers(group).filter((t) => !t.pinned);
     if (members.length < 2) {
@@ -185,9 +692,7 @@
     } catch (e) {}
     for (const m of groupMembers(group).filter((t) => !t.pinned)) {
       if (getWs(m) !== current && m !== selectedTab && !m.hidden) {
-        try {
-          gBrowser.hideTab(m);
-        } catch (e) {}
+        aphHideTab(m);
       }
     }
     syncGroupHeaders(current);
@@ -195,22 +700,18 @@
 
   // One loop shows target tabs and hides the rest. The focus tab is unhidden
   // (and its group unhidden + expanded if needed) BEFORE selecting, because
-  // hideTab refuses the selected tab and hidden tabs may not select.
+  // hiding refuses the selected tab and hidden tabs may not select.
+  // Pinned tabs are per-workspace: shown/hidden exactly like normal tabs.
   function reconcile(target, tabs) {
     let focus = resolveTargetTab(target, tabs);
     if (!focus) {
-      try {
-        focus = gBrowser.addTrustedTab("about:newtab");
-        // insertAfterCurrent births tabs inside the selected tab's group —
-        // eject before tagging, or the stray drags the group cross-workspace.
-        try {
-          gBrowser.ungroupTab(focus);
-        } catch (e) {}
-        setWs(focus, target);
-        tabs = Array.from(gBrowser.tabs);
-      } catch (e) {
+      // Empty workspace: route through openBoundTab so a bound container
+      // applies (raw addTrustedTab would spawn an unbound tab here).
+      focus = openBoundTab("about:newtab", target);
+      if (!focus) {
         return;
       }
+      tabs = Array.from(gBrowser.tabs);
     }
     try {
       if (focus && focus.group?.collapsed && !focus.selected) {
@@ -218,35 +719,33 @@
       }
     } catch (e) {}
     syncGroupHeaders(target);
-    try {
-      gBrowser.showTab(focus);
-    } catch (e) {}
+    aphShowTab(focus);
     try {
       const sel = gBrowser.selectedTab;
-      if (!sel || sel.pinned || sel.closing || getWs(sel) !== target) {
+      if (!sel || sel.closing || getWs(sel) !== target) {
         gBrowser.selectedTab = focus;
       }
       if (gBrowser.selectedTab !== focus) {
-        gBrowser.showTab(focus);
+        aphShowTab(focus);
         gBrowser.selectedTab = focus;
       }
     } catch (e) {}
     for (const t of tabs) {
-      if (t.pinned || t.closing) {
+      if (t.closing) {
         continue;
       }
       try {
         if (getWs(t) === target) {
-          gBrowser.showTab(t);
+          aphShowTab(t);
         } else {
-          gBrowser.hideTab(t);
+          aphHideTab(t);
         }
       } catch (e) {}
     }
     try {
       const sel = gBrowser.selectedTab;
       lastSelected[target] =
-        sel && !sel.pinned && !sel.closing && getWs(sel) === target ? sel : focus;
+        sel && !sel.closing && getWs(sel) === target ? sel : focus;
     } catch (e) {
       lastSelected[target] = focus;
     }
@@ -281,6 +780,7 @@
       return;
     }
     for (const t of tabs) {
+      // Pinned tabs are never auto-closed, even empty ones.
       if (t.pinned || t.closing || t === sel) {
         continue;
       }
@@ -304,8 +804,10 @@
     }
   }
 
-  // Workspace indicator: just a number. The `data-aph-ws` attribute on
-  // tabContainer already existed but nothing rendered it — this badge does.
+  // Workspace indicator: number, or "N: name" pill once named. Click
+  // renames via the command palette (no popover exists — this is the
+  // mouse path). The `data-aph-ws` attribute on tabContainer already
+  // existed but nothing rendered it — this badge does.
   function ensureIndicator() {
     try {
       let el = document.getElementById("aph-ws-indicator");
@@ -320,6 +822,15 @@
       el.id = "aph-ws-indicator";
       el.textContent = isValidId(current) ? current : "1";
       el.title = "Workspace (Alt+Shift+1..9 to switch)";
+      try {
+        el.addEventListener("click", () => {
+          try {
+            if (window.AphPalette) {
+              window.AphPalette.renameCurrent();
+            }
+          } catch (e) {}
+        });
+      } catch (e) {}
       navBar.prepend(el);
       return el;
     } catch (e) {
@@ -331,7 +842,41 @@
     try {
       const el = document.getElementById("aph-ws-indicator") || ensureIndicator();
       if (el) {
-        el.textContent = isValidId(current) ? current : "1";
+        const cur = isValidId(current) ? current : "1";
+        const name = getWsName(cur);
+        el.textContent = name ? `${cur}: ${name}` : cur;
+        // Bound container: color underline + tooltip. boxShadow (not border)
+        // so the fixed 24px badge never shifts layout.
+        let title = `Workspace ${cur}${name ? `: ${name}` : ""} (Alt+Shift+1..9 to switch · click to rename)`;
+        let color = "";
+        try {
+          const bid = getWsContainerId(cur);
+          if (bid) {
+            const d = describeContainer(bid);
+            if (d && d.name) {
+              title = `Workspace ${cur}${name ? `: ${name}` : ""} · ${d.name} container (Ctrl+T opens here · click to rename)`;
+            }
+            if (d && d.color && CONTAINER_HEX[d.color]) {
+              color = CONTAINER_HEX[d.color];
+            }
+          }
+        } catch (e) {}
+        try {
+          let routed = 0;
+          const map = loadRoutes();
+          for (const k of Object.keys(map)) {
+            if (map[k] === cur) {
+              routed++;
+            }
+          }
+          if (routed) {
+            title += ` · ${routed} routed domain${routed === 1 ? "" : "s"}`;
+          }
+        } catch (e) {}
+        el.title = title;
+        try {
+          el.style.boxShadow = color ? `inset 0 -2px 0 ${color}` : "";
+        } catch (e) {}
       }
     } catch (e) {}
   }
@@ -384,8 +929,11 @@
   }
 
   // Send active tab to WS N and stay: eject from group (groups are
-  // single-WS), retag, reconcile to focus next + hide sent tab (hideTab
-  // refuses the selected tab, so selection must move first — reconcile does).
+  // single-WS; pinned tabs are never grouped, so the ungroup is a no-op for
+  // them), retag, reconcile to focus next + hide sent tab (hiding refuses
+  // the selected tab, so selection must move first — reconcile does).
+  // The tab keeps its pinned state, container (containers are immutable per
+  // tab), and position; bindings only affect newly opened tabs.
   function sendTabTo(target) {
     if (!isValidId(target) || target === current) {
       return;
@@ -396,7 +944,7 @@
     } catch (e) {
       return;
     }
-    if (!tab || tab.pinned || tab.closing) {
+    if (!tab || tab.closing) {
       return;
     }
     try {
@@ -433,9 +981,7 @@
       } catch (e) {}
       tempContainers.add(identity.userContextId);
       setWs(tab, ws);
-      try {
-        gBrowser.showTab(tab);
-      } catch (e) {}
+      aphShowTab(tab);
       gBrowser.selectedTab = tab;
     } catch (e) {}
   }
@@ -481,8 +1027,43 @@
     return m ? m[1] : null;
   }
 
+  // True when the key event targets editable text (page inputs, urlbar).
+  function isEditableTarget(t) {
+    try {
+      if (!t) {
+        return false;
+      }
+      if (typeof t.closest === "function" && t.closest("input,textarea,select,[contenteditable]")) {
+        return true;
+      }
+      const tn = String(t.tagName || t.localName || "").toLowerCase();
+      if (tn === "input" || tn === "textarea" || tn === "select") {
+        return true;
+      }
+      return t.isContentEditable === true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function onKey(e) {
     if (e.repeat) {
+      return;
+    }
+    // Plain Ctrl+T opens in the workspace's bound container (if any).
+    // Unbound workspaces fall through to stock Firefox behavior.
+    if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && e.code === "KeyT") {
+      let bound = 0;
+      try {
+        bound = getWsContainerId(isValidId(current) ? current : "1");
+      } catch (err) {}
+      if (bound) {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          openBoundTab();
+        } catch (err) {}
+      }
       return;
     }
     if (!e.altKey || e.metaKey) {
@@ -492,6 +1073,35 @@
       e.preventDefault();
       e.stopPropagation();
       openTempTab();
+      return;
+    }
+    // Ctrl+Alt+B binds the current workspace to the selected tab's
+    // container (default tab = clear); Ctrl+Alt+Shift+B clears directly.
+    if (e.ctrlKey && e.code === "KeyB") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (e.shiftKey) {
+          clearWsBinding(isValidId(current) ? current : "1");
+        } else {
+          bindCurrentWsToSelectedTab();
+        }
+      } catch (err) {}
+      return;
+    }
+    // Ctrl+Alt+R quick-renames the current workspace via the palette.
+    // Skipped in editable text so AltGr+R (®) keeps working while typing.
+    if (e.ctrlKey && !e.shiftKey && e.code === "KeyR") {
+      if (isEditableTarget(e.target)) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (window.AphPalette) {
+          window.AphPalette.renameCurrent();
+        }
+      } catch (err) {}
       return;
     }
     const d = digitFromCode(e.code);
@@ -509,11 +1119,19 @@
     }
   }
 
-  // Stamp fresh tabs (restored keep theirs); inherit a grouped sibling's tag.
+  // Stamp fresh tabs (restored keep theirs, pinned included); inherit a
+  // grouped sibling's tag. Tabs armed for container repair are skipped —
+  // the deferred repair either swaps them (still empty) or stamps them
+  // (navigated away).
   function stampTab(tab) {
-    if (!tab || tab.pinned || rawWs(tab)) {
+    if (!tab || rawWs(tab)) {
       return false;
     }
+    try {
+      if (tab.__aphRepairArmed) {
+        return false;
+      }
+    } catch (ex) {}
     let ws = isValidId(current) ? current : "1";
     try {
       const g = tab.group;
@@ -539,14 +1157,18 @@
     // destination's visible workspace. SessionStore preserves the source tag
     // across adopt, so without this a WS2 group dropped on a WS1 window
     // keeps WS2 and hides / migrates wrong on next switch.
-    if (e.detail && e.detail.adoptedTab && tab && !tab.pinned && isValidId(current)) {
+    if (e.detail && e.detail.adoptedTab && tab && isValidId(current)) {
       setWs(tab, current);
       try {
         adoptedTabs.add(tab);
       } catch (err) {}
+      // Adopted tabs arrive with a live page — settled, never auto-route.
+      try {
+        tab.__aphFresh = false;
+      } catch (err) {}
       try {
         if (getWs(tab) === current) {
-          gBrowser.showTab(tab);
+          aphShowTab(tab);
         }
       } catch (err) {}
       try {
@@ -557,22 +1179,37 @@
       syncGroupHeaders(current);
       return;
     }
+    // Fresh until its first real commit — the progress router may claim it.
+    try {
+      tab.__aphFresh = true;
+    } catch (err) {}
+    // + button / menu tabs in a bound workspace: arm the container repair
+    // (deferred swap); everything else stamps immediately.
+    if (armContainerRepair(tab)) {
+      return;
+    }
     stampTab(tab);
   }
 
   // Restored tabs arrive after load, past init and TabOpen.
+  // Pinned tabs are per-workspace like everything else: stamp, then hide
+  // when they belong elsewhere (unless selected — hiding refuses that).
   function onTabRestored(e) {
     const tab = e.target;
-    if (!tab || tab.pinned) {
+    if (!tab) {
       return;
     }
+    // Restored tabs resume a live page — settled, never auto-route.
+    try {
+      tab.__aphFresh = false;
+    } catch (err) {}
     stampTab(tab);
     // Hide restored tabs that belong to another workspace so they don't leak
     // into the active tab strip (e.g. lazy restore after init's reconcile).
     if (isValidId(current) && getWs(tab) !== current && !tab.hidden) {
       try {
         if (gBrowser.selectedTab !== tab) {
-          gBrowser.hideTab(tab);
+          aphHideTab(tab);
         }
       } catch (err) {}
     }
@@ -594,6 +1231,253 @@
       }
     }
     cleanupTempContainer(tab);
+  }
+
+  // Pin/unpin keeps the tab's workspace tag. Fresh pins (no tag yet) join
+  // the visible workspace. Stock pinTab() unconditionally unhides, so
+  // re-hide when the tab belongs elsewhere (and unhide when it belongs
+  // here but arrived hidden).
+  function onTabPinned(e) {
+    const tab = e.target;
+    if (!tab) {
+      return;
+    }
+    try {
+      if (!rawWs(tab) && isValidId(current)) {
+        setWs(tab, current);
+      }
+    } catch (err) {}
+    try {
+      if (!isValidId(current)) {
+        return;
+      }
+      if (getWs(tab) !== current) {
+        if (gBrowser.selectedTab !== tab && !tab.hidden) {
+          aphHideTab(tab);
+        }
+      } else if (tab.hidden) {
+        aphShowTab(tab);
+      }
+    } catch (err) {}
+  }
+
+  // One-line diagnostics for the Browser Console (Ctrl+Shift+J).
+  function routeLog(msg) {
+    try {
+      Services.console.logStringMessage(`[AphRoutes] ${msg}`);
+    } catch (e) {}
+  }
+
+  // Retag a fresh tab into its routed workspace. When the target workspace
+  // has a bound container the tab can't just be retagged (userContextId is
+  // immutable once loading starts), so a fresh tab — no history worth
+  // keeping — is reopened in the bound container and the original closed,
+  // exactly like stock container extensions do. Foreground tabs pull the
+  // window along via switchTo; background tabs move silently. The
+  // replacement is born settled so its own location change never
+  // re-triggers routing (no loops).
+  function routeTab(tab, target) {
+    if (!isValidId(target) || !tab || tab.closing) {
+      return;
+    }
+    try {
+      let prevSel = null;
+      try {
+        prevSel = gBrowser.selectedTab;
+      } catch (e) {}
+      const selected = prevSel === tab;
+      const bound = getWsContainerId(target);
+      let cid = 0;
+      try {
+        cid = tab.userContextId || 0;
+      } catch (e) {}
+      let spec = "";
+      try {
+        spec = tab.linkedBrowser?.currentURI?.spec || "";
+      } catch (e) {}
+      if (bound && spec && !/^about:/.test(spec) && cid !== bound) {
+        let rep = null;
+        try {
+          rep = gBrowser.addTrustedTab(spec, { userContextId: bound });
+        } catch (e) {
+          rep = null;
+        }
+        if (rep) {
+          try {
+            rep.__aphFresh = false;
+          } catch (e) {}
+          try {
+            gBrowser.ungroupTab(rep);
+          } catch (e) {}
+          setWs(rep, target);
+          if (selected && target !== current) {
+            switchTo(target);
+          }
+          try {
+            if (rep.group?.collapsed) {
+              rep.group.collapsed = false;
+            }
+          } catch (e) {}
+          if (selected) {
+            aphShowTab(rep);
+            try {
+              gBrowser.selectedTab = rep;
+            } catch (e) {}
+            try {
+              lastSelected[target] = rep;
+            } catch (e) {}
+          } else {
+            if (target !== current) {
+              aphHideTab(rep);
+            } else {
+              aphShowTab(rep);
+            }
+            // addTrustedTab may have stolen selection — give it back.
+            if (prevSel && !prevSel.closing && gBrowser.selectedTab !== prevSel) {
+              try {
+                gBrowser.selectedTab = prevSel;
+              } catch (e) {}
+            }
+          }
+          try {
+            gBrowser.removeTab(tab, { animate: false });
+          } catch (e) {
+            try {
+              gBrowser.removeTab(tab);
+            } catch (_e) {}
+          }
+          routeLog(`reopened in container ${bound} (was ${cid})`);
+          return;
+        }
+        // Reopen failed — fall through to a plain retag.
+      }
+      setWs(tab, target);
+      if (selected && target !== current) {
+        switchTo(target);
+        try {
+          if (tab.group?.collapsed) {
+            tab.group.collapsed = false;
+          }
+        } catch (e) {}
+        aphShowTab(tab);
+        try {
+          gBrowser.selectedTab = tab;
+        } catch (e) {}
+        try {
+          lastSelected[target] = tab;
+        } catch (e) {}
+      } else if (!selected && target !== current) {
+        aphHideTab(tab);
+      } else {
+        aphShowTab(tab);
+      }
+    } catch (e) {}
+  }
+
+  // Pre-paint router: top-level, non-same-document http(s) commits in
+  // still-fresh tabs only. The first real commit settles the tab even when
+  // no rule matches, so later redirect chains (OAuth/SSO handshakes) and
+  // in-tab navigations never route.
+  // Signature NOTE: tabbrowser tabs-listeners are called as
+  // (browser, webProgress, request, location, flags) — the <browser>
+  // element is unshifted first (TabProgressListener wrapper, then again
+  // for tabs in _callProgressListeners). NOT the stock listener order.
+  const routeListener = {
+    QueryInterface: (() => {
+      try {
+        return ChromeUtils.generateQI([
+          "nsIWebProgressListener",
+          "nsISupportsWeakReference",
+        ]);
+      } catch (e) {
+        return () => {};
+      }
+    })(),
+    onLocationChange(aBrowser, aWebProgress, aRequest, aLocation, aFlags) {
+      try {
+        let tab = null;
+        try {
+          tab = gBrowser.getTabForBrowser(aBrowser);
+        } catch (e) {
+          return;
+        }
+        if (!tab || tab.closing) {
+          return;
+        }
+        try {
+          if (!aWebProgress || !aWebProgress.isTopLevel) {
+            return;
+          }
+        } catch (e) {
+          return;
+        }
+        try {
+          if (aFlags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT) {
+            return;
+          }
+        } catch (e) {}
+        let scheme = "";
+        try {
+          scheme = String(aLocation.scheme || "").toLowerCase();
+        } catch (e) {
+          return;
+        }
+        if (scheme !== "http" && scheme !== "https") {
+          return;
+        }
+        const host = normalizeHost(
+          (() => {
+            try {
+              return aLocation.asciiHost;
+            } catch (e) {
+              return "";
+            }
+          })()
+        );
+        if (!host) {
+          return;
+        }
+        let fresh = false;
+        try {
+          fresh = !!tab.__aphFresh;
+        } catch (e) {}
+        if (!fresh) {
+          return;
+        }
+        try {
+          tab.__aphFresh = false;
+        } catch (e) {}
+        const m = matchRoute(host);
+        if (!m || getWs(tab) === m.ws) {
+          return;
+        }
+        routeLog(`routing ${host} -> workspace ${m.ws} (rule ${m.pattern})`);
+        routeTab(tab, m.ws);
+      } catch (e) {}
+    },
+    onStateChange() {},
+    onProgressChange() {},
+    onStatusChange() {},
+    onSecurityChange() {},
+    onContentBlockingEvent() {},
+  };
+
+  function initRouteListener() {
+    try {
+      if (!gBrowser || !gBrowser.addTabsProgressListener) {
+        routeLog("OFF: gBrowser.addTabsProgressListener missing");
+        return;
+      }
+      // Takes only the listener (no mask) in this build.
+      gBrowser.addTabsProgressListener(routeListener);
+      // Progress listeners are held weakly — keep our own strong ref.
+      try {
+        window.__aphRouteListener = routeListener;
+      } catch (e) {}
+      routeLog("on");
+    } catch (e) {
+      routeLog(`OFF: register failed (${e})`);
+    }
   }
 
   // TabGroupCreate fires before members are adopted — defer past the settle.
@@ -670,7 +1554,7 @@
     if (!target) {
       try {
         const sel = gBrowser.selectedTab;
-        const sw = sel && !sel.pinned ? rawWs(sel) : null;
+        const sw = sel ? rawWs(sel) : null;
         if (isValidId(sw)) {
           target = sw;
         }
@@ -692,7 +1576,7 @@
     // so we focus the exact tab left open instead of the first in order.
     try {
       const sel = gBrowser.selectedTab;
-      if (sel && !sel.pinned && !sel.closing && rawWs(sel) === target) {
+      if (sel && !sel.closing && rawWs(sel) === target) {
         lastSelected[target] = sel;
       }
     } catch (e) {}
@@ -837,6 +1721,18 @@
         switchTo,
         sendTabTo,
         openTempTab,
+        openBoundTab,
+        bindCurrentWs: bindCurrentWsToSelectedTab,
+        clearWsBinding,
+        getWsContainer: getWsContainerId,
+        describeContainer,
+        getAllBindings,
+        getRoutes: getAllRoutes,
+        setRoute,
+        deleteRoute,
+        matchRoute,
+        getWsName,
+        setWsName,
         getCurrent: () => current,
         getWs,
       };
@@ -850,9 +1746,13 @@
     updateIndicator();
     try {
       for (const t of gBrowser.tabs) {
-        if (!t.pinned && !rawWs(t)) {
+        if (!rawWs(t)) {
           setWs(t, isValidId(current) ? current : "1");
         }
+        // Pre-existing tabs resume live pages — settled, never auto-route.
+        try {
+          t.__aphFresh = false;
+        } catch (e) {}
       }
     } catch (e) {}
     // Session restore may not preserve hidden state; force a full pass.
@@ -864,11 +1764,52 @@
     gBrowser.tabContainer.addEventListener("TabOpen", onTabOpen);
     gBrowser.tabContainer.addEventListener("TabClose", onTabClose);
     gBrowser.tabContainer.addEventListener("SSTabRestored", onTabRestored);
+    gBrowser.tabContainer.addEventListener("TabPinned", onTabPinned);
+    gBrowser.tabContainer.addEventListener("TabUnpinned", onTabPinned);
     gBrowser.tabContainer.addEventListener("TabGroupCreate", onGroupChange);
     gBrowser.tabContainer.addEventListener("TabGroupUpdate", onGroupChange);
     window.addEventListener("keydown", onKey, true);
     try {
       initNavPopupHold();
+    } catch (e) {}
+    // Cross-window binding sync: re-read the pref + repaint the badge.
+    try {
+      const bindingObserver = {
+        observe() {
+          try {
+            wsBindings = null;
+            updateIndicator();
+          } catch (e) {}
+        },
+      };
+      Services.prefs.addObserver(WS_CONTAINER_PREF, bindingObserver);
+    } catch (e) {}
+    // Cross-window route sync: drop the cached rules so the next match
+    // re-reads the pref.
+    try {
+      const routeObserver = {
+        observe() {
+          try {
+            wsRoutes = null;
+          } catch (e) {}
+        },
+      };
+      Services.prefs.addObserver(WS_ROUTES_PREF, routeObserver);
+    } catch (e) {}
+    // Cross-window name sync: drop the cache and repaint the badge.
+    try {
+      const nameObserver = {
+        observe() {
+          try {
+            wsNames = null;
+            updateIndicator();
+          } catch (e) {}
+        },
+      };
+      Services.prefs.addObserver(WS_NAMES_PREF, nameObserver);
+    } catch (e) {}
+    try {
+      initRouteListener();
     } catch (e) {}
     scheduleStartupRestore();
   }

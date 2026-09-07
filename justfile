@@ -3,9 +3,10 @@ set shell := ["bash", "-cu"]
 default:
     @just --list
 
-# Full bootstrap: download, extract, rebrand, and launch
+# Full bootstrap: download, extract, prefs, rebrand, and launch
 bootstrap:
     uv run python scripts/fetch.py
+    uv run python scripts/update_prefs.py --if-missing
     just rebrand
     @echo "Ready to launch: just dev"
 
@@ -28,6 +29,10 @@ run *args: (dev args)
 # Force rebrand of browser/omni.ja (ZIP_STORED, backup -> .bak)
 rebrand:
     uv run python scripts/rebrand.py
+
+# Download latest Betterfox and merge with Aph overrides into config/user.js
+update-prefs:
+    uv run python scripts/update_prefs.py
 
 # Show profile and build status
 status:
