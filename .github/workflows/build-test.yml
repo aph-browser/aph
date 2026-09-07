@@ -1,0 +1,73 @@
+name: Build AppImage (No Release)
+
+# Private cloud builds: manual "Run workflow" button or push to main.
+# The AppImage is uploaded as an Action artifact (auto-deleted after
+# retention-days) — no releases, tags, or notifications.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run harness tests
+        run: node --test "tests/*.test.js"
+
+      - name: Install Python deps
+        run: pip install pillow
+
+      - name: Install AppImage tooling
+        run: sudo apt-get update && sudo apt-get install -y libfuse2 zsync
+
+      - name: Download appimagetool
+        run: |
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+
+      - name: Prepare Aph build
+        run: |
+          python scripts/fetch.py
+          python scripts/update_prefs.py
+          python scripts/rebrand.py
+          python -c "import sys; sys.path.insert(0, '.'); from scripts.dev import merge_policies; from pathlib import Path; merge_policies(Path('.').resolve())"
+
+      - name: Assemble AppDir
+        run: |
+          mkdir -p build/AppDir/usr/bin build/AppDir/usr/share/aph build/AppDir/usr/share/icons/hicolor/128x128/apps
+          cp -r build/firefox/. build/AppDir/usr/bin/
+          cp config/user.js build/AppDir/usr/share/aph/user.js
+          cp branding/aph.png build/AppDir/aph.png
+          cp branding/aph.png build/AppDir/usr/share/icons/hicolor/128x128/apps/aph.png
+          cp packaging/aph.desktop build/AppDir/aph.desktop
+          cp packaging/AppRun build/AppDir/AppRun
+          chmod +x build/AppDir/AppRun
+
+      - name: Build AppImage
+        run: |
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export ARCH=x86_64
+          ./appimagetool build/AppDir aph-x86_64.AppImage
+
+      - name: Smoke test
+        run: |
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          ./aph-x86_64.AppImage --version
+
+      - name: Upload AppImage as private artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aph-x86_64
+          path: aph-x86_64.AppImage
+          retention-days: 7

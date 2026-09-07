@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Aph
+GenericName=Web Browser
+Comment=Aph Browser — Firefox-based, workspaces-first
+Exec=firefox %u
+Icon=aph
+Type=Application
+Categories=Network;WebBrowser;
+Terminal=false
+StartupWMClass=firefox
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;

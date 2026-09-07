@@ -71,7 +71,14 @@
     if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?(\/.*)?$/i.test(s)) {
       return true;
     }
-    if (/^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+(:\d+)?(\/.*)?$/.test(s)) {
+    // Dotted hostnames where the final label contains a letter
+    // ("github.com", "file.txt") — pure numerics ("v1.2.3", "1.2")
+    // are versions, not hosts, and fall through to search.
+    if (/^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*(\.[a-zA-Z0-9-]*[a-zA-Z][a-zA-Z0-9-]*)(:\d+)?(\/.*)?$/.test(s)) {
+      return true;
+    }
+    // IPv4 (plain or LAN) with optional port/path.
+    if (/^\d{1,3}(\.\d{1,3}){3}(:\d+)?(\/.*)?$/.test(s)) {
       return true;
     }
     // Bare host with an explicit port/path, e.g. mybox:8080/status.
@@ -98,8 +105,10 @@
   }
 
   // Container-aware launch: bound container of the current workspace wins
-  // (openBoundTab), temp forces a disposable container. Falls back to a
-  // plain selected tab when the workspaces API is unavailable.
+  // (openBoundTab), temp forces a disposable container. A URL matching a
+  // domain route opens directly in the routed workspace, so the router
+  // doesn't have to close + reopen it a moment later (no double-hop).
+  // Falls back to a plain selected tab when the workspaces API is missing.
   function openURL(url, temp) {
     const api = ws();
     try {
@@ -108,7 +117,7 @@
         return;
       }
       if (!temp && api && api.openBoundTab) {
-        api.openBoundTab(url);
+        api.openBoundTab(url, routedWs(api, url));
         return;
       }
     } catch (e) {}
@@ -118,6 +127,33 @@
         gBrowser.selectedTab = t;
       } catch (_e) {}
     } catch (e) {}
+  }
+
+  function hostOfURL(url) {
+    try {
+      return (new URL(url).hostname || "").toLowerCase().replace(/\.$/, "");
+    } catch (e) {
+      try {
+        const m = String(url || "").match(/^[a-z]+:\/\/([^/:?#]+)/i);
+        return m ? m[1].toLowerCase().replace(/\.$/, "") : "";
+      } catch (_e) {
+        return "";
+      }
+    }
+  }
+
+  // Workspace a URL would route to ("" when none). Temp tabs ignore this
+  // on purpose — Alt+Enter is an explicit disposable choice.
+  function routedWs(api, url) {
+    try {
+      if (api && api.matchRoute) {
+        const m = api.matchRoute(hostOfURL(url));
+        if (m && m.ws) {
+          return m.ws;
+        }
+      }
+    } catch (e) {}
+    return "";
   }
 
   function boundContainerNote() {
@@ -146,9 +182,10 @@
     const note = `${boundContainerNote()} · Alt+Enter opens temp`;
     if (isLikelyURL(q)) {
       const url = normalizeURL(q);
+      const dest = routedWs(ws(), url);
       return {
         title: `Go to ${url}`,
-        sub: `${url}${note}`,
+        sub: `${url}${dest ? ` · auto-routes to WS ${dest}` : note}`,
         hint: "Enter",
         run: () => openURL(url, false),
         runInTemp: () => openURL(url, true),
@@ -902,6 +939,32 @@
     } catch (e) {}
   }
 
+  // True when keyboard focus sits in editable text that isn't our own
+  // input — urlbar, inputs, textareas, contenteditable editors. Same
+  // shape as isEditableTarget() in workspaces.js, rooted at the active
+  // element instead of the event target.
+  function isEditableFocused() {
+    try {
+      const ae = document.activeElement;
+      if (!ae || ae === input) {
+        return false;
+      }
+      const tn = String(ae.tagName || ae.localName || "").toLowerCase();
+      if (tn === "input" || tn === "textarea" || tn === "select") {
+        return true;
+      }
+      if (ae.isContentEditable) {
+        return true;
+      }
+      if (typeof ae.closest === "function" && ae.closest("[contenteditable],#urlbar,#searchbar")) {
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function onListKey(e) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -935,6 +998,12 @@
     const mod = e.ctrlKey || e.metaKey;
     // Toggle on Ctrl/⌘+K (hijack Firefox's search-focus binding).
     if (mod && !e.altKey && !e.shiftKey && e.code === "KeyK") {
+      // Never steal keystrokes from editable text (urlbar, sidebar
+      // inputs, devtools, page editors). Our own field is exempt so
+      // Ctrl+K still closes an open palette.
+      if (!isOpen() && isEditableFocused()) {
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       toggle();

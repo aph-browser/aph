@@ -23,6 +23,12 @@ MARKER = "Betterfox"
 TIMEOUT = 30
 
 
+BANNER = (
+    "// GENERATED — do not edit by hand. "
+    "Edit config/user-overrides.js, then run: just update-prefs\n"
+)
+
+
 def fetch_betterfox() -> str:
     req = urllib.request.Request(
         BETTERFOX_URL, headers={"User-Agent": "aph-update-prefs"}
@@ -36,7 +42,7 @@ def fetch_betterfox() -> str:
 
 
 def merge(betterfox: str, overrides: str) -> str:
-    parts = [betterfox.rstrip("\n"), "", overrides.strip("\n"), ""]
+    parts = [BANNER.rstrip("\n"), "", betterfox.rstrip("\n"), "", overrides.strip("\n"), ""]
     return "\n".join(parts)
 
 

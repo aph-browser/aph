@@ -1,0 +1,10 @@
+#!/bin/sh
+# Aph AppImage launcher — mirrors scripts/dev.py: refresh managed prefs,
+# then run Firefox with the Aph profile.
+set -eu
+HERE="$(dirname "$(readlink -f "$0")")"
+APH_PROFILE="${APH_PROFILE:-$HOME/.aph/profile}"
+mkdir -p "$APH_PROFILE"
+# Managed prefs always win (dev.py parity: config copied on every launch).
+cp -f "$HERE/usr/share/aph/user.js" "$APH_PROFILE/user.js"
+exec "$HERE/usr/bin/firefox" --profile "$APH_PROFILE" --no-remote "$@"

@@ -34,6 +34,10 @@ rebrand:
 update-prefs:
     uv run python scripts/update_prefs.py
 
+# Run node harness tests for the injected browser scripts
+test:
+    node --test "tests/*.test.js"
+
 # Show profile and build status
 status:
     @echo "profile: $(test -d profile && echo exists || echo missing)"

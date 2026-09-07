@@ -1,3 +1,5 @@
+// GENERATED — do not edit by hand. Edit config/user-overrides.js, then run: just update-prefs
+
 //
 /* You may copy+paste this file and use it as it is.
  *
