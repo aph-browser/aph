@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Archive</title>
+<link rel="stylesheet" href="chrome://browser/content/aph-archive.css" />
+<script src="chrome://browser/content/archive-shared.js"></script>
+<script src="chrome://browser/content/aph-archive-page.js"></script>
+</head>
+<body>
+<div id="aph-archive">
+  <header id="aph-archive-head">
+    <div id="aph-archive-title">Archive <span id="aph-archive-count"></span></div>
+    <input id="aph-archive-search" type="text" placeholder="Filter by title, domain, workspace…" autocomplete="off" spellcheck="false" />
+    <div id="aph-archive-pills"></div>
+  </header>
+  <main id="aph-archive-list"></main>
+  <div id="aph-archive-empty" hidden>No archived tabs yet. Archive one from the tab menu or the palette.</div>
+  <div id="aph-archive-nobridge" hidden>Archive bridge unavailable — restores are disabled. Try reloading this page.</div>
+  <div id="aph-archive-toast"></div>
+</div>
+</body>
+</html>

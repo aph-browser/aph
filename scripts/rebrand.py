@@ -74,6 +74,33 @@ TEXTPICK_PARENT_SRC = BRANDING_DIR / "textpick-parent.sys.mjs"
 TEXTPICK_PARENT_JA_PATH = "actors/AphTextPickParent.sys.mjs"
 TEXTPICK_PARENT_URI = "resource:///actors/AphTextPickParent.sys.mjs"
 
+# Tab archive: window controller + shared logic ride browser.xhtml (script
+# tags, like workspaces.js); the archive page (HTML/CSS/page script) ships
+# tag-less and loads by chrome:// URL in its own tab.
+ARCHIVE_SHARED_SRC = BRANDING_DIR / "archive-shared.js"
+ARCHIVE_SHARED_JA_PATH = "chrome/browser/content/browser/archive-shared.js"
+ARCHIVE_SHARED_SCRIPT_TAG = (
+    '<script src="chrome://browser/content/archive-shared.js"></script>'
+)
+ARCHIVE_JS_SRC = BRANDING_DIR / "archive.js"
+ARCHIVE_JA_PATH = "chrome/browser/content/browser/archive.js"
+ARCHIVE_SCRIPT_TAG = (
+    '<script src="chrome://browser/content/archive.js"></script>'
+)
+ARCHIVE_HTML_SRC = BRANDING_DIR / "archive.html"
+ARCHIVE_HTML_JA_PATH = "chrome/browser/content/browser/aph-archive.html"
+ARCHIVE_CSS_SRC = BRANDING_DIR / "archive.css"
+ARCHIVE_CSS_JA_PATH = "chrome/browser/content/browser/aph-archive.css"
+ARCHIVE_PAGE_SRC = BRANDING_DIR / "archive-page.js"
+ARCHIVE_PAGE_JA_PATH = "chrome/browser/content/browser/aph-archive-page.js"
+
+# Tab rename: per-tab custom labels, window controller via xhtml script tag.
+TABRENAME_JS_SRC = BRANDING_DIR / "tabrename.js"
+TABRENAME_JA_PATH = "chrome/browser/content/browser/tabrename.js"
+TABRENAME_SCRIPT_TAG = (
+    '<script src="chrome://browser/content/tabrename.js"></script>'
+)
+
 BRAND_PROPERTIES_TEMPLATE = """brandShorterName=Aph
 brandShortName=Aph
 brandFullName=Aph Browser
@@ -251,14 +278,22 @@ def _patch_single_ja(
     palette_js: bytes | None = None, palette_css: bytes | None = None,
     textpick_js: bytes | None = None,
     textpick: dict[str, bytes] | None = None,
-) -> tuple[int, int, int, int, int, int, int, int, int, int, int, int]:
+    archive_js: bytes | None = None, archive_shared_js: bytes | None = None,
+    archive_page: dict[str, bytes] | None = None,
+    tabrename_js: bytes | None = None,
+) -> tuple[int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int]:
     """Patch a single omni.ja from its pristine backup.
 
     textpick_js is the window controller (xhtml script tag, like
     workspaces.js); textpick maps ja_path -> bytes for the tag-less picker
-    files (actor child/parent + shared logic). Return counts (brand_ftl,
-    brandings_ftl, sync_ftl, props, dtd, logos, xhtml, wsjs, css, paljs,
-    palcss, textpick) with textpick covering all four picker files.
+    files (actor child/parent + shared logic). archive_js/archive_shared_js
+    are window controllers (xhtml script tags); archive_page maps ja_path ->
+    bytes for the tag-less archive page (HTML/CSS/page script, loaded by
+    chrome:// URL). tabrename_js is the tab-rename window controller (xhtml
+    script tag). Return counts (brand_ftl, brandings_ftl, sync_ftl,
+    props, dtd, logos, xhtml, wsjs, css, paljs, palcss, textpick,
+    archivejs, archiveshared, archivepage, tabrenamejs) with
+    textpick/archivepage covering their multi-file groups.
     """
     backup = ja_path.with_suffix(".ja.bak")
     if not backup.exists():
@@ -275,6 +310,9 @@ def _patch_single_ja(
     count_brand = count_brandings = count_sync = count_props = count_dtd = count_logo = 0
     count_xhtml = count_wsjs = count_css = count_paljs = count_palcss = 0
     count_textpick = 0
+    count_archivejs = count_archiveshared = count_archivepage = 0
+    count_tabrenamejs = 0
+    count_tabrenamejs = 0
     # mkstemp returns an open handle we never use (ZipFile opens by path).
     # Close it at once: holding it across shutil.move breaks Windows (file lock).
     tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".ja", dir=str(ja_path.parent))
@@ -389,7 +427,7 @@ def _patch_single_ja(
                 count_textpick += 1
 
             # Append tag-less text-picker files (browser omni only — the
-            # actor framework loads them by chrome:// URI, no xhtml tag).
+              # actor framework loads them by chrome:// URI, no xhtml tag).
             if textpick and WORKSPACES_XHTML_PATH in existing:
                 for tp_path, tp_data in textpick.items():
                     if tp_data is not None and tp_path not in existing:
@@ -398,6 +436,54 @@ def _patch_single_ja(
                         new_info.external_attr = 0o644 << 16
                         zout.writestr(new_info, tp_data)
                         count_textpick += 1
+
+            # Append archive-shared.js (window scope for archive.js, page
+            # scope for aph-archive.html — both classic scripts).
+            if (
+                archive_shared_js is not None
+                and WORKSPACES_XHTML_PATH in existing
+                and ARCHIVE_SHARED_JA_PATH not in existing
+            ):
+                new_info = zipfile.ZipInfo(filename=ARCHIVE_SHARED_JA_PATH)
+                new_info.compress_type = zipfile.ZIP_STORED
+                new_info.external_attr = 0o644 << 16
+                zout.writestr(new_info, archive_shared_js)
+                count_archiveshared += 1
+
+            # Append archive.js window controller (browser omni only).
+            if (
+                archive_js is not None
+                and WORKSPACES_XHTML_PATH in existing
+                and ARCHIVE_JA_PATH not in existing
+            ):
+                new_info = zipfile.ZipInfo(filename=ARCHIVE_JA_PATH)
+                new_info.compress_type = zipfile.ZIP_STORED
+                new_info.external_attr = 0o644 << 16
+                zout.writestr(new_info, archive_js)
+                count_archivejs += 1
+
+            # Append tag-less archive page files (browser omni only — the
+            # page loads by chrome:// URL in its own tab, no xhtml tag).
+            if archive_page and WORKSPACES_XHTML_PATH in existing:
+                for ap_path, ap_data in archive_page.items():
+                    if ap_data is not None and ap_path not in existing:
+                        new_info = zipfile.ZipInfo(filename=ap_path)
+                        new_info.compress_type = zipfile.ZIP_STORED
+                        new_info.external_attr = 0o644 << 16
+                        zout.writestr(new_info, ap_data)
+                        count_archivepage += 1
+
+            # Append tabrename.js window controller (browser omni only).
+            if (
+                tabrename_js is not None
+                and WORKSPACES_XHTML_PATH in existing
+                and TABRENAME_JA_PATH not in existing
+            ):
+                new_info = zipfile.ZipInfo(filename=TABRENAME_JA_PATH)
+                new_info.compress_type = zipfile.ZIP_STORED
+                new_info.external_attr = 0o644 << 16
+                zout.writestr(new_info, tabrename_js)
+                count_tabrenamejs += 1
 
         shutil.move(str(tmp_path), str(ja_path))
 
@@ -414,7 +500,7 @@ def _patch_single_ja(
             and count_dtd == 0
         ):
             raise ValueError("0 brand files replaced — layout changed?")
-        return count_brand, count_brandings, count_sync, count_props, count_dtd, count_logo, count_xhtml, count_wsjs, count_css, count_paljs, count_palcss, count_textpick
+        return count_brand, count_brandings, count_sync, count_props, count_dtd, count_logo, count_xhtml, count_wsjs, count_css, count_paljs, count_palcss, count_textpick, count_archivejs, count_archiveshared, count_archivepage, count_tabrenamejs
     finally:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
@@ -438,6 +524,12 @@ def _inject_workspaces_script(xhtml_bytes: bytes) -> bytes:
         tags_to_inject.append(PALETTE_SCRIPT_TAG)
     if TEXTPICK_SCRIPT_TAG not in text:
         tags_to_inject.append(TEXTPICK_SCRIPT_TAG)
+    if ARCHIVE_SHARED_SCRIPT_TAG not in text:
+        tags_to_inject.append(ARCHIVE_SHARED_SCRIPT_TAG)
+    if ARCHIVE_SCRIPT_TAG not in text:
+        tags_to_inject.append(ARCHIVE_SCRIPT_TAG)
+    if TABRENAME_SCRIPT_TAG not in text:
+        tags_to_inject.append(TABRENAME_SCRIPT_TAG)
 
     if not tags_to_inject:
         return xhtml_bytes
@@ -572,6 +664,38 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
         else:
             print(f"WARNING: {src} not found, skipping picker file.")
 
+    # 6d. Tab archive: window controller + shared logic (xhtml script tags)
+    # + tag-less archive page (HTML/CSS/page script, chrome:// URL).
+    archive_shared_js: bytes | None = None
+    if ARCHIVE_SHARED_SRC.is_file():
+        archive_shared_js = ARCHIVE_SHARED_SRC.read_bytes()
+    else:
+        print(f"WARNING: {ARCHIVE_SHARED_SRC} not found, skipping archive shared injection.")
+
+    archive_js: bytes | None = None
+    if ARCHIVE_JS_SRC.is_file():
+        archive_js = ARCHIVE_JS_SRC.read_bytes()
+    else:
+        print(f"WARNING: {ARCHIVE_JS_SRC} not found, skipping archive injection.")
+
+    archive_page: dict[str, bytes] = {}
+    for src, ja_path in (
+        (ARCHIVE_HTML_SRC, ARCHIVE_HTML_JA_PATH),
+        (ARCHIVE_CSS_SRC, ARCHIVE_CSS_JA_PATH),
+        (ARCHIVE_PAGE_SRC, ARCHIVE_PAGE_JA_PATH),
+    ):
+        if src.is_file():
+            archive_page[ja_path] = src.read_bytes()
+        else:
+            print(f"WARNING: {src} not found, skipping archive page file.")
+
+    # 6e. Tab rename: window controller (xhtml script tag).
+    tabrename_js: bytes | None = None
+    if TABRENAME_JS_SRC.is_file():
+        tabrename_js = TABRENAME_JS_SRC.read_bytes()
+    else:
+        print(f"WARNING: {TABRENAME_JS_SRC} not found, skipping tab rename injection.")
+
     # 7. (nav-hover removed: auto-hide nav-bar is pure CSS now, via an 8px
     #    min-height hover strip on #navigator-toolbox in theme.css.)
 
@@ -579,10 +703,13 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
     for ja_path in targets:
         try:
             (c_brand, c_brandings, c_sync, c_props, c_dtd, c_logo,
-             c_xhtml, c_wsjs, c_css, c_paljs, c_palcss, c_textpick) = _patch_single_ja(
+             c_xhtml, c_wsjs, c_css, c_paljs, c_palcss, c_textpick,
+             c_archivejs, c_archiveshared, c_archivepage, c_tabrenamejs) = _patch_single_ja(
                 ja_path, brand_ftl_data, brandings_ftl_data, sync_ftl_data, logos,
                 workspaces_js, theme_css, palette_js, palette_css,
                 textpick_js, textpick,
+                archive_js, archive_shared_js, archive_page,
+                tabrename_js,
             )
             print(
                 f"Rebranded {ja_path.relative_to(ROOT)}: "
@@ -590,7 +717,10 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
                 f"{c_props} brand.properties, {c_dtd} brand.dtd, {c_logo} logos, "
                 f"{c_xhtml} browser.xhtml, {c_wsjs} workspaces.js, {c_css} theme.css, "
                 f"{c_paljs} palette.js, {c_palcss} palette.css, "
-                f"{c_textpick} textpick files (controller/shared/child/parent)"
+                f"{c_textpick} textpick files (controller/shared/child/parent), "
+                f"{c_archivejs} archive.js, {c_archiveshared} archive-shared.js, "
+                f"{c_archivepage} archive page files (html/css/page), "
+                f"{c_tabrenamejs} tabrename.js"
             )
         except Exception as e:
             print(f"ERROR patching {ja_path}: {e}")

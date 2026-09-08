@@ -225,6 +225,12 @@
   }
 
   function onKey(e) {
+    // Inline tab-rename editor owns its keystrokes (see workspaces.js).
+    try {
+      if (e.target && e.target.id === "aph-tab-rename-input") {
+        return;
+      }
+    } catch (err) {}
     if (e.repeat) {
       return;
     }

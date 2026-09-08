@@ -57,6 +57,32 @@
     return `Workspace ${n}${name ? ` (${name})` : ""}${wsContainerSuffix(api, n)}`;
   }
 
+  function arc() {
+    try {
+      return window.AphArchive || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // "Archive Current Tab", or "Archive N Tabs" when a multiselection is
+  // pending. Fully guarded: the archive controller may be absent (tests).
+  function archiveCmdTitle() {
+    try {
+      const a = arc();
+      if (a && typeof a.pendingCount === "function" && a.pendingCount() > 1) {
+        return `Archive ${a.pendingCount()} Tabs`;
+      }
+    } catch (e) {}
+    try {
+      const n = (gBrowser.selectedTabs || gBrowser.multiselectedTabs || []).length;
+      if (n > 1) {
+        return `Archive ${n} Tabs`;
+      }
+    } catch (e) {}
+    return "Archive Current Tab";
+  }
+
   // --- URL / search fallback -------------------------------------------
   // Direct navigation: "github.com", "localhost:3000", "https://…".
   // Anything with whitespace is a search, never a URL.
@@ -355,6 +381,13 @@
         });
       }
     } catch (e) {}
+    cmds.push({
+      title: "Rename Tab…",
+      hint: "",
+      sub: "Custom label for the current tab · empty clears",
+      keepOpen: true,
+      run: () => renameCurrentTab(),
+    });
     // Tabs / windows
     cmds.push(
       {
@@ -411,6 +444,38 @@
             if (api && api.unloadEligibleTabs) {
               api.unloadEligibleTabs({ scope: "foreign" });
             }
+          } catch (e) {}
+        },
+      },
+      {
+        title: archiveCmdTitle(),
+        hint: "",
+        sub: "Saves workspace + container, closes the tab · restorable",
+        run: () => {
+          try {
+            if (arc() && arc().archiveCurrent) {
+              arc().archiveCurrent();
+            }
+          } catch (e) {}
+        },
+      },
+      {
+        title: "Open Archive",
+        hint: "",
+        sub: "Browse and restore archived tabs with full context",
+        run: () => {
+          try {
+            if (arc() && arc().openArchive && arc().openArchive()) {
+              return;
+            }
+          } catch (e) {}
+          try {
+            const t = gBrowser.addTrustedTab(
+              "chrome://browser/content/aph-archive.html"
+            );
+            try {
+              gBrowser.selectedTab = t;
+            } catch (_e) {}
           } catch (e) {}
         },
       },
@@ -906,6 +971,28 @@
     });
   }
 
+  // Tab rename entry point: prompts for the selected tab via the tab-rename
+  // controller (branding/tabrename.js). No-ops when it is absent (tests).
+  function renameCurrentTab() {
+    let api = null;
+    try {
+      api = window.AphTabRename || null;
+    } catch (e) {}
+    if (!api || typeof api.promptRename !== "function") {
+      return;
+    }
+    let tab = null;
+    try {
+      tab = gBrowser.selectedTab;
+    } catch (e) {}
+    if (!tab) {
+      return;
+    }
+    try {
+      api.promptRename(tab);
+    } catch (e) {}
+  }
+
   function close() {
     prompt = null;
     if (overlay) {
@@ -1048,9 +1135,9 @@
 
   window.addEventListener("keydown", onKey, true);
 
-  // Public API for the workspace badge / shortcuts.
+  // Public API for the workspace badge / shortcuts / tab rename.
   try {
-    window.AphPalette = { open, toggle, renameCurrent };
+    window.AphPalette = { open, toggle, renameCurrent, prompt: startPrompt };
   } catch (e) {}
 
   if (document.readyState === "complete") {

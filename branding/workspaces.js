@@ -1,4 +1,6 @@
 /* Aph workspaces: IDs "1"-"9", zero UI. Alt+Shift+1..9 jumps to a workspace,
+ * Alt+Shift+]/Right cycles next active, Alt+Shift+[/Left cycles previous,
+ * Alt+Shift+Tab toggles the last two used (MRU),
  * Ctrl+Alt+1..9 sends the active tab there (stay here, focus next).
  * Tags persist via SessionStore; pinned tabs are global (never hidden —
  * stock Firefox assumes hidden pinned tabs never exist and vertical-tab
@@ -29,22 +31,27 @@
   const WIN_KEY = "aphWsCurrent";
   let current = "1";
   const lastSelected = Object.create(null); // workspaceId -> last tab
+  let lastUsed = null; // MRU workspace for Alt+Shift+Tab toggle
   // Tabs that arrived via cross-window drag (TabOpen detail.adoptedTab).
   // They join the destination's visible workspace; anchorGroup lets them
   // drag the whole group instead of being healed back to the source tag.
   const adoptedTabs = new WeakSet();
 
-  // Disposable container tabs (Ctrl+Alt+T). Stock path first, this build's
-  // packaged path second — wrapped so the shortcut never dies if both fail.
+  // Disposable container tabs (Ctrl+Alt+T). moz-src path first: it is the
+  // canonical URI in packaged builds (every internal importer uses it, and
+  // resource://gre/modules/... does not exist in omni.ja — importing it
+  // first throws a "Missing chrome or resource URL" console error on every
+  // launch on every OS). gre/modules kept as fallback for older layouts.
+  // Wrapped so the shortcut never dies if both fail.
   let IdentityService = null;
   try {
     ({ ContextualIdentityService: IdentityService } = ChromeUtils.importESModule(
-      "resource://gre/modules/ContextualIdentityService.sys.mjs"
+      "moz-src:///toolkit/components/contextualidentity/ContextualIdentityService.sys.mjs"
     ));
   } catch (e) {
     try {
       ({ ContextualIdentityService: IdentityService } = ChromeUtils.importESModule(
-        "moz-src:///toolkit/components/contextualidentity/ContextualIdentityService.sys.mjs"
+        "resource://gre/modules/ContextualIdentityService.sys.mjs"
       ));
     } catch (e2) {}
   }
@@ -293,10 +300,44 @@
       setWs(t, ws);
       aphShowTab(t);
       gBrowser.selectedTab = t;
+      focusUrlBar();
       return t;
     } catch (e) {
       return null;
     }
+  }
+
+  // Open `url` tagged into `ws` with an explicit container (0 = default).
+  // Unlike openBoundTab (which uses the workspace's bound container), the
+  // container is chosen by the caller — used by the tab archive to restore
+  // full context (workspace + container). Returns the tab, unselected.
+  function openInWorkspace(url, wsArg, userContextId) {
+    const target = isValidId(wsArg) ? wsArg : isValidId(current) ? current : "1";
+    try {
+      const t = userContextId
+        ? gBrowser.addTrustedTab(url, { userContextId })
+        : gBrowser.addTrustedTab(url);
+      // insertAfterCurrent births tabs inside the selected tab's group — eject.
+      try {
+        gBrowser.ungroupTab(t);
+      } catch (e) {}
+      setWs(t, target);
+      return t;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Stock BrowserOpenTab focuses the urlbar after selecting the new tab.
+  // Our programmatic opens (bound Ctrl+T, temp tab, container-repair swap)
+  // select tabs without that step, so typing would go nowhere. Guarded:
+  // no-ops in contexts without a urlbar (tests, popups).
+  function focusUrlBar() {
+    try {
+      if (typeof gURLBar !== "undefined" && gURLBar && typeof gURLBar.focus === "function") {
+        gURLBar.focus();
+      }
+    } catch (e) {}
   }
 
   // The + button / menu opens tabs we can't intercept pre-creation (the
@@ -357,6 +398,9 @@
           try {
             gBrowser.selectedTab = replacement;
           } catch (e) {}
+          // Stock focused the urlbar for the original tab; the swap moves
+          // selection, so re-focus or typing lands in the page.
+          focusUrlBar();
           try {
             gBrowser.removeTab(tab, { animate: false });
           } catch (e) {
@@ -1070,7 +1114,7 @@
       el = document.createElement("div");
       el.id = "aph-ws-indicator";
       el.textContent = isValidId(current) ? current : "1";
-      el.title = "Workspace (Alt+Shift+1..9 to switch)";
+      el.title = "Workspace (Alt+Shift+1..9, ]/[ to cycle, Tab for last)";
       try {
         el.addEventListener("click", () => {
           try {
@@ -1096,7 +1140,7 @@
         el.textContent = name ? `${cur}: ${name}` : cur;
         // Bound container: color underline + tooltip. boxShadow (not border)
         // so the fixed 24px badge never shifts layout.
-        let title = `Workspace ${cur}${name ? `: ${name}` : ""} (Alt+Shift+1..9 to switch · click to rename)`;
+        let title = `Workspace ${cur}${name ? `: ${name}` : ""} (Alt+Shift+1..9 · ]/[ cycle · Tab toggles last · click to rename)`;
         let color = "";
         try {
           const bid = getWsContainerId(cur);
@@ -1132,6 +1176,15 @@
 
   // Crimson pulse timer for the workspace indicator (200ms flash).
   let wsPulseTimer = null;
+  // Handles for process-global registrations owned by this window. Prefs /
+  // progress / obs observers are held strongly by their service, so each
+  // must be released on unload or the closed window (document, gBrowser,
+  // tabs) leaks via the observer closure until process exit.
+  let bindingObserver = null;
+  let routeObserver = null;
+  let nameObserver = null;
+  let startupRestoreObserver = null;
+  let navPopupObserver = null;
   function pulseWorkspaceIndicator() {
     try {
       const el = gBrowser.tabContainer;
@@ -1163,6 +1216,7 @@
     }
     const tabs = Array.from(gBrowser.tabs);
     rememberCurrent(tabs);
+    lastUsed = current;
     current = target;
     try {
       gBrowser.tabContainer.setAttribute("data-aph-ws", target);
@@ -1185,6 +1239,45 @@
         }, 0);
       }
     } catch (e) {}
+  }
+
+  // Cycling: "active" = has a live unpinned tab (pins are global with a
+  // dormant tag, so they don't count); current always counts so an empty
+  // workspace never strands you. Sorted so next/prev wrap deterministically.
+  function getActiveIds() {
+    const seen = new Set();
+    try {
+      for (const t of Array.from(gBrowser.tabs || [])) {
+        try {
+          if (t.closing || t.pinned) {
+            continue;
+          }
+          const w = getWs(t);
+          if (isValidId(w)) {
+            seen.add(w);
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    if (isValidId(current)) {
+      seen.add(current);
+    }
+    return [...seen].sort();
+  }
+
+  function cycleWorkspace(dir) {
+    const ids = getActiveIds();
+    if (ids.length < 2) {
+      return;
+    }
+    const i = ids.indexOf(isValidId(current) ? current : "1");
+    switchTo(ids[(i + dir + ids.length) % ids.length]);
+  }
+
+  function toggleLastWorkspace() {
+    if (isValidId(lastUsed) && lastUsed !== current) {
+      switchTo(lastUsed);
+    }
   }
 
   // Send active tab to WS N and stay: eject from group (groups are
@@ -1229,6 +1322,7 @@
         const t = gBrowser.addTrustedTab(url);
         setWs(t, ws);
         gBrowser.selectedTab = t;
+        focusUrlBar();
       } catch (e) {}
       return;
     }
@@ -1243,6 +1337,7 @@
       setWs(tab, ws);
       aphShowTab(tab);
       gBrowser.selectedTab = tab;
+      focusUrlBar();
     } catch (e) {}
   }
 
@@ -1307,6 +1402,13 @@
   }
 
   function onKey(e) {
+    // Inline tab-rename editor owns its keystrokes: window capture fires
+    // before the input's own handlers, so it cannot shield itself.
+    try {
+      if (e.target && e.target.id === "aph-tab-rename-input") {
+        return;
+      }
+    } catch (err) {}
     if (e.repeat) {
       return;
     }
@@ -1363,6 +1465,35 @@
         }
       } catch (err) {}
       return;
+    }
+    // Alt+Shift cycling: brackets always, arrows outside editable text
+    // (Alt+Shift+Left/Right selects words while typing), Tab toggles MRU.
+    // e.code, not e.key: Shift turns "[" into "{".
+    if (!e.ctrlKey && e.shiftKey && !e.metaKey) {
+      if (e.code === "BracketRight") {
+        e.preventDefault();
+        e.stopPropagation();
+        cycleWorkspace(1);
+        return;
+      }
+      if (e.code === "BracketLeft") {
+        e.preventDefault();
+        e.stopPropagation();
+        cycleWorkspace(-1);
+        return;
+      }
+      if ((e.code === "ArrowRight" || e.code === "ArrowLeft") && !isEditableTarget(e.target)) {
+        e.preventDefault();
+        e.stopPropagation();
+        cycleWorkspace(e.code === "ArrowRight" ? 1 : -1);
+        return;
+      }
+      if (e.code === "Tab") {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleLastWorkspace();
+        return;
+      }
     }
     const d = digitFromCode(e.code);
     if (!d) {
@@ -1868,17 +1999,23 @@
   function scheduleStartupRestore() {
     try {
       if (typeof Services !== "undefined" && Services.obs) {
-        const observer = {
+        startupRestoreObserver = {
           observe() {
             try {
-              Services.obs.removeObserver(observer, "sessionstore-windows-restored");
+              Services.obs.removeObserver(
+                startupRestoreObserver,
+                "sessionstore-windows-restored"
+              );
             } catch (e) {}
+            startupRestoreObserver = null;
             setTimeout(runStartupRestoreOnce, 0);
           },
         };
-        Services.obs.addObserver(observer, "sessionstore-windows-restored", false);
+        Services.obs.addObserver(startupRestoreObserver, "sessionstore-windows-restored", false);
       }
-    } catch (e) {}
+    } catch (e) {
+      startupRestoreObserver = null;
+    }
     // Fallback in case the notification already fired or obs is unavailable.
     setTimeout(runStartupRestoreOnce, 3000);
   }
@@ -1950,7 +2087,10 @@
         attributes: true,
         attributeFilter: ["open", "aria-expanded"],
       });
-    } catch (e) {}
+      navPopupObserver = obs;
+    } catch (e) {
+      navPopupObserver = null;
+    }
 
     window.addEventListener(
       "popupshowing",
@@ -1981,6 +2121,67 @@
     window.addEventListener("popuphidden", onHide, true);
     window.addEventListener("popuphiding", onHide, true);
     syncHold();
+    return navPopupObserver;
+  }
+
+  // Releases every process-global registration owned by this window.
+  // Services hold their observers strongly: without this, each closed
+  // window stays reachable (observer -> closure -> document/gBrowser) and
+  // leaks until process exit.
+  function cleanupWindowObservers() {
+    try {
+      if (bindingObserver) {
+        Services.prefs.removeObserver(WS_CONTAINER_PREF, bindingObserver);
+      }
+    } catch (e) {}
+    try {
+      if (routeObserver) {
+        Services.prefs.removeObserver(WS_ROUTES_PREF, routeObserver);
+      }
+    } catch (e) {}
+    try {
+      if (nameObserver) {
+        Services.prefs.removeObserver(WS_NAMES_PREF, nameObserver);
+      }
+    } catch (e) {}
+    bindingObserver = null;
+    routeObserver = null;
+    nameObserver = null;
+    try {
+      if (startupRestoreObserver && Services.obs) {
+        Services.obs.removeObserver(
+          startupRestoreObserver,
+          "sessionstore-windows-restored"
+        );
+      }
+    } catch (e) {}
+    startupRestoreObserver = null;
+    try {
+      if (navPopupObserver && typeof navPopupObserver.disconnect === "function") {
+        navPopupObserver.disconnect();
+      }
+    } catch (e) {}
+    navPopupObserver = null;
+    try {
+      if (wsPulseTimer) {
+        clearTimeout(wsPulseTimer);
+        wsPulseTimer = null;
+      }
+    } catch (e) {}
+    try {
+      if (
+        typeof gBrowser !== "undefined" &&
+        gBrowser &&
+        typeof gBrowser.removeTabsProgressListener === "function"
+      ) {
+        gBrowser.removeTabsProgressListener(routeListener);
+      }
+    } catch (e) {}
+    try {
+      if (window.__aphRouteListener === routeListener) {
+        window.__aphRouteListener = null;
+      }
+    } catch (e) {}
   }
 
   function init() {
@@ -1989,8 +2190,13 @@
       window.AphWorkspaces = {
         switchTo,
         sendTabTo,
+        cycleWorkspace,
+        toggleLastWorkspace,
+        getActiveWorkspaces: getActiveIds,
+        getLastWorkspace: () => lastUsed,
         openTempTab,
         openBoundTab,
+        openInWorkspace,
         bindCurrentWs: bindCurrentWsToSelectedTab,
         clearWsBinding,
         getWsContainer: getWsContainerId,
@@ -2053,11 +2259,13 @@
     gBrowser.tabContainer.addEventListener("TabGroupUpdate", onGroupChange);
     window.addEventListener("keydown", onKey, true);
     try {
-      initNavPopupHold();
-    } catch (e) {}
+      navPopupObserver = initNavPopupHold() || null;
+    } catch (e) {
+      navPopupObserver = null;
+    }
     // Cross-window binding sync: re-read the pref + repaint the badge.
     try {
-      const bindingObserver = {
+      bindingObserver = {
         observe() {
           try {
             wsBindings = null;
@@ -2067,11 +2275,13 @@
         },
       };
       Services.prefs.addObserver(WS_CONTAINER_PREF, bindingObserver);
-    } catch (e) {}
+    } catch (e) {
+      bindingObserver = null;
+    }
     // Cross-window route sync: drop the cached rules so the next match
     // re-reads the pref.
     try {
-      const routeObserver = {
+      routeObserver = {
         observe() {
           try {
             wsRoutes = null;
@@ -2079,10 +2289,12 @@
         },
       };
       Services.prefs.addObserver(WS_ROUTES_PREF, routeObserver);
-    } catch (e) {}
+    } catch (e) {
+      routeObserver = null;
+    }
     // Cross-window name sync: drop the cache and repaint the badge.
     try {
-      const nameObserver = {
+      nameObserver = {
         observe() {
           try {
             wsNames = null;
@@ -2091,11 +2303,17 @@
         },
       };
       Services.prefs.addObserver(WS_NAMES_PREF, nameObserver);
-    } catch (e) {}
+    } catch (e) {
+      nameObserver = null;
+    }
     try {
       initRouteListener();
     } catch (e) {}
     scheduleStartupRestore();
+    // Global-service registrations above outlive this window unless removed.
+    try {
+      window.addEventListener("unload", cleanupWindowObservers, { once: true });
+    } catch (e) {}
   }
 
   if (document.readyState === "complete") {

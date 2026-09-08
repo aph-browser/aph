@@ -76,13 +76,19 @@ export class AphTextPickChild extends JSWindowActorChild {
       this._hover = null;
       this._raf = 0;
       this._box = null;
+      // Stash the exact document/view the listeners attach to: by stop()
+      // time a navigation may have swapped contentDoc, and removing from
+      // the new document would leave the old one's listeners (and through
+      // them, this actor + _stack/_hover DOM refs) alive.
+      this._doc = doc;
+      this._view = doc.defaultView || null;
       // Capture phase: click suppression must beat page handlers (links!).
       doc.addEventListener("mousemove", this, { capture: true, passive: true });
       doc.addEventListener("click", this, true);
       doc.addEventListener("keydown", this, true);
       doc.addEventListener("scroll", this, true);
       doc.addEventListener("visibilitychange", this, true);
-      doc.defaultView?.addEventListener("resize", this, true);
+      this._view?.addEventListener("resize", this, true);
       doc.addEventListener("pagehide", this, true);
     } catch (e) {}
   }
@@ -93,7 +99,19 @@ export class AphTextPickChild extends JSWindowActorChild {
         return;
       }
       this._active = false;
-      const doc = this.contentDoc;
+      // Remove from the stashed document/view the listeners were added to,
+      // not the live contentDoc (which may already point at a new document
+      // after navigation).
+      const doc = this._doc || this.contentDoc;
+      const view = this._view || doc?.defaultView;
+      // Cancel a pending highlight frame so its closure never touches a
+      // dead document after navigation/close.
+      try {
+        if (this._raf && view && typeof view.cancelAnimationFrame === "function") {
+          view.cancelAnimationFrame(this._raf);
+        }
+      } catch (e) {}
+      this._raf = 0;
       if (doc && typeof doc.removeEventListener === "function") {
         try {
           doc.removeEventListener("mousemove", this, { capture: true });
@@ -111,12 +129,14 @@ export class AphTextPickChild extends JSWindowActorChild {
           doc.removeEventListener("visibilitychange", this, true);
         } catch (e) {}
         try {
-          doc.defaultView?.removeEventListener("resize", this, true);
+          view?.removeEventListener("resize", this, true);
         } catch (e) {}
         try {
           doc.removeEventListener("pagehide", this, true);
         } catch (e) {}
       }
+      this._doc = null;
+      this._view = null;
       this._removeBox();
       this._stack = [];
       this._hover = null;
@@ -167,14 +187,18 @@ export class AphTextPickChild extends JSWindowActorChild {
       if (this._raf) {
         return;
       }
-      const view = this.contentDoc?.defaultView;
+      const view = this._view || this.contentDoc?.defaultView;
       const run = () => {
         this._raf = 0;
         this._pickAt(this._mx, this._my);
       };
       if (view && typeof view.requestAnimationFrame === "function") {
-        this._raf = 1;
-        view.requestAnimationFrame(run);
+        try {
+          // Store the frame id (not a flag) so stop() can cancel it.
+          this._raf = view.requestAnimationFrame(run);
+        } catch (e) {
+          run();
+        }
       } else {
         run();
       }

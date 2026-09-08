@@ -406,3 +406,121 @@ describe("tab unloading", () => {
     }
   });
 });
+
+describe("workspace cycling", () => {
+  it("lists active workspaces, skipping empties and dormant pins", () => {
+    api.switchTo("1");
+    const extra = makeTab(tabVals, {
+      label: "cy-4", ws: "4", spec: "https://example.com/cy4",
+    });
+    const pin = makeTab(tabVals, {
+      label: "cy-pin5", ws: "5", pinned: true, spec: "https://example.com/",
+    });
+    sb.gBrowser.tabs.push(extra, pin);
+    try {
+      const ids = api.getActiveWorkspaces();
+      assert.ok(ids.includes("1"), `WS1 active, got ${ids}`);
+      assert.ok(ids.includes("4"), `WS4 active, got ${ids}`);
+      assert.ok(!ids.includes("3"), `empty WS3 skipped, got ${ids}`);
+      assert.ok(!ids.includes("5"), `dormant pin tag ignored, got ${ids}`);
+      assert.equal([...ids].join(","), [...ids].sort().join(","), "sorted for deterministic wrap");
+    } finally {
+      for (const t of [extra, pin]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+    }
+  });
+
+  it("cycles next/prev over active workspaces only, wrapping", () => {
+    const extra = makeTab(tabVals, {
+      label: "cy-4b", ws: "4", spec: "https://example.com/cy4b",
+    });
+    sb.gBrowser.tabs.push(extra);
+    try {
+      api.switchTo("1");
+      const ids = api.getActiveWorkspaces();
+      assert.ok(ids.length >= 3 && ids.includes("4"), `setup, got ${ids}`);
+      const first = ids[0];
+      const last = ids[ids.length - 1];
+      assert.equal(first, "1");
+      // Next from 1 -> second entry (proves empty WS skipped by landing
+      // on a real workspace, not "2"-hardcoded beyond the known fixture).
+      api.cycleWorkspace(1);
+      assert.equal(api.getCurrent(), ids[1]);
+      // Walk to the end, then wrap to first.
+      for (let i = 1; i < ids.length - 1; i++) {
+        api.cycleWorkspace(1);
+      }
+      assert.equal(api.getCurrent(), last);
+      api.cycleWorkspace(1);
+      assert.equal(api.getCurrent(), first);
+      // Prev from first wraps to last.
+      api.cycleWorkspace(-1);
+      assert.equal(api.getCurrent(), last);
+      api.cycleWorkspace(-1);
+      assert.equal(api.getCurrent(), ids[ids.length - 2]);
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(extra);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    }
+  });
+
+  it("toggles back and forth between the last two used workspaces", () => {
+    const extra = makeTab(tabVals, {
+      label: "cy-4c", ws: "4", spec: "https://example.com/cy4c",
+    });
+    sb.gBrowser.tabs.push(extra);
+    try {
+      api.switchTo("1");
+      api.switchTo("4");
+      assert.equal(api.getLastWorkspace(), "1");
+      api.toggleLastWorkspace();
+      assert.equal(api.getCurrent(), "1");
+      api.toggleLastWorkspace();
+      assert.equal(api.getCurrent(), "4");
+      // Same-workspace switch is a no-op: history keeps pointing at "1".
+      api.switchTo("4");
+      assert.equal(api.getLastWorkspace(), "1");
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(extra);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    }
+  });
+});
+
+describe("new-tab urlbar focus", () => {
+  it("focuses the urlbar when opening a tab (bound Ctrl+T path)", () => {
+    // prefStore binds WS "2" -> container 7: openBoundTab is exactly what
+    // the Ctrl+T interceptor calls there. gURLBar is attached late on
+    // purpose — every earlier suite ran without it, proving the guard.
+    sb.gURLBar = { focused: 0, focus() { this.focused++; } };
+    let t = null;
+    let binder = null;
+    try {
+      api.switchTo("2");
+      // An earlier suite cleared the WS2->cid7 binding through the API
+      // (module cache), so re-bind via the API to restore fixture state.
+      binder = makeTab(tabVals, {
+        label: "binder", ws: "2", cid: 7, spec: "https://example.com/",
+      });
+      sb.gBrowser.tabs.push(binder);
+      sb.gBrowser.selectedTab = binder;
+      assert.equal(api.bindCurrentWs().ok, true, "rebound WS2 to cid 7");
+      const before = sb.gURLBar.focused;
+      t = api.openBoundTab();
+      assert.ok(t, "tab opened");
+      assert.equal(t.userContextId, 7, "bound container used");
+      assert.equal(sb.gBrowser.selectedTab, t, "new tab selected");
+      assert.equal(sb.gURLBar.focused, before + 1, "urlbar focused once");
+    } finally {
+      delete sb.gURLBar;
+      for (const tab of [t, binder]) {
+        if (tab) {
+          const i = sb.gBrowser.tabs.indexOf(tab);
+          if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+        }
+      }
+    }
+  });
+});
