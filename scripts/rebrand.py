@@ -55,6 +55,25 @@ PALETTE_CSS_SRC = BRANDING_DIR / "command-palette.css"
 PALETTE_CSS_JA_PATH = "chrome/browser/content/browser/aph-palette.css"
 PALETTE_LINK_TAG = '<link rel="stylesheet" href="chrome://browser/content/aph-palette.css" />'
 
+# Text picker: controller injected into the browser window; actor child /
+# parent modules + shared logic ship in actors/ (resource:/// URIs — every
+# shipped actor uses resource://; chrome:// module URIs have zero precedent).
+# The actor framework loads them by URI, never via browser.xhtml.
+TEXTPICK_JS_SRC = BRANDING_DIR / "textpick.js"
+TEXTPICK_JA_PATH = "chrome/browser/content/browser/textpick.js"
+TEXTPICK_SCRIPT_TAG = (
+    '<script src="chrome://browser/content/textpick.js"></script>'
+)
+TEXTPICK_SHARED_SRC = BRANDING_DIR / "textpick-shared.js"
+TEXTPICK_SHARED_JA_PATH = "actors/aph-textpick-shared.js"
+TEXTPICK_SHARED_URI = "resource:///actors/aph-textpick-shared.js"
+TEXTPICK_CHILD_SRC = BRANDING_DIR / "textpick-child.sys.mjs"
+TEXTPICK_CHILD_JA_PATH = "actors/AphTextPickChild.sys.mjs"
+TEXTPICK_CHILD_URI = "resource:///actors/AphTextPickChild.sys.mjs"
+TEXTPICK_PARENT_SRC = BRANDING_DIR / "textpick-parent.sys.mjs"
+TEXTPICK_PARENT_JA_PATH = "actors/AphTextPickParent.sys.mjs"
+TEXTPICK_PARENT_URI = "resource:///actors/AphTextPickParent.sys.mjs"
+
 BRAND_PROPERTIES_TEMPLATE = """brandShorterName=Aph
 brandShortName=Aph
 brandFullName=Aph Browser
@@ -230,10 +249,16 @@ def _patch_single_ja(
     sync_ftl_data: bytes, logos: dict[str, bytes],
     workspaces_js: bytes | None = None, theme_css: bytes | None = None,
     palette_js: bytes | None = None, palette_css: bytes | None = None,
-) -> tuple[int, int, int, int, int, int, int, int, int, int, int]:
+    textpick_js: bytes | None = None,
+    textpick: dict[str, bytes] | None = None,
+) -> tuple[int, int, int, int, int, int, int, int, int, int, int, int]:
     """Patch a single omni.ja from its pristine backup.
 
-    Return counts (brand_ftl, brandings_ftl, sync_ftl, props, dtd, logos, xhtml, wsjs, css, paljs, palcss).
+    textpick_js is the window controller (xhtml script tag, like
+    workspaces.js); textpick maps ja_path -> bytes for the tag-less picker
+    files (actor child/parent + shared logic). Return counts (brand_ftl,
+    brandings_ftl, sync_ftl, props, dtd, logos, xhtml, wsjs, css, paljs,
+    palcss, textpick) with textpick covering all four picker files.
     """
     backup = ja_path.with_suffix(".ja.bak")
     if not backup.exists():
@@ -249,6 +274,7 @@ def _patch_single_ja(
 
     count_brand = count_brandings = count_sync = count_props = count_dtd = count_logo = 0
     count_xhtml = count_wsjs = count_css = count_paljs = count_palcss = 0
+    count_textpick = 0
     # mkstemp returns an open handle we never use (ZipFile opens by path).
     # Close it at once: holding it across shutil.move breaks Windows (file lock).
     tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".ja", dir=str(ja_path.parent))
@@ -350,15 +376,52 @@ def _patch_single_ja(
                 zout.writestr(new_info, palette_css)
                 count_palcss += 1
 
+            # Append textpick.js window controller (browser omni only).
+            if (
+                textpick_js is not None
+                and WORKSPACES_XHTML_PATH in existing
+                and TEXTPICK_JA_PATH not in existing
+            ):
+                new_info = zipfile.ZipInfo(filename=TEXTPICK_JA_PATH)
+                new_info.compress_type = zipfile.ZIP_STORED
+                new_info.external_attr = 0o644 << 16
+                zout.writestr(new_info, textpick_js)
+                count_textpick += 1
+
+            # Append tag-less text-picker files (browser omni only — the
+            # actor framework loads them by chrome:// URI, no xhtml tag).
+            if textpick and WORKSPACES_XHTML_PATH in existing:
+                for tp_path, tp_data in textpick.items():
+                    if tp_data is not None and tp_path not in existing:
+                        new_info = zipfile.ZipInfo(filename=tp_path)
+                        new_info.compress_type = zipfile.ZIP_STORED
+                        new_info.external_attr = 0o644 << 16
+                        zout.writestr(new_info, tp_data)
+                        count_textpick += 1
+
         shutil.move(str(tmp_path), str(ja_path))
-        return count_brand, count_brandings, count_sync, count_props, count_dtd, count_logo, count_xhtml, count_wsjs, count_css, count_paljs, count_palcss
+
+        # Fail loud on corrupt output or silently unbranded output (e.g.
+        # Firefox changed omni.ja layout/paths in an upgrade).
+        bad = zipfile.ZipFile(ja_path).testzip()
+        if bad is not None:
+            raise ValueError(f"corrupt entry after patch: {bad}")
+        if (
+            count_brand == 0
+            and count_brandings == 0
+            and count_sync == 0
+            and count_props == 0
+            and count_dtd == 0
+        ):
+            raise ValueError("0 brand files replaced — layout changed?")
+        return count_brand, count_brandings, count_sync, count_props, count_dtd, count_logo, count_xhtml, count_wsjs, count_css, count_paljs, count_palcss, count_textpick
     finally:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
 
 
 def _inject_workspaces_script(xhtml_bytes: bytes) -> bytes:
-    """Insert Aph <script>/<link> tags (workspaces, palette, theme) into browser.xhtml."""
+    """Insert Aph <script>/<link> tags (workspaces, palette, textpick, theme) into browser.xhtml."""
     try:
         text = xhtml_bytes.decode("utf-8")
     except UnicodeDecodeError:
@@ -373,6 +436,8 @@ def _inject_workspaces_script(xhtml_bytes: bytes) -> bytes:
         tags_to_inject.append(WORKSPACES_SCRIPT_TAG)
     if PALETTE_SCRIPT_TAG not in text:
         tags_to_inject.append(PALETTE_SCRIPT_TAG)
+    if TEXTPICK_SCRIPT_TAG not in text:
+        tags_to_inject.append(TEXTPICK_SCRIPT_TAG)
 
     if not tags_to_inject:
         return xhtml_bytes
@@ -488,6 +553,25 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
     else:
         print(f"WARNING: {PALETTE_CSS_SRC} not found, skipping palette CSS injection.")
 
+    # 6c. Text picker: window controller (xhtml script tag) + tag-less
+    # actor child/parent modules and shared logic (actor framework URIs).
+    textpick_js: bytes | None = None
+    if TEXTPICK_JS_SRC.is_file():
+        textpick_js = TEXTPICK_JS_SRC.read_bytes()
+    else:
+        print(f"WARNING: {TEXTPICK_JS_SRC} not found, skipping picker injection.")
+
+    textpick: dict[str, bytes] = {}
+    for src, ja_path in (
+        (TEXTPICK_SHARED_SRC, TEXTPICK_SHARED_JA_PATH),
+        (TEXTPICK_CHILD_SRC, TEXTPICK_CHILD_JA_PATH),
+        (TEXTPICK_PARENT_SRC, TEXTPICK_PARENT_JA_PATH),
+    ):
+        if src.is_file():
+            textpick[ja_path] = src.read_bytes()
+        else:
+            print(f"WARNING: {src} not found, skipping picker file.")
+
     # 7. (nav-hover removed: auto-hide nav-bar is pure CSS now, via an 8px
     #    min-height hover strip on #navigator-toolbox in theme.css.)
 
@@ -495,16 +579,18 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
     for ja_path in targets:
         try:
             (c_brand, c_brandings, c_sync, c_props, c_dtd, c_logo,
-             c_xhtml, c_wsjs, c_css, c_paljs, c_palcss) = _patch_single_ja(
+             c_xhtml, c_wsjs, c_css, c_paljs, c_palcss, c_textpick) = _patch_single_ja(
                 ja_path, brand_ftl_data, brandings_ftl_data, sync_ftl_data, logos,
                 workspaces_js, theme_css, palette_js, palette_css,
+                textpick_js, textpick,
             )
             print(
                 f"Rebranded {ja_path.relative_to(ROOT)}: "
                 f"{c_brand} brand.ftl, {c_brandings} brandings.ftl, {c_sync} sync-brand.ftl, "
                 f"{c_props} brand.properties, {c_dtd} brand.dtd, {c_logo} logos, "
                 f"{c_xhtml} browser.xhtml, {c_wsjs} workspaces.js, {c_css} theme.css, "
-                f"{c_paljs} palette.js, {c_palcss} palette.css"
+                f"{c_paljs} palette.js, {c_palcss} palette.css, "
+                f"{c_textpick} textpick files (controller/shared/child/parent)"
             )
         except Exception as e:
             print(f"ERROR patching {ja_path}: {e}")

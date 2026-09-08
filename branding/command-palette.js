@@ -403,6 +403,30 @@
         },
       },
       {
+        title: "Unload Inactive Tabs",
+        hint: "",
+        sub: "Discards hidden-workspace tabs to save memory · click reloads",
+        run: () => {
+          try {
+            if (api && api.unloadEligibleTabs) {
+              api.unloadEligibleTabs({ scope: "foreign" });
+            }
+          } catch (e) {}
+        },
+      },
+      {
+        title: "Copy Text From Page…",
+        hint: "Ctrl+Alt+C",
+        sub: "Hover to highlight a block · click copies · ↑/↓ adjust · Esc cancels",
+        run: () => {
+          try {
+            if (window.AphTextPick) {
+              window.AphTextPick.arm();
+            }
+          } catch (e) {}
+        },
+      },
+      {
         title: "Duplicate Current Tab",
         hint: "",
         run: () => {

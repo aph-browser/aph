@@ -63,6 +63,14 @@ describe("fuzzy tiers", () => {
     const nt = T.allItems("nt");
     assert.ok(nt[0] && nt[0].title === "New Tab", nt[0] && nt[0].title);
   });
+
+  it("finds the text picker on 'copy'", () => {
+    const res = T.allItems("copy");
+    assert.ok(
+      res[0] && res[0].title.startsWith("Copy Text From Page"),
+      res[0] && res[0].title
+    );
+  });
 });
 
 describe("URL detection", () => {

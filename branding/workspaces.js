@@ -1,12 +1,16 @@
 /* Aph workspaces: IDs "1"-"9", zero UI. Alt+Shift+1..9 jumps to a workspace,
  * Ctrl+Alt+1..9 sends the active tab there (stay here, focus next).
- * Tags persist via SessionStore; pinned tabs are per-workspace (each WS has
- * its own pinned strip, shown/hidden on switch); native tab groups
+ * Tags persist via SessionStore; pinned tabs are global (never hidden —
+ * stock Firefox assumes hidden pinned tabs never exist and vertical-tab
+ * drag/drop breaks when they do); native tab groups
  * live inside workspaces (one shared tag, header synced, collapsed kept).
  * Container bindings: each workspace may be bound to one Firefox container
  * (Ctrl+Alt+B binds current WS to the selected tab's container,
  * Ctrl+Alt+Shift+B clears). Bound workspaces open new tabs (Ctrl+T,
  * + button) in that container; Ctrl+Alt+T stays disposable-temp always.
+ * Bound-match dimming: a tab whose container equals its workspace's binding
+ * gets `data-aph-bound-match="1"` (theme.css hides the native
+ * `.tab-context-line`); mismatches and unbound workspaces keep the line.
  * Domain routes: a host may be bound to a workspace ("github.com" -> "2",
  * managed from the command palette). Fresh top-level navigations matching
  * a rule are retagged pre-paint and reopened in the target workspace's
@@ -14,6 +18,10 @@
  * Workspace names ("2" -> "💼 Work", pref aph.workspaces.names): badge
  * pill, palette titles and tooltip; rename via badge click, Ctrl+Alt+R,
  * or the palette rename command.
+ * Tab unloading (memory): eligible hidden-workspace tabs are discarded via
+ * gBrowser.discardBrowser (V1: manual palette command + optional
+ * unload-on-switch behind aph.workspaces.unloadOnSwitch, default off).
+ * Never unloads selected/pinned/audible/sharing/pending/about:/offline tabs.
  * Injected into browser.xhtml via rebrand.py (chrome://browser/content/workspaces.js).
  */
 (function () {
@@ -144,6 +152,80 @@
     return out;
   }
 
+  // Per-tab container-line dimming: when a tab's container equals its own
+  // workspace's bound container, the native `.tab-context-line` is redundant
+  // (the WS badge in updateIndicator already shows the binding). Matching
+  // tabs get `data-aph-bound-match="1"`; theme.css hides the line for those.
+  // Mismatches, unbound workspaces, and default (cid 0) tabs never match,
+  // so their lines stay visible. Temp containers can never be bound, so they
+  // always show.
+  function isTabMatchingBinding(tab) {
+    try {
+      if (!tab || tab.closing) {
+        return false;
+      }
+      let cid = 0;
+      try {
+        cid = tab.userContextId || 0;
+      } catch (e) {
+        return false;
+      }
+      if (!cid) {
+        return false;
+      }
+      let ws = null;
+      try {
+        ws = getWs(tab);
+      } catch (e) {
+        return false;
+      }
+      if (!isValidId(ws)) {
+        return false;
+      }
+      let bound = 0;
+      try {
+        bound = getWsContainerId(ws);
+      } catch (e) {
+        return false;
+      }
+      return !!bound && bound === cid;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function syncTabBindingMatch(tab) {
+    try {
+      if (!tab) {
+        return;
+      }
+      if (typeof tab.setAttribute !== "function" || typeof tab.removeAttribute !== "function") {
+        return;
+      }
+      if (isTabMatchingBinding(tab)) {
+        try {
+          tab.setAttribute("data-aph-bound-match", "1");
+        } catch (e) {}
+      } else {
+        try {
+          tab.removeAttribute("data-aph-bound-match");
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
+  function syncAllTabBindingMatches() {
+    try {
+      const tabs = gBrowser ? gBrowser.tabs : null;
+      if (!tabs) {
+        return;
+      }
+      for (const t of Array.from(tabs)) {
+        syncTabBindingMatch(t);
+      }
+    } catch (e) {}
+  }
+
   // Bind the current workspace to the selected tab's container.
   // On a default (containerless) tab this clears the binding instead.
   // Refuses disposable temp containers (they are deleted on last close).
@@ -178,6 +260,7 @@
     loadBindings()[current] = id;
     saveBindings();
     updateIndicator();
+    syncAllTabBindingMatches();
     pulseWorkspaceIndicator();
     return { ok: true, userContextId: id, name: ident.name };
   }
@@ -192,6 +275,7 @@
       saveBindings();
     } catch (e) {}
     updateIndicator();
+    syncAllTabBindingMatches();
   }
 
   // New tab in `ws` using its bound container (plain tab when unbound).
@@ -489,6 +573,11 @@
     try {
       SessionStore.setCustomTabValue(tab, KEY, ws);
     } catch (e) {}
+    // Containers are immutable per tab, so the only thing that changes a
+    // tab's match state is its workspace tag (binding changes go through
+    // syncAllTabBindingMatches). Sync here to cover every retag path:
+    // stamp, send, route, adopt, anchor, openBoundTab.
+    syncTabBindingMatch(tab);
   }
 
   // Per-workspace pinned tabs: stock gBrowser.hideTab() refuses pinned tabs
@@ -496,6 +585,10 @@
   // helpers mirror stock show/hide semantics but work for pinned tabs too
   // (direct `hidden` attribute + cache invalidation + TabShow/TabHide).
   // All workspace visibility changes go through these — never stock hideTab.
+  // NOTE: pins are GLOBAL — aphHideTab refuses pinned tabs (mirroring stock).
+  // Hiding pinned tabs breaks vertical-tab drag/drop (drop-index math assumes
+  // pins are contiguous + visible at index 0). Pinned tabs keep their aphWs
+  // tag as dormant state for eventual unpin, but visibility ignores it.
   function aphShowTab(tab) {
     try {
       gBrowser.showTab(tab);
@@ -513,6 +606,11 @@
       if (!tab || tab.hidden || tab.closing) {
         return;
       }
+      try {
+        if (tab.pinned) {
+          return;
+        }
+      } catch (e) {}
       try {
         if (tab.selected) {
           return;
@@ -701,7 +799,7 @@
   // One loop shows target tabs and hides the rest. The focus tab is unhidden
   // (and its group unhidden + expanded if needed) BEFORE selecting, because
   // hiding refuses the selected tab and hidden tabs may not select.
-  // Pinned tabs are per-workspace: shown/hidden exactly like normal tabs.
+  // Pinned tabs are global: always shown regardless of tag.
   function reconcile(target, tabs) {
     let focus = resolveTargetTab(target, tabs);
     if (!focus) {
@@ -735,7 +833,7 @@
         continue;
       }
       try {
-        if (getWs(t) === target) {
+        if (t.pinned || getWs(t) === target) {
           aphShowTab(t);
         } else {
           aphHideTab(t);
@@ -802,6 +900,157 @@
         } catch (_e) {}
       }
     }
+  }
+
+  // Tab unloading (memory): discard eligible tabs via gBrowser.discardBrowser
+  // (tab element + aphWs tag survive; selecting reloads). V1 scope is hidden
+  // foreign-workspace tabs only; current-WS idle timers are deferred to V2.
+  // All guards fail closed — when in doubt, keep the tab loaded.
+  const WS_UNLOAD_PREF = "aph.workspaces.unloadOnSwitch";
+
+  function unloadLog(msg) {
+    try {
+      Services.console.logStringMessage(`[AphUnload] ${msg}`);
+    } catch (e) {}
+  }
+
+  function getUnloadOnSwitch() {
+    try {
+      if (!Services.prefs || typeof Services.prefs.getBoolPref !== "function") {
+        return false;
+      }
+      return !!Services.prefs.getBoolPref(WS_UNLOAD_PREF);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Never unload if any guard holds: selected (visible page), pinned (app
+  // anchor), audible media, active load, WebRTC sharing, already pending,
+  // unsaved work (beforeunload), internal pages, or unreadable URL.
+  function canUnloadTab(tab) {
+    try {
+      if (!tab) {
+        return { ok: false, reason: "no-tab" };
+      }
+      try {
+        if (tab.closing) {
+          return { ok: false, reason: "closing" };
+        }
+      } catch (e) {}
+      try {
+        if (tab.selected) {
+          return { ok: false, reason: "selected" };
+        }
+      } catch (e) {}
+      try {
+        if (gBrowser.selectedTab === tab) {
+          return { ok: false, reason: "selected" };
+        }
+      } catch (e) {}
+      try {
+        if (tab.pinned) {
+          return { ok: false, reason: "pinned" };
+        }
+      } catch (e) {}
+      try {
+        if (tab.soundPlaying || tab.audible) {
+          return { ok: false, reason: "audio" };
+        }
+      } catch (e) {}
+      try {
+        if (tab.busy) {
+          return { ok: false, reason: "loading" };
+        }
+      } catch (e) {}
+      try {
+        if (tab.linkedBrowser?._sharingState?.webRTC?.sharing) {
+          return { ok: false, reason: "sharing" };
+        }
+      } catch (e) {}
+      try {
+        if (typeof tab.hasAttribute === "function" && tab.hasAttribute("pending")) {
+          return { ok: false, reason: "pending" };
+        }
+      } catch (e) {}
+      try {
+        if (tab.linkedBrowser?.frameLoader?.tabParent?.hasBeforeUnload) {
+          return { ok: false, reason: "beforeunload" };
+        }
+      } catch (e) {}
+      let spec;
+      try {
+        spec = tab.linkedBrowser?.currentURI?.spec;
+      } catch (e) {
+        return { ok: false, reason: "unknown-url" };
+      }
+      if (typeof spec !== "string" || !spec) {
+        return { ok: false, reason: "unknown-url" };
+      }
+      if (spec.startsWith("about:") || spec.startsWith("chrome:") || spec.startsWith("resource:")) {
+        return { ok: false, reason: "internal" };
+      }
+      try {
+        if (isNewTab(tab)) {
+          return { ok: false, reason: "newtab" };
+        }
+      } catch (e) {}
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: "error" };
+    }
+  }
+
+  // Discard every eligible tab in scope ("foreign" = hidden workspaces only).
+  // Synchronous loop: discardBrowser itself is cheap (teardown is async in
+  // Gecko), so counts are exact on return. One failure never aborts the sweep.
+  function unloadEligibleTabs(opts) {
+    const scope = (opts && opts.scope) || "foreign";
+    const dryRun = !!(opts && opts.dryRun);
+    try {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return { unloaded: 0, skipped: 0, reason: "offline" };
+      }
+    } catch (e) {}
+    if (typeof gBrowser.discardBrowser !== "function") {
+      return { unloaded: 0, skipped: 0, reason: "no-api" };
+    }
+    let tabs = [];
+    try {
+      tabs = Array.from(gBrowser.tabs);
+    } catch (e) {
+      return { unloaded: 0, skipped: 0, reason: "no-tabs" };
+    }
+    let unloaded = 0;
+    let skipped = 0;
+    for (const t of tabs) {
+      try {
+        if (scope === "foreign" && getWs(t) === current) {
+          continue;
+        }
+        const c = canUnloadTab(t);
+        if (!c.ok) {
+          skipped++;
+          continue;
+        }
+        if (dryRun) {
+          unloaded++;
+          continue;
+        }
+        gBrowser.discardBrowser(t);
+        // Discarded reload must not re-trigger domain routing.
+        try {
+          t.__aphFresh = false;
+        } catch (e) {}
+        unloaded++;
+      } catch (e) {
+        skipped++;
+      }
+    }
+    if (unloaded > 0 && !dryRun) {
+      unloadLog(`sweep scope=${scope}: ${unloaded} unloaded, ${skipped} guarded`);
+    }
+    return { unloaded, skipped };
   }
 
   // Workspace indicator: number, or "N: name" pill once named. Click
@@ -926,14 +1175,25 @@
     anchorAllGroups();
     reconcile(target, tabs);
     pruneExtraNewTabs(target);
+    // Deferred so the switch stays snappy; guards re-check at fire time.
+    try {
+      if (getUnloadOnSwitch()) {
+        setTimeout(() => {
+          try {
+            unloadEligibleTabs({ scope: "foreign" });
+          } catch (e) {}
+        }, 0);
+      }
+    } catch (e) {}
   }
 
   // Send active tab to WS N and stay: eject from group (groups are
   // single-WS; pinned tabs are never grouped, so the ungroup is a no-op for
   // them), retag, reconcile to focus next + hide sent tab (hiding refuses
   // the selected tab, so selection must move first — reconcile does).
-  // The tab keeps its pinned state, container (containers are immutable per
-  // tab), and position; bindings only affect newly opened tabs.
+  // Pinned tabs are global so a sent pin stays visible; its tag is dormant
+  // state applied on eventual unpin. The tab keeps its container (containers
+  // are immutable per tab), and position; bindings only affect newly opened tabs.
   function sendTabTo(target) {
     if (!isValidId(target) || target === current) {
       return;
@@ -1119,10 +1379,11 @@
     }
   }
 
-  // Stamp fresh tabs (restored keep theirs, pinned included); inherit a
+  // Stamp fresh tabs (restored keep theirs); inherit a
   // grouped sibling's tag. Tabs armed for container repair are skipped —
   // the deferred repair either swaps them (still empty) or stamps them
-  // (navigated away).
+  // (navigated away). Pinned tabs keep a dormant tag for eventual unpin,
+  // but visibility ignores it (pins are global).
   function stampTab(tab) {
     if (!tab || rawWs(tab)) {
       return false;
@@ -1192,8 +1453,7 @@
   }
 
   // Restored tabs arrive after load, past init and TabOpen.
-  // Pinned tabs are per-workspace like everything else: stamp, then hide
-  // when they belong elsewhere (unless selected — hiding refuses that).
+  // Pinned tabs are global: always shown (never hidden for another WS).
   function onTabRestored(e) {
     const tab = e.target;
     if (!tab) {
@@ -1204,15 +1464,19 @@
       tab.__aphFresh = false;
     } catch (err) {}
     stampTab(tab);
-    // Hide restored tabs that belong to another workspace so they don't leak
-    // into the active tab strip (e.g. lazy restore after init's reconcile).
-    if (isValidId(current) && getWs(tab) !== current && !tab.hidden) {
-      try {
-        if (gBrowser.selectedTab !== tab) {
-          aphHideTab(tab);
+    try {
+      if (tab.pinned) {
+        if (tab.hidden) {
+          aphShowTab(tab);
         }
-      } catch (err) {}
-    }
+      } else if (isValidId(current) && getWs(tab) !== current && !tab.hidden) {
+        try {
+          if (gBrowser.selectedTab !== tab) {
+            aphHideTab(tab);
+          }
+        } catch (err) {}
+      }
+    } catch (err) {}
     try {
       if (tab.group) {
         setTimeout(() => unifyGroup(tab.group), 0);
@@ -1233,10 +1497,9 @@
     cleanupTempContainer(tab);
   }
 
-  // Pin/unpin keeps the tab's workspace tag. Fresh pins (no tag yet) join
-  // the visible workspace. Stock pinTab() unconditionally unhides, so
-  // re-hide when the tab belongs elsewhere (and unhide when it belongs
-  // here but arrived hidden).
+  // Pin/unpin keeps the tab's workspace tag as dormant state (used when
+  // eventually unpinned). Pins are global: pinning unhides, unpinning
+  // re-applies workspace visibility. Stock pinTab() unconditionally unhides.
   function onTabPinned(e) {
     const tab = e.target;
     if (!tab) {
@@ -1249,6 +1512,12 @@
     } catch (err) {}
     try {
       if (!isValidId(current)) {
+        return;
+      }
+      if (tab.pinned) {
+        if (tab.hidden) {
+          aphShowTab(tab);
+        }
         return;
       }
       if (getWs(tab) !== current) {
@@ -1735,6 +2004,12 @@
         setWsName,
         getCurrent: () => current,
         getWs,
+        isTabMatchingBinding,
+        syncTabBindingMatch,
+        syncAllTabBindingMatches,
+        canUnloadTab,
+        unloadEligibleTabs,
+        getUnloadOnSwitch,
       };
     } catch (e) {}
     current = initialWorkspace();
@@ -1753,7 +2028,15 @@
         try {
           t.__aphFresh = false;
         } catch (e) {}
+        // Heal legacy per-workspace pins: pins are global, never hidden.
+        try {
+          if (t.pinned && t.hidden) {
+            aphShowTab(t);
+          }
+        } catch (e) {}
       }
+      // Restored tabs keep their tags (no setWs above) — sync matches anyway.
+      syncAllTabBindingMatches();
     } catch (e) {}
     // Session restore may not preserve hidden state; force a full pass.
     try {
@@ -1779,6 +2062,7 @@
           try {
             wsBindings = null;
             updateIndicator();
+            syncAllTabBindingMatches();
           } catch (e) {}
         },
       };

@@ -229,3 +229,73 @@
   color: white !important;
   opacity: 1 !important;
 }
+
+/* ==========================================================================
+   7. Bound container match: hide the native per-tab container line when the
+   tab's container equals its workspace's bound container. The WS badge
+   (see §6 boxShadow underline) already shows the binding, so the tab line
+   is redundant. Mismatched tabs, unbound workspaces, and default tabs keep
+   their native line. Stock selector is
+   `.tabbrowser-tab[usercontextid] > .tab-stack > .tab-background >
+   .tab-context-line` (tabs.css) — absolute in Nova, so hiding never shifts
+   layout. Opacity (not display:none) keeps the geometry stable across
+   horizontal / vertical / collapsed modes.
+   ========================================================================== */
+
+tab[data-aph-bound-match="1"] .tab-context-line,
+.tabbrowser-tab[data-aph-bound-match="1"] .tab-context-line {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+/* ==========================================================================
+   8. Unloaded (discarded) tabs: subtle dim of the exception, not the rule.
+   Loaded is the default state, so only pending tabs are styled. Stock
+   Firefox sets `pending` on discard and grays the icon; this extends that
+   to the label for vertical-strip readability. Opacity only (never layout)
+   so horizontal / vertical / collapsed geometry never shifts. Selected is
+   exempt: pending+selected is transient (reload fires on select).
+   ========================================================================== */
+
+tab[pending]:not([selected]) .tab-icon-image,
+tab[pending]:not([selected]) .tab-label,
+.tabbrowser-tab[pending]:not([selected]) .tab-icon-image,
+.tabbrowser-tab[pending]:not([selected]) .tab-label {
+  opacity: 0.6 !important;
+}
+
+/* ==========================================================================
+   9. Aph toast: transient chrome status line (text picker copy feedback).
+   Bottom-center, above content, pointer-transparent so it never steals
+   clicks. Hidden by default; .show fades in, controller timer removes it.
+   Fixed positioning + own stacking context — never shifts chrome layout.
+   ========================================================================== */
+
+#aph-toast {
+  position: fixed !important;
+  left: 50% !important;
+  bottom: 24px !important;
+  transform: translateX(-50%) translateY(8px) !important;
+  max-width: 60ch !important;
+  padding: 8px 14px !important;
+  border-radius: 8px !important;
+  background: rgba(20, 20, 26, 0.92) !important;
+  color: #f0f0f4 !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  z-index: 2147483647 !important;
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0s linear 0.18s !important;
+}
+
+#aph-toast.show {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: translateX(-50%) translateY(0) !important;
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0s linear 0s !important;
+}

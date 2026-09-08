@@ -263,6 +263,10 @@ user_pref("devtools.debugger.remote-enabled", true);
 // 11. Enable Nova
 user_pref("browser.nova.enabled", true);
 
+// 12. Workspace tab unloading: manual via palette ("Unload Inactive Tabs").
+// Set true to also discard eligible hidden-workspace tabs after each switch.
+user_pref("aph.workspaces.unloadOnSwitch", false);
+
 /****************************************************************************
  * END: APH NATIVE OVERRIDES
 ****************************************************************************/

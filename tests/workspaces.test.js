@@ -16,6 +16,7 @@ const prefStore = {
 };
 const created = [];
 const removed = [];
+const discarded = [];
 let listener = null;
 
 const home = makeTab(tabVals, {
@@ -25,6 +26,7 @@ let wsel = home;
 
 const sb = {
   window: { addEventListener() {}, opener: null },
+  navigator: { onLine: true },
   document: {
     readyState: "complete",
     getElementById: () => null,
@@ -53,6 +55,10 @@ const sb = {
       removed.push(t.label);
       const i = sb.gBrowser.tabs.indexOf(t);
       if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    },
+    discardBrowser(t) {
+      discarded.push(t.label);
+      t.setAttribute("pending", "");
     },
     ungroupTab() {},
     replaceInSuccession() {},
@@ -204,5 +210,199 @@ describe("domain routing", () => {
     assert.equal(api.setWsName("10", "x"), false);
     assert.equal(api.setWsName("2", "   "), true);
     assert.equal(api.getWsName("2"), "");
+  });
+});
+
+describe("bound container match", () => {
+  it("marks tabs whose container equals their workspace binding", () => {
+    // prefStore binds WS "2" -> cid 7 (see top of file).
+    const match = makeTab(tabVals, { label: "m", ws: "2", cid: 7 });
+    const mismatch = makeTab(tabVals, { label: "x", ws: "2", cid: 99 });
+    const unbound = makeTab(tabVals, { label: "u", ws: "1", cid: 7 });
+    const plain = makeTab(tabVals, { label: "p", ws: "2", cid: 0 });
+    for (const t of [match, mismatch, unbound, plain]) {
+      sb.gBrowser.tabs.push(t);
+    }
+    try {
+      assert.equal(api.isTabMatchingBinding(match), true);
+      assert.equal(api.isTabMatchingBinding(mismatch), false);
+      assert.equal(api.isTabMatchingBinding(unbound), false);
+      assert.equal(api.isTabMatchingBinding(plain), false);
+
+      api.syncTabBindingMatch(match);
+      assert.equal(match.getAttribute("data-aph-bound-match"), "1");
+      api.syncTabBindingMatch(mismatch);
+      assert.equal(mismatch.getAttribute("data-aph-bound-match"), null);
+
+      api.syncAllTabBindingMatches();
+      assert.equal(match.getAttribute("data-aph-bound-match"), "1");
+      assert.equal(mismatch.getAttribute("data-aph-bound-match"), null);
+      assert.equal(unbound.getAttribute("data-aph-bound-match"), null);
+      assert.equal(plain.getAttribute("data-aph-bound-match"), null);
+    } finally {
+      for (const t of [match, mismatch, unbound, plain]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+    }
+  });
+
+  it("clears the mark when the binding is removed", () => {
+    const t = makeTab(tabVals, { label: "c", ws: "2", cid: 7 });
+    sb.gBrowser.tabs.push(t);
+    try {
+      api.syncTabBindingMatch(t);
+      assert.equal(t.getAttribute("data-aph-bound-match"), "1");
+      api.clearWsBinding("2");
+      assert.equal(t.getAttribute("data-aph-bound-match"), null);
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(t);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      // Restore binding for other tests / isolation.
+      prefStore["aph.workspaces.containerBindings"] = JSON.stringify({ 2: 7 });
+      api.syncAllTabBindingMatches();
+    }
+  });
+});
+
+describe("global pins", () => {
+  it("never hides pinned tabs on workspace switch", () => {
+    const pin = makeTab(tabVals, {
+      label: "pin-ws2", ws: "2", pinned: true, spec: "https://example.com/",
+    });
+    const plain = makeTab(tabVals, {
+      label: "plain-ws2", ws: "2", spec: "https://example.com/other",
+    });
+    sb.gBrowser.tabs.push(pin, plain);
+    try {
+      api.switchTo("1");
+      assert.equal(pin.hidden, false, "pinned WS2 tab stays visible on WS1");
+      assert.equal(plain.hidden, true, "unpinned WS2 tab hides on WS1 (control)");
+      api.switchTo("2");
+      assert.equal(pin.hidden, false, "pinned tab stays visible on WS2 too");
+    } finally {
+      for (const t of [pin, plain]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+    }
+  });
+});
+
+describe("tab unloading", () => {
+  it("is opt-in off when the pref backend is absent", () => {
+    assert.equal(api.getUnloadOnSwitch(), false);
+  });
+
+  it("blocks every never-unload guard", () => {
+    const prev = sb.gBrowser.selectedTab;
+    const cases = [
+      [{ label: "g-pin", ws: "1", spec: "https://example.com/", pinned: true }, "pinned"],
+      [{ label: "g-sound", ws: "1", spec: "https://example.com/", soundPlaying: true }, "audio"],
+      [{ label: "g-aud", ws: "1", spec: "https://example.com/", audible: true }, "audio"],
+      [{ label: "g-busy", ws: "1", spec: "https://example.com/", busy: true }, "loading"],
+      [{ label: "g-rtc", ws: "1", spec: "https://example.com/", sharing: true }, "sharing"],
+      [{ label: "g-pend", ws: "1", spec: "https://example.com/", pending: true }, "pending"],
+      [{ label: "g-dirty", ws: "1", spec: "https://example.com/", beforeUnload: true }, "beforeunload"],
+      [{ label: "g-about", ws: "1", spec: "about:newtab" }, "internal"],
+      [{ label: "g-throw", ws: "1", spec: "https://example.com/", throwURI: true }, "unknown-url"],
+      [{ label: "g-nouri", ws: "1" }, "unknown-url"],
+    ];
+    const tabs = cases.map(([o]) => makeTab(tabVals, o));
+    try {
+      // Selected guard via real selection (covers both selected checks).
+      sb.gBrowser.selectedTab = tabs[0];
+      assert.equal(api.canUnloadTab(tabs[0]).ok, false, "selected blocks");
+      sb.gBrowser.selectedTab = prev;
+      for (let i = 1; i < tabs.length; i++) {
+        const r = api.canUnloadTab(tabs[i]);
+        assert.equal(r.ok, false, `${tabs[i].label} blocks`);
+      }
+      // Pinned guard on an unselected pin.
+      const pin = makeTab(tabVals, { label: "g-pin2", ws: "1", spec: "https://example.com/", pinned: true });
+      try {
+        assert.equal(api.canUnloadTab(pin).ok, false, "pinned blocks");
+      } finally {
+        const li = tabs.indexOf(pin);
+        if (li !== -1) tabs.splice(li, 1);
+      }
+    } finally {
+      sb.gBrowser.selectedTab = prev;
+    }
+  });
+
+  it("passes an eligible hidden foreign tab and sweeps only it", () => {
+    // Prior suites leave current on "2", so WS "1" tabs are foreign.
+    if (api.getCurrent() !== "2") api.switchTo("2");
+    const elig = makeTab(tabVals, {
+      label: "u-elig", ws: "1", spec: "https://example.com/page",
+    });
+    const sameWs = makeTab(tabVals, {
+      label: "u-samews", ws: "2", spec: "https://example.com/other",
+    });
+    const guarded = makeTab(tabVals, {
+      label: "u-pin", ws: "1", spec: "https://example.com/", pinned: true,
+    });
+    sb.gBrowser.tabs.push(elig, sameWs, guarded);
+    try {
+      assert.equal(api.canUnloadTab(elig).ok, true, "eligible tab passes");
+      discarded.length = 0;
+      const r = api.unloadEligibleTabs({ scope: "foreign" });
+      assert.ok(discarded.includes("u-elig"), "eligible foreign tab discarded");
+      assert.ok(!discarded.includes("u-samews"), "current-WS tab untouched");
+      assert.ok(!discarded.includes("u-pin"), "pinned tab untouched");
+      assert.equal(r.reason, undefined);
+      assert.equal(tabVals.get(elig).aphWs, "1", "workspace tag survives discard");
+      assert.equal(elig.__aphFresh, false, "replacement reload never re-routes");
+      assert.equal(elig.hasAttribute("pending"), true);
+    } finally {
+      for (const t of [elig, sameWs, guarded]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+    }
+  });
+
+  it("dry-run counts without discarding", () => {
+    if (api.getCurrent() !== "2") api.switchTo("2");
+    const elig = makeTab(tabVals, {
+      label: "u-dry", ws: "1", spec: "https://example.com/dry",
+    });
+    sb.gBrowser.tabs.push(elig);
+    try {
+      discarded.length = 0;
+      const r = api.unloadEligibleTabs({ scope: "foreign", dryRun: true });
+      assert.ok(r.unloaded >= 1);
+      assert.ok(!discarded.includes("u-dry"), "dry run discards nothing");
+      assert.equal(elig.hasAttribute("pending"), false);
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(elig);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    }
+  });
+
+  it("offline aborts the whole sweep", () => {
+    sb.navigator.onLine = false;
+    try {
+      discarded.length = 0;
+      const r = api.unloadEligibleTabs({ scope: "foreign" });
+      assert.equal(r.unloaded, 0);
+      assert.equal(r.reason, "offline");
+      assert.equal(discarded.length, 0);
+    } finally {
+      sb.navigator.onLine = true;
+    }
+  });
+
+  it("no-ops cleanly without the discard API", () => {
+    const d = sb.gBrowser.discardBrowser;
+    delete sb.gBrowser.discardBrowser;
+    try {
+      const r = api.unloadEligibleTabs({ scope: "foreign" });
+      assert.equal(r.unloaded, 0);
+      assert.equal(r.reason, "no-api");
+    } finally {
+      sb.gBrowser.discardBrowser = d;
+    }
   });
 });

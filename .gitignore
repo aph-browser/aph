@@ -8,3 +8,8 @@ repomix-output.xml
 __pycache__/
 *.pyc
 .python-version
+
+# AppImage build outputs / tooling
+*.AppImage
+appimagetool
+build/AppDir/
