@@ -24,3 +24,24 @@ build/flatpak-repo/
 # Windows portable build outputs
 aph-win64-portable.zip
 build/win-portable/
+
+# Manually downloaded vendor assets (fetch.py uses temp dirs; never commit these)
+Firefox Setup *.exe
+*.msi
+
+# OS droppings (Windows Explorer / Finder touch every browsed folder)
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Editors / IDE
+/.vscode/
+/.idea/
+*~
+*.swp
+
+# Node (no deps today; keeps one stray `npm install` out of history)
+node_modules/
+
+# Logs
+*.log
