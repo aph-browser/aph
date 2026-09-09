@@ -711,8 +711,12 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
                 archive_js, archive_shared_js, archive_page,
                 tabrename_js,
             )
+            try:
+                display = ja_path.relative_to(ROOT)
+            except ValueError:
+                display = ja_path
             print(
-                f"Rebranded {ja_path.relative_to(ROOT)}: "
+                f"Rebranded {display}: "
                 f"{c_brand} brand.ftl, {c_brandings} brandings.ftl, {c_sync} sync-brand.ftl, "
                 f"{c_props} brand.properties, {c_dtd} brand.dtd, {c_logo} logos, "
                 f"{c_xhtml} browser.xhtml, {c_wsjs} workspaces.js, {c_css} theme.css, "

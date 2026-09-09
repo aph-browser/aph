@@ -5,8 +5,10 @@ import hashlib
 import json
 import platform
 import shutil
+import subprocess
 import sys
 import tempfile
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -69,19 +71,67 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def find_7z() -> str | None:
+    """Locate a 7-Zip binary (needed to unpack the Windows installer exe)."""
+    candidates = ("7z", "7z.exe", r"C:\Program Files\7-Zip\7z.exe")
+    for cand in candidates:
+        p = shutil.which(cand)
+        if p:
+            return p
+    return None
+
+
+def extract_windows_setup(setup_exe: Path, dest_dir: Path) -> Path:
+    """Unpack the full installer exe (a 7z self-extractor holding `core/`).
+
+    Returns the directory holding firefox.exe. Preinstalled on GitHub
+    windows-latest runners; dev machines need 7-Zip (winget: 7zip.7zip).
+    """
+    seven_z = find_7z()
+    if seven_z is None:
+        sys.exit(
+            "7-Zip not found: needed to unpack Firefox Setup on Windows.\n"
+            "Install it (winget install 7zip.7zip) and re-run."
+        )
+    print(f"Extracting with {seven_z} ...")
+    try:
+        proc = subprocess.run(
+            [seven_z, "x", str(setup_exe), f"-o{dest_dir}"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as e:
+        sys.exit(f"Failed to run 7-Zip: {e}")
+    if proc.returncode != 0:
+        tail = ((proc.stdout or "") + (proc.stderr or ""))[-2000:]
+        sys.exit(f"7-Zip extraction failed (exit {proc.returncode}):\n{tail}")
+    for cand in (dest_dir / "core", dest_dir):
+        if (cand / "firefox.exe").is_file():
+            return cand
+    top = sorted(p.name for p in dest_dir.iterdir())
+    sys.exit(f"firefox.exe not found after extraction (top level: {top})")
+
+
 def fetch(version: str, arch: str) -> None:
-    ext = "zip" if arch.startswith("win") else "tar.xz"
-    tarball_name = f"firefox-{version}.{ext}"
-    tarball_url = f"{MOZILLA_CDN}/{version}/{arch}/en-US/{tarball_name}"
+    # No portable ZIP on the CDN for Windows (only jsshell zips) — use the
+    # full installer exe (a 7z self-extractor) and unpack its `core/` dir.
+    # Both assets are covered by the release SHA256SUMS file.
+    on_win = arch.startswith("win")
+    if on_win:
+        asset_name = f"Firefox Setup {version}.exe"
+    else:
+        asset_name = f"firefox-{version}.tar.xz"
+    asset_url = f"{MOZILLA_CDN}/{version}/{arch}/en-US/{urllib.parse.quote(asset_name)}"
     checksum_url = f"{MOZILLA_CDN}/{version}/SHA256SUMS"
 
-    print(f"Downloading {tarball_name} ...")
+    print(f"Downloading {asset_name} ...")
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
-        tarball = tmp / tarball_name
+        asset = tmp / asset_name
 
-        req = urllib.request.Request(tarball_url)
-        with urllib.request.urlopen(req, timeout=30) as resp, open(tarball, "wb") as f:
+        req = urllib.request.Request(asset_url)
+        with urllib.request.urlopen(req, timeout=30) as resp, open(asset, "wb") as f:
             total = resp.headers.get("Content-Length")
             downloaded = 0
             while True:
@@ -97,7 +147,7 @@ def fetch(version: str, arch: str) -> None:
 
         print("Verifying checksum ...")
         sha256sums = urllib.request.urlopen(checksum_url, timeout=30).read().decode()
-        needle = f"{arch}/en-US/{tarball_name}"
+        needle = f"{arch}/en-US/{asset_name}"
         expected = None
         for line in sha256sums.splitlines():
             parts = line.split()
@@ -113,17 +163,20 @@ def fetch(version: str, arch: str) -> None:
         if expected is None:
             sys.exit(f"Could not find checksum for {needle} in SHA256SUMS")
 
-        actual = sha256(tarball)
+        actual = sha256(asset)
         if actual != expected:
             sys.exit(f"Checksum mismatch!\n  expected: {expected}\n  actual:   {actual}")
         print(f"  {actual}")
 
         print("Extracting ...")
         BUILD_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.unpack_archive(str(tarball), str(tmp))
-        extracted = tmp / "firefox"
-        if not extracted.is_dir():
-            sys.exit(f"Expected extracted directory {extracted} not found")
+        if on_win:
+            extracted = extract_windows_setup(asset, tmp / "winpkg")
+        else:
+            shutil.unpack_archive(str(asset), str(tmp))
+            extracted = tmp / "firefox"
+            if not extracted.is_dir():
+                sys.exit(f"Expected extracted directory {extracted} not found")
 
         if FIREFOX_DIR.exists():
             shutil.rmtree(FIREFOX_DIR)
