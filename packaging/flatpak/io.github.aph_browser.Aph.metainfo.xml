@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata for the Aph Flatpak. Update project_license once the
+     repo picks a license (MPL-2.0 here covers the redistributed Firefox bits). -->
+<component type="desktop-application">
+  <id>io.github.aph_browser.Aph</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MPL-2.0</project_license>
+  <name>Aph</name>
+  <summary>Firefox-based, workspaces-first web browser</summary>
+  <description>
+    <p>
+      Aph is a Firefox-based browser with native workspace, command-palette,
+      and tab-archive overrides plus hardened privacy defaults.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.aph_browser.Aph.desktop</launchable>
+  <icon type="stock">io.github.aph_browser.Aph</icon>
+  <categories>
+    <category>Network</category>
+    <category>WebBrowser</category>
+  </categories>
+  <provides>
+    <mediatype>text/html</mediatype>
+    <mediatype>application/xhtml+xml</mediatype>
+    <mediatype>x-scheme-handler/http</mediatype>
+    <mediatype>x-scheme-handler/https</mediatype>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-09-08"/>
+  </releases>
+</component>

@@ -13,3 +13,10 @@ __pycache__/
 *.AppImage
 appimagetool
 build/AppDir/
+
+# Flatpak build outputs (single-file bundle + builder state)
+*.flatpak
+build/flatpak-stage/
+build/flatpak-build/
+build/flatpak-repo/
+.flatpak-builder/

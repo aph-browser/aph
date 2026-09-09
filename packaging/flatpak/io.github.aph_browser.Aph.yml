@@ -1,0 +1,72 @@
+# Aph Flatpak manifest — repackages the same rebranded upstream Firefox
+# tarball as the AppImage job (see .github/workflows/build-test.yml).
+#
+# Build inputs are staged by CI into build/flatpak-stage/ (rebranded
+# build/firefox + config/user.js + launcher/desktop/metainfo/icon), so this
+# manifest needs no network access at build time. `type: dir` sources are
+# intentionally local-only: they always rebuild and are not submittable to
+# Flathub as-is (see https://docs.flatpak.org/en/latest/module-sources.html).
+#
+# Runtime choice: org.freedesktop.Platform 25.08. Upstream Firefox runs on
+# the bare Freedesktop runtime (Mozilla's own BaseApp only adds optional
+# kerberos/pcsc/speech extras, and 25.08 auto-provides codecs via
+# codecs-extra). Sandbox permissions mirror upstream org.mozilla.firefox
+# (https://firefox-source-docs.mozilla.org/build/buildsystem/flatpak.html),
+# trimmed to what Aph needs.
+id: io.github.aph_browser.Aph
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: aph
+
+finish-args:
+  # X11 + shared memory (upstream ships both x11 and fallback-x11)
+  - --share=ipc
+  - --socket=x11
+  - --socket=fallback-x11
+  # Wayland
+  - --socket=wayland
+  # Audio
+  - --socket=pulseaudio
+  # GPU acceleration
+  - --device=dri
+  # Network
+  - --share=network
+  # Printing
+  - --socket=cups
+  # WebRTC / screen sharing
+  - --filesystem=xdg-run/pipewire:ro
+  # Save files to the host Downloads dir
+  - --filesystem=xdg-download
+  # Desktop integration: a11y, file manager, notifications, screensaver, gvfs
+  - --talk-name=org.a11y.Bus
+  - --talk-name=org.freedesktop.FileManager1
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.ScreenSaver
+  - --talk-name=org.gtk.vfs.*
+  # D-Bus names owned by the app (mirrors upstream org.mozilla.firefox.*)
+  - --own-name=io.github.aph_browser.Aph.*
+  - --own-name=org.mpris.MediaPlayer2.firefox.*
+  # Prefer Wayland, enable XInput2 touchpad gestures under XWayland
+  - --env=MOZ_ENABLE_WAYLAND=1
+  - --env=MOZ_USE_XINPUT2=1
+
+modules:
+  - name: aph
+    buildsystem: simple
+    build-commands:
+      # Rebranded Firefox payload (fetch.py + rebrand.py + merge_policies
+      # already applied by CI before staging).
+      - cp -a stage/firefox /app/aph
+      # Managed prefs, shipped read-only; the launcher copies them into the
+      # profile on every start (dev.py parity).
+      - install -Dm644 stage/user.js /app/share/aph/user.js
+      # Launcher + desktop integration (filenames already match the app-id).
+      - install -Dm755 stage/aph /app/bin/aph
+      - install -Dm644 stage/io.github.aph_browser.Aph.desktop -t /app/share/applications/
+      - install -Dm644 stage/io.github.aph_browser.Aph.metainfo.xml -t /app/share/metainfo/
+      - install -Dm644 stage/aph.png /app/share/icons/hicolor/128x128/apps/io.github.aph_browser.Aph.png
+    sources:
+      - type: dir
+        path: ../../build/flatpak-stage
+        dest: stage

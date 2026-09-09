@@ -1,8 +1,9 @@
-name: Build AppImage (No Release)
+name: Build Linux packages (No Release)
 
 # Private cloud builds: manual "Run workflow" button or push to main.
-# The AppImage is uploaded as an Action artifact (auto-deleted after
-# retention-days) — no releases, tags, or notifications.
+# The AppImage and the Flatpak single-file bundle are uploaded as Action
+# artifacts (auto-deleted after retention-days) — no releases, tags,
+# or notifications.
 on:
   workflow_dispatch:
   push:
@@ -70,4 +71,64 @@ jobs:
         with:
           name: aph-x86_64
           path: aph-x86_64.AppImage
+          retention-days: 7
+
+  flatpak:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps
+        run: pip install pillow
+
+      - name: Install Flatpak tooling
+        run: sudo apt-get update && sudo apt-get install -y flatpak flatpak-builder
+
+      - name: Add Flathub remote
+        run: flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - name: Install runtime and SDK
+        run: flatpak install -y --user flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
+
+      - name: Prepare Aph build
+        run: |
+          python scripts/fetch.py
+          python scripts/update_prefs.py
+          python scripts/rebrand.py
+          python -c "import sys; sys.path.insert(0, '.'); from scripts.dev import merge_policies; from pathlib import Path; merge_policies(Path('.').resolve())"
+
+      - name: Stage Flatpak sources
+        run: |
+          mkdir -p build/flatpak-stage
+          cp -a build/firefox build/flatpak-stage/firefox
+          cp config/user.js build/flatpak-stage/user.js
+          cp packaging/flatpak/aph build/flatpak-stage/aph
+          cp "packaging/flatpak/io.github.aph_browser.Aph.desktop" build/flatpak-stage/
+          cp "packaging/flatpak/io.github.aph_browser.Aph.metainfo.xml" build/flatpak-stage/
+          cp branding/aph.png build/flatpak-stage/aph.png
+
+      - name: Build Flatpak
+        run: |
+          flatpak-builder --force-clean --repo=build/flatpak-repo build/flatpak-build packaging/flatpak/io.github.aph_browser.Aph.yml
+
+      - name: Smoke test
+        run: |
+          flatpak-builder --run build/flatpak-build packaging/flatpak/io.github.aph_browser.Aph.yml aph --version
+
+      - name: Bundle Flatpak
+        run: |
+          flatpak build-bundle build/flatpak-repo aph-x86_64.flatpak io.github.aph_browser.Aph --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - name: Upload Flatpak as private artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: aph-flatpak-x86_64
+          path: aph-x86_64.flatpak
           retention-days: 7
