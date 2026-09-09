@@ -1280,32 +1280,43 @@
     }
   }
 
-  // Send active tab to WS N and stay: eject from group (groups are
+  // Send the multiselection (Ctrl+click) to WS N and stay; with no
+  // multiselection this is just the active tab: eject from group (groups are
   // single-WS; pinned tabs are never grouped, so the ungroup is a no-op for
-  // them), retag, reconcile to focus next + hide sent tab (hiding refuses
+  // them), retag, reconcile to focus next + hide sent tabs (hiding refuses
   // the selected tab, so selection must move first — reconcile does).
-  // Pinned tabs are global so a sent pin stays visible; its tag is dormant
-  // state applied on eventual unpin. The tab keeps its container (containers
-  // are immutable per tab), and position; bindings only affect newly opened tabs.
+  // Pinned tabs are global so sent pins stay visible; their tags are dormant
+  // state applied on eventual unpin. Sent tabs keep their containers
+  // (containers are immutable per tab), and position; bindings only affect
+  // newly opened tabs.
   function sendTabTo(target) {
     if (!isValidId(target) || target === current) {
       return;
     }
-    let tab = null;
+    let tabs = [];
     try {
-      tab = gBrowser.selectedTab;
-    } catch (e) {
-      return;
-    }
-    if (!tab || tab.closing) {
-      return;
-    }
-    try {
-      if (tab.group) {
-        gBrowser.ungroupTab(tab);
-      }
+      const multi = gBrowser.selectedTabs || gBrowser.multiselectedTabs || [];
+      tabs = Array.from(multi).filter((t) => t && !t.closing);
     } catch (e) {}
-    setWs(tab, target);
+    if (!tabs.length) {
+      try {
+        const sel = gBrowser.selectedTab;
+        if (sel && !sel.closing) {
+          tabs = [sel];
+        }
+      } catch (e) {}
+    }
+    if (!tabs.length) {
+      return;
+    }
+    for (const tab of tabs) {
+      try {
+        if (tab.group) {
+          gBrowser.ungroupTab(tab);
+        }
+      } catch (e) {}
+      setWs(tab, target);
+    }
     anchorAllGroups();
     try {
       reconcile(current, Array.from(gBrowser.tabs));

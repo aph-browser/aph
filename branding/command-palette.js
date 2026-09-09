@@ -83,6 +83,18 @@
     return "Archive Current Tab";
   }
 
+  // "Send Active Tab to …", or "Send N Tabs to …" when a multiselection is
+  // pending (sendTabTo moves the whole selection).
+  function sendTabTitle(api, n) {
+    try {
+      const m = (gBrowser.selectedTabs || gBrowser.multiselectedTabs || []).length;
+      if (m > 1) {
+        return `Send ${m} Tabs to ${wsFull(api, n)}`;
+      }
+    } catch (e) {}
+    return `Send Active Tab to ${wsFull(api, n)}`;
+  }
+
   // --- URL / search fallback -------------------------------------------
   // Direct navigation: "github.com", "localhost:3000", "https://…".
   // Anything with whitespace is a search, never a URL.
@@ -365,7 +377,7 @@
     for (let i = 1; i <= 9; i++) {
       const n = String(i);
       cmds.push({
-        title: `Send Active Tab to ${wsFull(api, n)}`,
+        title: sendTabTitle(api, n),
         hint: `Ctrl+Alt+${n}`,
         run: () => api && api.sendTabTo(n),
       });
