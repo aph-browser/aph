@@ -20,3 +20,7 @@ build/flatpak-stage/
 build/flatpak-build/
 build/flatpak-repo/
 .flatpak-builder/
+
+# Windows portable build outputs
+aph-win64-portable.zip
+build/win-portable/

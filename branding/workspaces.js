@@ -1412,6 +1412,19 @@
     if (e.repeat) {
       return;
     }
+    // Windows international keyboards: AltGr arrives as Ctrl+Alt, so bare
+    // modifier checks can't tell "AltGr+Q → @" (German) apart from a real
+    // Ctrl+Alt hotkey. The OS flags genuine AltGr composition via the
+    // AltGraph modifier state — when set, the user is typing a character,
+    // never invoking a workspace hotkey (Ctrl+Alt+T/B/R/digits below).
+    // Real Ctrl+Alt on layouts without AltGr reports AltGraph=false and is
+    // unaffected. Guarded: getModifierState is absent in tests/contexts
+    // without full KeyboardEvent support.
+    try {
+      if (typeof e.getModifierState === "function" && e.getModifierState("AltGraph")) {
+        return;
+      }
+    } catch (err) {}
     // Plain Ctrl+T opens in the workspace's bound container (if any).
     // Unbound workspaces fall through to stock Firefox behavior.
     if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && e.code === "KeyT") {

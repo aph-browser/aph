@@ -1,9 +1,9 @@
 name: Build Linux packages (No Release)
 
 # Private cloud builds: manual "Run workflow" button or push to main.
-# The AppImage and the Flatpak single-file bundle are uploaded as Action
-# artifacts (auto-deleted after retention-days) — no releases, tags,
-# or notifications.
+# The AppImage, the Flatpak single-file bundle, and the Windows portable
+# ZIP are uploaded as Action artifacts (auto-deleted after retention-days)
+# — no releases, tags, or notifications.
 on:
   workflow_dispatch:
   push:
@@ -131,4 +131,54 @@ jobs:
         with:
           name: aph-flatpak-x86_64
           path: aph-x86_64.flatpak
+          retention-days: 7
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps
+        run: pip install pillow
+
+      - name: Prepare Aph build
+        run: |
+          python scripts/fetch.py
+          python scripts/update_prefs.py
+          python scripts/rebrand.py
+          python -c "import sys; sys.path.insert(0, '.'); from scripts.dev import merge_policies; from pathlib import Path; merge_policies(Path('.').resolve())"
+
+      - name: Stage portable layout
+        run: |
+          mkdir -p build/win-portable/config
+          cp -a build/firefox build/win-portable/firefox
+          cp config/user.js build/win-portable/config/user.js
+          cp packaging/aph.bat build/win-portable/aph.bat
+
+      - name: Smoke test
+        run: |
+          test -f build/win-portable/firefox/firefox.exe
+          test -f build/win-portable/firefox/browser/omni.ja
+          test -f build/win-portable/aph.bat
+          python -c "import sys; sys.exit(0 if open('build/win-portable/firefox/browser/omni.ja','rb').read().find(b'Aph') != -1 else 1)"
+
+      - name: Bundle portable ZIP
+        run: |
+          python -c "import shutil; shutil.make_archive('aph-win64-portable', 'zip', root_dir='build/win-portable')"
+
+      - name: Upload Windows portable as private artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: aph-win64-portable
+          path: aph-win64-portable.zip
           retention-days: 7

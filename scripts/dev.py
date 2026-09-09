@@ -96,7 +96,7 @@ def main() -> None:
     profile = root / "profile"
     user_js_src = root / "config" / "user.js"
     user_js_dst = profile / "user.js"
-    binary = root / "build" / "firefox" / "firefox"
+    binary = root / "build" / "firefox" / ("firefox.exe" if sys.platform == "win32" else "firefox")
 
     profile.mkdir(parents=True, exist_ok=True)
 

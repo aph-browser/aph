@@ -130,6 +130,17 @@
   transition: margin-inline-end var(--aph-pop-in) 0s, opacity 0.15s ease 0s, visibility 0s linear 0s !important;
 }
 
+/* Windows: native Min/Max/Close must never slide away. The hide rules above
+   are already scoped to #nav-bar-customization-target children plus the two
+   explicit button IDs, so this is belt-and-braces against Firefox ever
+   reparenting .titlebar-buttonbox under the nav-bar. Double ancestor IDs
+   out-specify the generic hide rules on purpose. */
+#navigator-toolbox #nav-bar :is(.titlebar-buttonbox-container, .titlebar-button, .titlebar-close) {
+  margin-inline-end: 0 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
 /* Enforce rigid 30px height on buttons */
 #nav-bar toolbarbutton,
 #nav-bar toolbaritem:not(#urlbar-container) {

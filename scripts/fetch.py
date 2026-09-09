@@ -18,13 +18,22 @@ VERSION = "155.0.1"
 
 MOZILLA_CDN = "https://download-installer.cdn.mozilla.net/pub/firefox/releases"
 ARCH_MAP = {"x86_64": "linux-x86_64", "aarch64": "linux-aarch64", "amd64": "linux-x86_64", "arm64": "linux-aarch64"}
+# Windows asset dirs on the same CDN (portable ZIPs, same layout inside).
+WIN_ARCH_MAP = {"AMD64": "win64", "x86_64": "win64", "ARM64": "win64-aarch64", "arm64": "win64-aarch64", "aarch64": "win64-aarch64"}
+
+
+def is_windows() -> bool:
+    return sys.platform == "win32"
 
 
 def detect_arch() -> str:
     machine = platform.machine()
-    arch = ARCH_MAP.get(machine)
+    if is_windows():
+        arch = WIN_ARCH_MAP.get(machine)
+    else:
+        arch = ARCH_MAP.get(machine)
     if arch is None:
-        sys.exit(f"Unsupported architecture: {machine}")
+        sys.exit(f"Unsupported architecture: {machine} (platform {sys.platform})")
     return arch
 
 
@@ -61,7 +70,8 @@ def sha256(path: Path) -> str:
 
 
 def fetch(version: str, arch: str) -> None:
-    tarball_name = f"firefox-{version}.tar.xz"
+    ext = "zip" if arch.startswith("win") else "tar.xz"
+    tarball_name = f"firefox-{version}.{ext}"
     tarball_url = f"{MOZILLA_CDN}/{version}/{arch}/en-US/{tarball_name}"
     checksum_url = f"{MOZILLA_CDN}/{version}/SHA256SUMS"
 
@@ -119,7 +129,7 @@ def fetch(version: str, arch: str) -> None:
             shutil.rmtree(FIREFOX_DIR)
         shutil.move(str(extracted), str(FIREFOX_DIR))
 
-        binary = FIREFOX_DIR / "firefox"
+        binary = FIREFOX_DIR / ("firefox.exe" if is_windows() else "firefox")
         if binary.exists():
             binary.chmod(binary.stat().st_mode | 0o111)
 
@@ -135,7 +145,7 @@ def main() -> None:
     args = parser.parse_args()
 
     current = installed_version()
-    binary_present = (FIREFOX_DIR / "firefox").is_file()
+    binary_present = (FIREFOX_DIR / ("firefox.exe" if is_windows() else "firefox")).is_file()
 
     if args.version:
         version = args.version
