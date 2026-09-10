@@ -223,12 +223,12 @@ jobs:
 
       - name: Build installer
         run: |
-          choco install innosetup -y --no-progress
+          if ! command -v ISCC >/dev/null 2>&1; then choco install innosetup -y --no-progress; fi
           export PATH="$PATH:/c/Program Files (x86)/Inno Setup 6"
           python -c "from PIL import Image; Image.open('branding/aph.png').save('packaging/aph.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
           VER="${GITHUB_REF#refs/tags/}"
           VER="${VER#v}"
-          ISCC "/dVersion=$VER" packaging/aph.iss
+          ISCC "/DVersion=$VER" packaging/aph.iss
           ls packaging/Output/
 
       - name: Hand off to publish
