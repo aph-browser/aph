@@ -218,12 +218,17 @@ jobs:
           ls packaging/Output/
 
       - name: Smoke test installer
+        # MSYS2_ARG_CONV_EXCL again: /DIR= starts with /D and would be
+        # mangled the same way /DVersion was. /VERYSILENT + /SUPPRESSMSGBOXES
+        # so a bad path can never block on a dialog (that hang is what the
+        # 2-hour run was). `timeout` is the backstop.
         run: |
+          export MSYS2_ARG_CONV_EXCL="*"
           EXE=(packaging/Output/Aph-Setup-*.exe)
-          "$EXE" /SILENT /DIR="C:\aph-inst-test"
+          timeout 600 "$EXE" /VERYSILENT /SUPPRESSMSGBOXES /DIR="C:\aph-inst-test"
           test -f "/c/aph-inst-test/aph.bat"
           test -f "/c/aph-inst-test/firefox/firefox.exe"
-          "/c/aph-inst-test/unins000.exe" /SILENT
+          timeout 600 "/c/aph-inst-test/unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES
           test ! -f "/c/aph-inst-test/aph.bat"
 
       - name: Upload Windows portable as private artifact
