@@ -30,10 +30,11 @@ flatpak install aph-x86_64.flatpak
 flatpak run io.github.aph_browser.Aph
 ```
 
-### Windows — portable ZIP
+### Windows — installer or portable ZIP
 
-Extract `aph-win64-portable.zip` anywhere and run `aph.bat`. No admin
-rights needed, nothing is written outside the folder except your profile.
+Run `Aph-Setup-*.exe` (per-user install, no admin rights needed), or
+extract `aph-win64-portable.zip` anywhere and run `aph.bat`. Nothing is
+written outside the install folder except your profile.
 
 ## First run & profiles
 

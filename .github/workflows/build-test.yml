@@ -205,9 +205,34 @@ jobs:
           test -f build/win-portable/aph.bat
           python -c "import sys; sys.exit(0 if open('build/win-portable/firefox/browser/omni.ja','rb').read().find(b'Aph') != -1 else 1)"
 
+      - name: Build installer
+        run: |
+          choco install innosetup -y --no-progress
+          export PATH="$PATH:/c/Program Files (x86)/Inno Setup 6"
+          python -c "from PIL import Image; Image.open('branding/aph.png').save('packaging/aph.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+          VER="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          ISCC "/dVersion=$VER" packaging/aph.iss
+          ls packaging/Output/
+
+      - name: Smoke test installer
+        run: |
+          EXE=(packaging/Output/Aph-Setup-*.exe)
+          "$EXE" /SILENT /DIR="C:\aph-inst-test"
+          test -f "/c/aph-inst-test/aph.bat"
+          test -f "/c/aph-inst-test/firefox/firefox.exe"
+          "/c/aph-inst-test/unins000.exe" /SILENT
+          test ! -f "/c/aph-inst-test/aph.bat"
+
       - name: Upload Windows portable as private artifact
         uses: actions/upload-artifact@v6
         with:
           name: aph-win64-portable
           path: build/win-portable/
+          retention-days: 7
+
+      - name: Upload Windows installer as private artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: aph-win64-setup
+          path: packaging/Output/Aph-Setup-*.exe
           retention-days: 7

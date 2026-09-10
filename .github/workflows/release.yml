@@ -221,11 +221,28 @@ jobs:
           test -f build/win-portable/aph.bat
           python -c "import sys; sys.exit(0 if open('build/win-portable/firefox/browser/omni.ja','rb').read().find(b'Aph') != -1 else 1)"
 
+      - name: Build installer
+        run: |
+          choco install innosetup -y --no-progress
+          export PATH="$PATH:/c/Program Files (x86)/Inno Setup 6"
+          python -c "from PIL import Image; Image.open('branding/aph.png').save('packaging/aph.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+          VER="${GITHUB_REF#refs/tags/}"
+          VER="${VER#v}"
+          ISCC "/dVersion=$VER" packaging/aph.iss
+          ls packaging/Output/
+
       - name: Hand off to publish
         uses: actions/upload-artifact@v6
         with:
           name: rel-winportable
           path: build/win-portable/
+          retention-days: 1
+
+      - name: Hand off installer to publish
+        uses: actions/upload-artifact@v6
+        with:
+          name: rel-wininstaller
+          path: packaging/Output/Aph-Setup-*.exe
           retention-days: 1
 
   publish:
@@ -244,8 +261,9 @@ jobs:
           mkdir -p release
           cp dist/rel-appimage/aph-x86_64.AppImage release/
           cp dist/rel-flatpak/aph-x86_64.flatpak release/
+          cp dist/rel-wininstaller/Aph-Setup-*.exe release/
           python -c "import shutil; shutil.make_archive('release/aph-win64-portable', 'zip', root_dir='dist/rel-winportable')"
-          (cd release && sha256sum aph-x86_64.AppImage aph-x86_64.flatpak aph-win64-portable.zip > SHA256SUMS)
+          (cd release && sha256sum aph-x86_64.AppImage aph-x86_64.flatpak aph-win64-portable.zip Aph-Setup-*.exe > SHA256SUMS)
           cat release/SHA256SUMS
 
       - name: Write release notes
@@ -267,9 +285,10 @@ jobs:
 
           ### Install
 
-          - Linux AppImage: \`chmod +x aph-x86_64.AppImage && ./aph-x86_64.AppImage\`
-          - Linux Flatpak: \`flatpak install aph-x86_64.flatpak\`
-          - Windows: extract \`aph-win64-portable.zip\` anywhere and run \`aph.bat\`
+          - Linux AppImage: `chmod +x aph-x86_64.AppImage && ./aph-x86_64.AppImage`
+          - Linux Flatpak: `flatpak install aph-x86_64.flatpak`
+          - Windows: run `Aph-Setup-*.exe` (per-user, no admin needed), or
+            extract `aph-win64-portable.zip` anywhere and run `aph.bat`
 
           ### Verify
 
@@ -291,6 +310,6 @@ jobs:
           set -eu
           gh release create "$TAG" --prerelease --title "Aph $VER" --notes-file notes.md \
             release/aph-x86_64.AppImage release/aph-x86_64.flatpak \
-            release/aph-win64-portable.zip release/SHA256SUMS
+            release/aph-win64-portable.zip release/Aph-Setup-*.exe release/SHA256SUMS
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
