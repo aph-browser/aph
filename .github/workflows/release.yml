@@ -267,21 +267,23 @@ jobs:
           cat release/SHA256SUMS
 
       - name: Write release notes
+        # Quoted heredoc + sed tokens: an unquoted heredoc would execute the
+        # backticked snippets (chmod, paths) as shell commands and fail.
         run: |
           set -eu
           TAG="${GITHUB_REF#refs/tags/}"
           VER="${TAG#v}"
           FXVER="$(cat dist/rel-meta/firefox-version.txt)"
-          cat > notes.md <<EOF
-          ## Aph ${VER} — beta pre-release
+          cat > notes.md <<'EOF'
+          ## Aph __VER__ — beta pre-release
 
           First public pre-release. Unsigned test builds with no auto-update
           yet; each release is a manual re-download.
 
-          - Aph version: ${VER}
-          - Firefox base: ${FXVER} (recorded from application.ini at build time)
-          - Profiles: Linux \`~/.config/aph/profile\` (daily install) ·
-            Windows \`%APPDATA%\\Aph\\profile\` (seed-once user.js)
+          - Aph version: __VER__
+          - Firefox base: __FXVER__ (recorded from application.ini at build time)
+          - Profiles: Linux `~/.config/aph/profile` (daily install) ·
+            Windows `%APPDATA%\Aph\profile` (seed-once user.js)
 
           ### Install
 
@@ -292,9 +294,9 @@ jobs:
 
           ### Verify
 
-          \`\`\`sh
+          ```sh
           sha256sum -c SHA256SUMS
-          \`\`\`
+          ```
 
           ### Known limitations
 
@@ -302,6 +304,8 @@ jobs:
           - No auto-update channel yet.
           - See README for details and [SECURITY.md](https://github.com/aph-browser/aph/blob/main/SECURITY.md) to report vulnerabilities.
           EOF
+          sed -i "s/__VER__/${VER}/g; s/__FXVER__/${FXVER}/g" notes.md
+          cat notes.md
           echo "TAG=${TAG}" >> "$GITHUB_ENV"
           echo "VER=${VER}" >> "$GITHUB_ENV"
 
