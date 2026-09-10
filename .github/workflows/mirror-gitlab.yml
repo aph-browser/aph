@@ -1,0 +1,30 @@
+name: Mirror to GitLab
+
+# Code resilience mirror: pushes all branches + tags to gitlab.com/aph-browser/aph
+# (GitLab project ID 86313667). Binaries are NOT mirrored here — that comes
+# with the public-release workflow (GitLab Generic Packages + Releases).
+# Setup: GitHub repo Settings → Secrets → Actions → GITLAB_TOKEN (Legacy
+# token with `api` + `write_repository`). Never commit the token itself.
+on:
+  push:
+    branches: ["**"]
+    tags: ["**"]
+  workflow_dispatch:
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Push mirror to GitLab
+        run: |
+          set -eu
+          git remote add gitlab "https://oauth2:${GITLAB_TOKEN}@gitlab.com/aph-browser/aph.git"
+          git push gitlab --all --force --prune
+          git push gitlab --tags --force
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
