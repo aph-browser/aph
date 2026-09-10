@@ -136,6 +136,23 @@ def seed_user_js(root: Path, profile: Path) -> str:
     return "seeded"
 
 
+def seed_chrome_css(root: Path, profile: Path) -> str:
+    """Seed branding/userChrome.css into profile/chrome/ once (menu accents).
+
+    Same seed-once contract as seed_user_js: never overwrite user edits.
+    Returns "seeded", "kept", or "missing-source".
+    """
+    src = root / "branding" / "userChrome.css"
+    dst = profile / "chrome" / "userChrome.css"
+    if not src.is_file():
+        return "missing-source"
+    if dst.exists():
+        return "kept"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    return "seeded"
+
+
 def sync_user_js(root: Path, profile: Path) -> None:
     """Force re-apply config/user.js over the profile (explicit opt-in).
 
@@ -158,6 +175,27 @@ def sync_user_js(root: Path, profile: Path) -> None:
     print(f"Synced {src} -> {dst} (previous saved as user.js.bak)")
 
 
+def sync_chrome_css(root: Path, profile: Path) -> None:
+    """Force re-apply branding/userChrome.css over the profile (explicit opt-in).
+
+    Same contract as sync_user_js: backs up to userChrome.css.bak first,
+    refuses while Firefox holds the profile lock.
+    """
+    src = root / "branding" / "userChrome.css"
+    dst = profile / "chrome" / "userChrome.css"
+    if not src.is_file():
+        print(f"ERROR: {src} not found.", file=sys.stderr)
+        sys.exit(1)
+    if profile_locked(profile):
+        print(f"ERROR: Firefox is running on {profile} - quit it first.", file=sys.stderr)
+        sys.exit(1)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        shutil.copy2(dst, profile / "chrome" / "userChrome.css.bak")
+    shutil.copy2(src, dst)
+    print(f"Synced {src} -> {dst} (previous saved as userChrome.css.bak)")
+
+
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
     profile = root / "profile"
@@ -169,6 +207,9 @@ def main() -> None:
     # user changes via about:config / Settings survive restarts.
     if seed_user_js(root, profile) == "seeded":
         print(f"Seeded first-run prefs: {profile / 'user.js'}")
+    # Seed-once menu accents (same contract: never overwrite user edits).
+    if seed_chrome_css(root, profile) == "seeded":
+        print(f"Seeded menu accents: {profile / 'chrome' / 'userChrome.css'}")
 
     # Auto-merge enterprise policies & extensions
     merge_policies(root)

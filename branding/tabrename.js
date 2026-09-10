@@ -302,17 +302,10 @@
       input.setAttribute("autocomplete", "off");
       input.setAttribute("spellcheck", "false");
       const s = input.style;
+      // Geometry only — all paint lives in theme.css #aph-tab-rename-input
+      // (theme field vars, borderless). Never set visual styles here.
       s.position = "fixed";
       s.zIndex = "2147483647";
-      s.margin = "0";
-      s.padding = "0 4px";
-      s.background = "#24283b";
-      s.color = "#e6e8f5";
-      s.border = "1px solid #ff2d55";
-      s.borderRadius = "6px";
-      s.font = "inherit";
-      s.fontSize = "12px";
-      s.outline = "none";
       s.left = `${r.left}px`;
       s.top = `${r.top}px`;
       s.width = `${Math.max(EDITOR_MIN_WIDTH, r.width)}px`;

@@ -323,6 +323,31 @@ describe("inline dblclick editor", () => {
     assert.equal(input.style.width, "120px"); // pinned-narrow minimum
   });
 
+  it("carries geometry only — all paint lives in theme.css", () => {
+    const env = makeSandbox();
+    loadRename(env);
+    const t = freshTab(env, "Real Page Title");
+    env.setSel(t);
+    const { labelTarget } = labelSetup(env, t, { left: 10, top: 20, width: 100, height: 24 });
+    dblclick(env, labelTarget);
+    const input = env.appended[0];
+    // Geometry stays inline (dynamic per tab) …
+    assert.equal(input.style.position, "fixed");
+    assert.equal(input.style.left, "10px");
+    assert.equal(input.style.top, "20px");
+    assert.equal(input.style.width, "120px");
+    assert.equal(input.style.height, "24px");
+    // … but no visual style may be set here (theme.css owns ALL paint,
+    // so the editor follows the active theme instead of hardcoded colors).
+    for (const prop of [
+      "margin", "padding", "background", "color", "border",
+      "borderRadius", "font", "fontSize", "outline", "boxSizing",
+      "boxShadow",
+    ]) {
+      assert.equal(input.style[prop], undefined, prop);
+    }
+  });
+
   it("ignores favicon, empty strip and non-left buttons", () => {
     const env = makeSandbox();
     loadRename(env);

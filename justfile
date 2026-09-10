@@ -64,6 +64,11 @@ update-prefs:
 sync-prefs *args:
     uv run python -c "import sys; sys.path.insert(0, '.'); from scripts.dev import sync_user_js; from pathlib import Path; sync_user_js(Path('.').resolve(), Path.home() / '.config' / 'aph' / 'profile' if '{{args}}' == 'local' else Path('.').resolve() / 'profile')"
 
+# Force re-apply branding/userChrome.css over a profile (backs up existing
+# to userChrome.css.bak). Same profile selection and quit-first rule as sync-prefs.
+sync-chrome *args:
+    uv run python -c "import sys; sys.path.insert(0, '.'); from scripts.dev import sync_chrome_css; from pathlib import Path; sync_chrome_css(Path('.').resolve(), Path.home() / '.config' / 'aph' / 'profile' if '{{args}}' == 'local' else Path('.').resolve() / 'profile')"
+
 # Run node harness tests for the injected browser scripts
 test:
     node --test "tests/*.test.js"

@@ -1,0 +1,63 @@
+/* ==========================================================================
+   Aph userChrome.css — menu accent touches (seeded into profile/chrome/).
+
+   Covers all native menus with two stable selectors: `menupopup` (page /
+   tab context menus) and `panelview` (hamburger panel, subviews). Only
+   three things are customized — everything else stays stock Firefox:
+
+   1. Background: a whisper (10%) of the theme frame color mixed into the
+      neutral panel surface. Warm cast under Sun, guaranteed-readable under
+      any theme (contrast can't break at 10%).
+   2. Selection: hovered/open items use the theme highlight color.
+   3. Radius: 6px rows, matching the Aph command palette.
+
+   Deliberately NOT a full menu skin: Mozilla rewrites the underlying
+   stock rules regularly (see panelUI-shared.css), and these accent rules
+   inherit everything else so they survive upstream changes. Keep it that
+   way — do not add text/border/separator/icon overrides here.
+   ========================================================================== */
+
+/* 1. Warm-tinted menu surface: 50% of the theme frame color mixed into
+   the neutral panel surface. Clearly warm under Sun, still safely
+   readable under any theme (text/borders stay stock).
+   NOTE: context menus paint their visible surface from the
+   --panel-background-color VARIABLE (toolkit popup.css reads it inside
+   the popup's shadow part), so the tint is delivered by redefining the
+   variable on the host — the same mechanism lightweight themes use.
+   The host/::part background rules below are belt-and-braces. */
+menupopup {
+  --panel-background-color: color-mix(
+    in srgb,
+    var(--lwt-accent-color, Menu) 50%,
+    Menu
+  ) !important;
+}
+menupopup,
+panelview {
+  background-color: color-mix(
+    in srgb,
+    var(--lwt-accent-color, var(--panel-background-color, Window)) 50%,
+    var(--panel-background-color, Window)
+  ) !important;
+}
+menupopup::part(content) {
+  background-color: color-mix(
+    in srgb,
+    var(--lwt-accent-color, var(--panel-background-color, Window)) 50%,
+    var(--panel-background-color, Window)
+  ) !important;
+}
+
+/* 2+3. Hovered/open item: the theme's real hover gold
+   (--toolbarbutton-background-color-hover: Sun light #FDE8B5, Sun dark
+   #5F3100) with the Aph blue wash as fallback. 6px rows match the palette.
+   NOTE: --lwt-toolbar-field-highlight is NOT used here — Sun leaves it
+   undefined, which rendered as plain blue and looked stock. */
+menupopup > :is(menu, menuitem)[_moz-menuactive="true"],
+panelview :is(.subviewbutton, toolbarbutton):is(:hover, [_moz-menuactive="true"]) {
+  background-color: var(
+    --toolbarbutton-background-color-hover,
+    rgba(125, 190, 255, 0.28)
+  ) !important;
+  border-radius: 6px !important;
+}

@@ -330,3 +330,47 @@ tab[pending]:not([selected]) .tab-label,
   transform: translateX(-50%) translateY(0) !important;
   transition: opacity 0.18s ease, transform 0.18s ease, visibility 0s linear 0s !important;
 }
+
+/* ==========================================================================
+   10. F11 fullscreen: keep the vertical-tabs launcher usable.
+   Stock Firefox hides the whole #sidebar-container (content-visibility
+   + zeroed flex basis) while the nav toolbox is autohidden, so the tab
+   strip can only come back via the top edge. Undo exactly those three
+   properties and the launcher renders as in windowed mode — same width,
+   clickable tabs, no top-bar detour. Scoped to :not([inDOMFullscreen])
+   on purpose: element fullscreen (e.g. videos) keeps its clean
+   zero-chrome behavior.
+   ========================================================================== */
+
+:root[fullscreenNavToolboxHidden]:not([inDOMFullscreen]) #sidebar-container {
+  content-visibility: visible !important;
+  flex-basis: auto !important;
+  min-width: auto !important;
+}
+
+/* ==========================================================================
+   11. Inline tab-rename editor: borderless floating field over the tab's
+   label (geometry is set inline by tabrename.js — this rule owns ALL
+   paint). Theme field surface/text so it reads on cream and dark tab
+   strips alike; separation comes from fill + a soft shadow, never a
+   border. box-sizing + zero padding keep the outer box exactly on the
+   label rect so it never sticks out of the tab.
+   ========================================================================== */
+
+#aph-tab-rename-input {
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  outline: none !important;
+  border-radius: 4px !important;
+  background: var(--toolbar-field-background-color, #24283b) !important;
+  color: var(--toolbar-field-text-color, #e6e8f5) !important;
+  font: inherit !important;
+  font-size: 12px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
+}
+
+#aph-tab-rename-input::selection {
+  background-color: var(--lwt-toolbar-field-highlight, rgba(125, 190, 255, 0.28)) !important;
+}
