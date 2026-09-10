@@ -374,3 +374,22 @@ tab[pending]:not([selected]) .tab-label,
 #aph-tab-rename-input::selection {
   background-color: var(--lwt-toolbar-field-highlight, rgba(125, 190, 255, 0.28)) !important;
 }
+
+/* ==========================================================================
+   12. Tab hover: whisper of the theme hover token (same token as menu
+   hover — Sun gold #FDE8B5 light / #5F3100 dark, Aph blue wash
+   fallback), so tabs share the menu hover language instead of stock
+   gray. Background-only, never layout: container identity lines and the
+   pending-tab dim keep working untouched, and the selector hits both
+   horizontal and vertical strips (.tab-background exists in both).
+   Selected is exempt — it already has strong styling that hover must
+   not fight. 45% keeps label contrast safe on cream and dark strips.
+   ========================================================================== */
+
+.tabbrowser-tab:not([selected]):hover > .tab-stack > .tab-background {
+  background-color: color-mix(
+    in srgb,
+    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 45%,
+    transparent
+  ) !important;
+}
