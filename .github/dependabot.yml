@@ -1,0 +1,26 @@
+version: 2
+updates:
+  # GitHub Actions pins (checkout, setup-python, upload/download-artifact).
+  # Its PRs run the normal CI, so a green merge is safe by construction.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
+
+  # Python deps via uv.lock (Pillow, ruff, pytest). Minor/patch grouped to
+  # one PR a week; majors stay separate so breaking changes are visible.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      uv-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
