@@ -1,14 +1,20 @@
-name: Build Linux packages
+name: Release (tag)
 
-# Private cloud builds: manual "Run workflow" button or push to main.
-# The AppImage, the Flatpak single-file bundle, and the Windows portable
-# folder are uploaded as Action artifacts (auto-deleted after retention-days).
-# Public releases are built by release.yml on `v*` tags.
+# First public releases: push a `v*` tag and this builds all three
+# platforms in-run, then publishes a GitHub pre-release with
+# aph-x86_64.AppImage, aph-x86_64.flatpak, aph-win64-portable.zip and
+# SHA256SUMS. Binaries never cross workflow runs (download-artifact is
+# run-scoped), so the build and the publish live in this one workflow.
+# Re-running a tag reuses the same assets; delete the release first if
+# you need to re-publish it.
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   lint:
@@ -41,7 +47,7 @@ jobs:
       - name: Node harness tests
         run: node --test "tests/*.test.js"
 
-  build:
+  appimage:
     runs-on: ubuntu-latest
     needs: lint
 
@@ -75,6 +81,9 @@ jobs:
           python scripts/rebrand.py
           python -c "import sys; sys.path.insert(0, '.'); from scripts.dev import merge_policies; from pathlib import Path; merge_policies(Path('.').resolve())"
 
+      - name: Record Firefox base version
+        run: grep '^Version=' build/firefox/application.ini | cut -d= -f2 | tr -d '[:space:]' > firefox-version.txt
+
       - name: Assemble AppDir
         run: |
           mkdir -p build/AppDir/usr/bin build/AppDir/usr/share/aph build/AppDir/usr/share/icons/hicolor/128x128/apps
@@ -97,12 +106,19 @@ jobs:
           export APPIMAGE_EXTRACT_AND_RUN=1
           ./aph-x86_64.AppImage --version
 
-      - name: Upload AppImage as private artifact
+      - name: Hand off to publish
         uses: actions/upload-artifact@v6
         with:
-          name: aph-x86_64
+          name: rel-appimage
           path: aph-x86_64.AppImage
-          retention-days: 7
+          retention-days: 1
+
+      - name: Hand off base version
+        uses: actions/upload-artifact@v6
+        with:
+          name: rel-meta
+          path: firefox-version.txt
+          retention-days: 1
 
   flatpak:
     runs-on: ubuntu-latest
@@ -158,12 +174,12 @@ jobs:
         run: |
           flatpak build-bundle build/flatpak-repo aph-x86_64.flatpak io.github.aph_browser.Aph --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
 
-      - name: Upload Flatpak as private artifact
+      - name: Hand off to publish
         uses: actions/upload-artifact@v6
         with:
-          name: aph-flatpak-x86_64
+          name: rel-flatpak
           path: aph-x86_64.flatpak
-          retention-days: 7
+          retention-days: 1
 
   windows:
     runs-on: windows-latest
@@ -205,9 +221,76 @@ jobs:
           test -f build/win-portable/aph.bat
           python -c "import sys; sys.exit(0 if open('build/win-portable/firefox/browser/omni.ja','rb').read().find(b'Aph') != -1 else 1)"
 
-      - name: Upload Windows portable as private artifact
+      - name: Hand off to publish
         uses: actions/upload-artifact@v6
         with:
-          name: aph-win64-portable
+          name: rel-winportable
           path: build/win-portable/
-          retention-days: 7
+          retention-days: 1
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [appimage, flatpak, windows]
+
+    steps:
+      - name: Collect handoffs
+        uses: actions/download-artifact@v6
+        with:
+          path: dist
+
+      - name: Stage release assets
+        run: |
+          set -eu
+          mkdir -p release
+          cp dist/rel-appimage/aph-x86_64.AppImage release/
+          cp dist/rel-flatpak/aph-x86_64.flatpak release/
+          python -c "import shutil; shutil.make_archive('release/aph-win64-portable', 'zip', root_dir='dist/rel-winportable')"
+          (cd release && sha256sum aph-x86_64.AppImage aph-x86_64.flatpak aph-win64-portable.zip > SHA256SUMS)
+          cat release/SHA256SUMS
+
+      - name: Write release notes
+        run: |
+          set -eu
+          TAG="${GITHUB_REF#refs/tags/}"
+          VER="${TAG#v}"
+          FXVER="$(cat dist/rel-meta/firefox-version.txt)"
+          cat > notes.md <<EOF
+          ## Aph ${VER} — beta pre-release
+
+          First public pre-release. Unsigned test builds with no auto-update
+          yet; each release is a manual re-download.
+
+          - Aph version: ${VER}
+          - Firefox base: ${FXVER} (recorded from application.ini at build time)
+          - Profiles: Linux \`~/.config/aph/profile\` (daily install) ·
+            Windows \`%APPDATA%\\Aph\\profile\` (seed-once user.js)
+
+          ### Install
+
+          - Linux AppImage: \`chmod +x aph-x86_64.AppImage && ./aph-x86_64.AppImage\`
+          - Linux Flatpak: \`flatpak install aph-x86_64.flatpak\`
+          - Windows: extract \`aph-win64-portable.zip\` anywhere and run \`aph.bat\`
+
+          ### Verify
+
+          \`\`\`sh
+          sha256sum -c SHA256SUMS
+          \`\`\`
+
+          ### Known limitations
+
+          - Unsigned binaries: Windows SmartScreen warns on first launch (expected).
+          - No auto-update channel yet.
+          - See README for details and [SECURITY.md](https://github.com/aph-browser/aph/blob/main/SECURITY.md) to report vulnerabilities.
+          EOF
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "VER=${VER}" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub pre-release
+        run: |
+          set -eu
+          gh release create "$TAG" --prerelease --title "Aph $VER" --notes-file notes.md \
+            release/aph-x86_64.AppImage release/aph-x86_64.flatpak \
+            release/aph-win64-portable.zip release/SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
