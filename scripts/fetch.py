@@ -19,9 +19,20 @@ FIREFOX_DIR = BUILD_DIR / "firefox"
 VERSION = "155.0.1"
 
 MOZILLA_CDN = "https://download-installer.cdn.mozilla.net/pub/firefox/releases"
-ARCH_MAP = {"x86_64": "linux-x86_64", "aarch64": "linux-aarch64", "amd64": "linux-x86_64", "arm64": "linux-aarch64"}
+ARCH_MAP = {
+    "x86_64": "linux-x86_64",
+    "aarch64": "linux-aarch64",
+    "amd64": "linux-x86_64",
+    "arm64": "linux-aarch64",
+}
 # Windows asset dirs on the same CDN (portable ZIPs, same layout inside).
-WIN_ARCH_MAP = {"AMD64": "win64", "x86_64": "win64", "ARM64": "win64-aarch64", "arm64": "win64-aarch64", "aarch64": "win64-aarch64"}
+WIN_ARCH_MAP = {
+    "AMD64": "win64",
+    "x86_64": "win64",
+    "ARM64": "win64-aarch64",
+    "arm64": "win64-aarch64",
+    "aarch64": "win64-aarch64",
+}
 
 
 def is_windows() -> bool:
@@ -30,10 +41,7 @@ def is_windows() -> bool:
 
 def detect_arch() -> str:
     machine = platform.machine()
-    if is_windows():
-        arch = WIN_ARCH_MAP.get(machine)
-    else:
-        arch = ARCH_MAP.get(machine)
+    arch = WIN_ARCH_MAP.get(machine) if is_windows() else ARCH_MAP.get(machine)
     if arch is None:
         sys.exit(f"Unsupported architecture: {machine} (platform {sys.platform})")
     return arch
@@ -118,10 +126,7 @@ def fetch(version: str, arch: str) -> None:
     # full installer exe (a 7z self-extractor) and unpack its `core/` dir.
     # Both assets are covered by the release SHA256SUMS file.
     on_win = arch.startswith("win")
-    if on_win:
-        asset_name = f"Firefox Setup {version}.exe"
-    else:
-        asset_name = f"firefox-{version}.tar.xz"
+    asset_name = f"Firefox Setup {version}.exe" if on_win else f"firefox-{version}.tar.xz"
     asset_url = f"{MOZILLA_CDN}/{version}/{arch}/en-US/{urllib.parse.quote(asset_name)}"
     checksum_url = f"{MOZILLA_CDN}/{version}/SHA256SUMS"
 
@@ -142,7 +147,11 @@ def fetch(version: str, arch: str) -> None:
                 downloaded += len(chunk)
                 if total:
                     pct = downloaded * 100 // int(total)
-                    print(f"\r  {downloaded // (1 << 20)}MB / {int(total) // (1 << 20)}MB ({pct}%)", end="", flush=True)
+                    print(
+                        f"\r  {downloaded // (1 << 20)}MB / {int(total) // (1 << 20)}MB ({pct}%)",
+                        end="",
+                        flush=True,
+                    )
             print()
 
         print("Verifying checksum ...")
@@ -192,9 +201,15 @@ def fetch(version: str, arch: str) -> None:
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Fetch Firefox release (default: latest from Mozilla)")
-    parser.add_argument("version", nargs="?", default=None, help="Pin a specific release version (default: latest)")
-    parser.add_argument("--latest", action="store_true", help="Use latest release from Mozilla (default behavior)")
+    parser = argparse.ArgumentParser(
+        description="Fetch Firefox release (default: latest from Mozilla)"
+    )
+    parser.add_argument(
+        "version", nargs="?", default=None, help="Pin a specific release version (default: latest)"
+    )
+    parser.add_argument(
+        "--latest", action="store_true", help="Use latest release from Mozilla (default behavior)"
+    )
     args = parser.parse_args()
 
     current = installed_version()

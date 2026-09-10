@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
-"""Launch Firefox with Aph overrides - Python replacement for dev.sh."""
+"""Launch Firefox with Aph overrides - Python replacement for dev.sh.
+
+Prefs model: config/user.js holds Aph's *default* prefs. It is seeded into a
+profile once (first launch) and never overwritten afterwards, so user changes
+made via about:config / Settings persist across restarts. Enterprise policies
+(config/policies.json) remain the only force-applied mechanism. To re-apply
+defaults over a profile on purpose, run: just sync-prefs
+"""
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -21,10 +29,15 @@ def ensure_rebranded(root: Path) -> None:
         # Only rebrand if backup missing (first run) or branding newer than omni.ja
         if not omni.is_file():
             return
-        # Check mtime of all branding assets AND the rebrand script itself
-        watch_files = list((root / "branding").glob("*")) + [
-            root / "scripts" / "rebrand.py"
-        ]
+        # Check mtime of all branding assets (sources + built bundles) AND
+        # the rebrand package itself.
+        watch_files = (
+            list((root / "branding").rglob("*.js"))
+            + list((root / "branding").rglob("*.css"))
+            + list((root / "branding").rglob("*.ftl"))
+            + list((root / "scripts" / "aph_rebrand").rglob("*.py"))
+            + [root / "scripts" / "rebrand.py", root / "scripts" / "build_assets.py"]
+        )
         newest_source = max(f.stat().st_mtime for f in watch_files if f.is_file())
         # Both browser and root omni.ja get patched — a missing backup or a
         # stale timestamp on EITHER one must trigger a rebrand.
@@ -91,17 +104,71 @@ def merge_policies(root: Path) -> None:
     target_policies_file.write_text(json.dumps(merged_data, indent=2) + "\n", encoding="utf-8")
 
 
+def profile_locked(profile: Path) -> bool:
+    """True if a running Firefox holds this profile (mirrors nuke-local check)."""
+    lock = profile / "lock"
+    try:
+        if not lock.is_symlink():
+            return False
+        target = os.readlink(lock)  # e.g. "127.0.0.1:+12345"
+        pid = target.rsplit(":", 1)[-1].lstrip("+")
+        if not pid.isdigit():
+            return False
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def seed_user_js(root: Path, profile: Path) -> str:
+    """Seed config/user.js into the profile once; never overwrite user edits.
+
+    Returns "seeded" (fresh copy), "kept" (profile already had one — user
+    changes preserved), or "missing-source" (nothing to seed from).
+    """
+    src = root / "config" / "user.js"
+    dst = profile / "user.js"
+    if not src.is_file():
+        return "missing-source"
+    if dst.exists():
+        return "kept"
+    shutil.copy2(src, dst)
+    return "seeded"
+
+
+def sync_user_js(root: Path, profile: Path) -> None:
+    """Force re-apply config/user.js over the profile (explicit opt-in).
+
+    Backs up the existing profile/user.js to user.js.bak first. Refuses while
+    Firefox holds the profile lock. Next launch, Firefox applies the synced
+    file over prefs.js — user edits to listed prefs are overwritten.
+    """
+    src = root / "config" / "user.js"
+    dst = profile / "user.js"
+    if not src.is_file():
+        print(f"ERROR: {src} not found. Run: just update-prefs", file=sys.stderr)
+        sys.exit(1)
+    if profile_locked(profile):
+        print(f"ERROR: Firefox is running on {profile} - quit it first.", file=sys.stderr)
+        sys.exit(1)
+    profile.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        shutil.copy2(dst, profile / "user.js.bak")
+    shutil.copy2(src, dst)
+    print(f"Synced {src} -> {dst} (previous saved as user.js.bak)")
+
+
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
     profile = root / "profile"
-    user_js_src = root / "config" / "user.js"
-    user_js_dst = profile / "user.js"
     binary = root / "build" / "firefox" / ("firefox.exe" if sys.platform == "win32" else "firefox")
 
     profile.mkdir(parents=True, exist_ok=True)
 
-    if user_js_src.is_file():
-        shutil.copy2(user_js_src, user_js_dst)
+    # Seed-once defaults: never overwrite an existing profile/user.js, so
+    # user changes via about:config / Settings survive restarts.
+    if seed_user_js(root, profile) == "seeded":
+        print(f"Seeded first-run prefs: {profile / 'user.js'}")
 
     # Auto-merge enterprise policies & extensions
     merge_policies(root)

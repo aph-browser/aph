@@ -27,12 +27,42 @@ dev *args:
 run *args: (dev args)
 
 # Force rebrand of browser/omni.ja (ZIP_STORED, backup -> .bak)
+# Rebuilds generated browser bundles from branding/src/ first.
 rebrand:
+    uv run python scripts/build_assets.py
     uv run python scripts/rebrand.py
 
+# Rebuild generated browser bundles (branding/src/ -> branding/*.js)
+build-assets:
+    uv run python scripts/build_assets.py
+
+# Verify committed bundles match branding/src/ (CI guard)
+check-assets:
+    uv run python scripts/build_assets.py --check
+
+# Python lint + format check
+lint:
+    uv tool run ruff check scripts/ tests_py/
+    uv tool run ruff format --check scripts/ tests_py/
+
+# Python unit tests (omni helpers, xhtml injection, patcher, bundles)
+test-py:
+    uv run --group dev pytest tests_py/ -q
+
+# All static gates: lint + asset freshness + python + node harness tests
+check: lint check-assets test-py test
+
 # Download latest Betterfox and merge with Aph overrides into config/user.js
+# (seed-once: only affects fresh profiles until `just sync-prefs`)
 update-prefs:
     uv run python scripts/update_prefs.py
+
+# Force re-apply config/user.js over a profile (backs up user.js to user.js.bak).
+# Next launch Firefox applies it over prefs.js, overwriting user edits to listed
+# prefs. Defaults to the repo profile; `just sync-prefs local` targets the daily
+# profile at ~/.config/aph/profile. Quit Aph on that profile first.
+sync-prefs *args:
+    uv run python -c "import sys; sys.path.insert(0, '.'); from scripts.dev import sync_user_js; from pathlib import Path; sync_user_js(Path('.').resolve(), Path.home() / '.config' / 'aph' / 'profile' if '{{args}}' == 'local' else Path('.').resolve() / 'profile')"
 
 # Run node harness tests for the injected browser scripts
 test:
@@ -42,7 +72,8 @@ test:
 status:
     @echo "profile: $(test -d profile && echo exists || echo missing)"
     @echo "config: $(test -f config/user.js && echo ready || echo missing)"
-    @test -f profile/user.js && diff -u config/user.js profile/user.js | head -n 20 || echo "profile user.js not yet copied (run: just dev)"
+    @test -f profile/user.js && diff -u config/user.js profile/user.js | head -n 20 || echo "profile user.js not yet seeded (run: just dev)"
+    @echo "prefs: seed-once (user edits persist; \`just sync-prefs\` to re-apply config)"
     @echo "omni.ja: $(test -f build/firefox/browser/omni.ja.bak && echo rebranded || echo original)"
     @test -f build/firefox/browser/omni.ja && uv run python -c "print(open('build/firefox/browser/omni.ja','rb').read().find(b'Aph'))" | grep -q "^-1" && echo "brand: Firefox" || echo "brand: Aph"
 
@@ -74,7 +105,7 @@ install-local:
     uv run python -c "import sys; sys.path.insert(0, '.'); from scripts.dev import merge_policies; from pathlib import Path; merge_policies(Path('.').resolve())"
     mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/128x128/apps" "$HOME/.config/aph/profile"
     cp branding/aph.png "$HOME/.local/share/icons/hicolor/128x128/apps/aph.png"
-    printf '%s\n' '#!/bin/sh' '# Aph daily launcher (installed by `just install-local`).' '# Managed prefs win on every launch (dev.py parity). No --no-remote so' '# external links reuse the running instance.' 'set -eu' 'PROFILE="$HOME/.config/aph/profile"' 'APH_ROOT="{{justfile_directory()}}"' 'mkdir -p "$PROFILE"' 'cp -f "$APH_ROOT/config/user.js" "$PROFILE/user.js"' 'exec "$APH_ROOT/build/firefox/firefox" --profile "$PROFILE" "$@"' > "$HOME/.local/bin/aph"
+    printf '%s\n' '#!/bin/sh' '# Aph daily launcher (installed by `just install-local`).' '# Seed-once prefs (dev.py parity). No --no-remote so' '# external links reuse the running instance.' 'set -eu' 'PROFILE="$HOME/.config/aph/profile"' 'APH_ROOT="{{justfile_directory()}}"' 'mkdir -p "$PROFILE"' 'if [ ! -f "$PROFILE/user.js" ]; then cp -f "$APH_ROOT/config/user.js" "$PROFILE/user.js"; fi' 'exec "$APH_ROOT/build/firefox/firefox" --profile "$PROFILE" "$@"' > "$HOME/.local/bin/aph"
     chmod +x "$HOME/.local/bin/aph"
     sed "s|^Exec=.*|Exec=$HOME/.local/bin/aph %u|" packaging/aph.desktop > "$HOME/.local/share/applications/aph.desktop"
     update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true

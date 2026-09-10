@@ -107,7 +107,7 @@
         "default_area": "menupanel"
       },
       "uBlock0@raymondhill.net": {
-        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/uBlock0@raymondhill.net/latest.xpi",
+        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/ublock-origin/latest.xpi",
         "installation_mode": "normal_installed",
         "private_browsing": true,
         "default_area": "navbar"
@@ -128,6 +128,10 @@
         "install_url": "https://addons.mozilla.org/firefox/downloads/latest/multi-account-containers/latest.xpi",
         "installation_mode": "normal_installed",
         "default_area": "menupanel"
+      },
+      "nova-sun@mozilla.org": {
+        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/nova-sun/latest.xpi",
+        "installation_mode": "normal_installed"
       }
     },
     "3rdparty": {

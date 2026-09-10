@@ -1,0 +1,9 @@
+# Keep line endings stable across OSes (Windows contributors included).
+* text=auto eol=lf
+*.png binary
+*.ja binary
+*.xpi binary
+*.AppImage binary
+*.flatpak binary
+*.zip binary
+packaging/aph.bat text eol=crlf

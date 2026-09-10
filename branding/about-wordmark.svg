@@ -1,3 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 52" width="90" height="52" overflow="visible">
-  <text x="0" y="44%" dominant-baseline="central" text-anchor="start" font-family="system-ui, -apple-system, sans-serif" font-size="30" font-weight="700" fill="#EDEDED" letter-spacing="1">Aph</text>
+  <!-- Wordmark color comes from the embedding page's own CSS (the newtab
+       wordmark color variable, or currentColor in dialogs), so every Firefox
+       theme works, light or dark. Do NOT add a style rule or media query
+       here: any style rule outranks the fill attribute below and would force
+       one fixed color everywhere, breaking themes. Same pattern as stock
+       firefox-wordmark.svg. The trailing fallback color only applies where
+       no context color is provided (none in-tree). -->
+  <text x="45" y="44%" dominant-baseline="central" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="40" font-weight="700" fill="context-fill #151517" letter-spacing="1" textLength="84" lengthAdjust="spacingAndGlyphs">Aph</text>
 </svg>

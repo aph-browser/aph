@@ -1,3 +1,4 @@
+/* GENERATED — do not edit by hand. Edit branding/src/, then run: python scripts/build_assets.py */
 /* Aph command palette: Ctrl+K / Cmd+K toggles a filterable overlay.
  * Commands + open tabs in one list, scored fuzzy matching with match
  * highlighting. Doubles as navigation: URL-like input offers "Go to …"
@@ -210,8 +211,9 @@
     return "";
   }
 
-  // Always appended for non-empty input so Enter never dead-ends: a "Go to"
-  // entry for URL-like input, else a DuckDuckGo search.
+  // Always present for non-empty input so Enter never dead-ends: a "Go to"
+  // entry for URL-like input (surfaced first by allItems), else a
+  // DuckDuckGo search (surfaced last).
   function navFallback(raw) {
     const q = (raw || "").trim();
     if (!q) {
@@ -772,7 +774,14 @@
     });
     const fb = navFallback(raw);
     if (fb) {
-      out.push(fb);
+      // Direct URL navigation wins over fuzzy matches: typing "github.com"
+      // means Go to, not a command that happens to fuzzy-match. Search
+      // fallbacks stay at the bottom — they're the last resort.
+      if (isLikelyURL(raw)) {
+        out.unshift(fb);
+      } else {
+        out.push(fb);
+      }
     }
     return out;
   }

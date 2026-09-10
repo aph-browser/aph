@@ -1,10 +1,10 @@
 #!/bin/sh
-# Aph AppImage launcher — mirrors scripts/dev.py: refresh managed prefs,
+# Aph AppImage launcher — mirrors scripts/dev.py: seed first-run prefs,
 # then run Firefox with the Aph profile.
 set -eu
 HERE="$(dirname "$(readlink -f "$0")")"
 APH_PROFILE="${APH_PROFILE:-$HOME/.aph/profile}"
 mkdir -p "$APH_PROFILE"
-# Managed prefs always win (dev.py parity: config copied on every launch).
-cp -f "$HERE/usr/share/aph/user.js" "$APH_PROFILE/user.js"
+# Seed-once defaults: never overwrite an existing user.js (user edits persist).
+if [ ! -f "$APH_PROFILE/user.js" ]; then cp -f "$HERE/usr/share/aph/user.js" "$APH_PROFILE/user.js"; fi
 exec "$HERE/usr/bin/firefox" --profile "$APH_PROFILE" --no-remote "$@"

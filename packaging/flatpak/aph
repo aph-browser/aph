@@ -1,10 +1,10 @@
 #!/bin/sh
 # Aph Flatpak launcher — mirrors scripts/dev.py and packaging/AppRun:
-# refresh managed prefs, then run the bundled Firefox with the Aph profile.
+# seed first-run prefs, then run the bundled Firefox with the Aph profile.
 set -eu
 APH_PROFILE="${APH_PROFILE:-$HOME/.aph/profile}"
 mkdir -p "$APH_PROFILE"
-# Managed prefs always win (dev.py parity: config copied on every launch).
-cp -f "/app/share/aph/user.js" "$APH_PROFILE/user.js"
+# Seed-once defaults: never overwrite an existing user.js (user edits persist).
+if [ ! -f "$APH_PROFILE/user.js" ]; then cp -f "/app/share/aph/user.js" "$APH_PROFILE/user.js"; fi
 # No --no-remote so external links (%u) reuse the running instance.
 exec "/app/aph/firefox" --profile "$APH_PROFILE" "$@"

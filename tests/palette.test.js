@@ -85,6 +85,25 @@ describe("URL detection", () => {
 });
 
 describe("direct-to-route navigation", () => {
+  it("prioritizes Go to … first for URL-like input", () => {
+    for (const q of ["github.com", "localhost:3000", "https://example.com/x"]) {
+      const res = T.allItems(q);
+      assert.ok(
+        res[0] && res[0].title.startsWith("Go to "),
+        `${q}: first row was ${res[0] && res[0].title}`
+      );
+    }
+  });
+
+  it("keeps the search fallback last for plain queries", () => {
+    const res = T.allItems("copy");
+    const last = res[res.length - 1];
+    assert.ok(
+      last && last.title.startsWith("Search DuckDuckGo"),
+      last && last.title
+    );
+  });
+
   it("opens bound hosts directly in the routed workspace", () => {
     const fb = T.navFallback("github.com");
     assert.ok(fb.sub.includes("auto-routes to WS 2"), fb.sub);

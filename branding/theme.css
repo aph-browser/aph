@@ -196,10 +196,23 @@
   padding: 0 8px !important;
 }
 
-/* Solid, opaque backdrop so dropdown suggestions never float transparent */
+/* Solid, opaque backdrop so dropdown suggestions never float transparent.
+   Theme-driven: follows the active lightweight theme (Sun light -> white,
+   Sun dark -> #272429) via Firefox's own variables, which update live on
+   theme switch. Fallback keeps Aph's elevated dark surface when no theme
+   provides the variable. */
 #urlbar-background,
 .urlbarView {
-  background-color: var(--aph-bg-elevated, #202028) !important;
+  background-color: var(
+    --toolbar-field-background-color-focus,
+    var(--aph-bg-elevated, #202028)
+  ) !important;
+}
+
+/* URL highlight: text selection inside the urlbar follows the active
+   theme's highlight color (unset by Sun -> falls back to Aph blue). */
+#urlbar-input::selection {
+  background-color: var(--lwt-toolbar-field-highlight, rgba(125, 190, 255, 0.28)) !important;
 }
 
 /* Clean square hamburger icon */
@@ -228,7 +241,9 @@
   font-weight: 600 !important;
   line-height: 1 !important;
   border-radius: 6px !important;
-  background: rgba(255, 255, 255, 0.08) !important;
+  /* Theme-driven tint: subtle wash of the toolbar text color, so the pill
+     reads on cream (Sun light) and dark toolbars alike. */
+  background: color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 10%, transparent) !important;
   opacity: 0.85 !important;
   user-select: none !important;
   cursor: pointer !important;
@@ -290,8 +305,13 @@ tab[pending]:not([selected]) .tab-label,
   max-width: 60ch !important;
   padding: 8px 14px !important;
   border-radius: 8px !important;
-  background: rgba(20, 20, 26, 0.92) !important;
-  color: #f0f0f4 !important;
+  /* Theme-driven: panel surface/text, slightly translucent. */
+  background: color-mix(
+    in srgb,
+    var(--panel-background-color, #14141a) 92%,
+    transparent
+  ) !important;
+  color: var(--panel-text-color, #f0f0f4) !important;
   font-size: 13px !important;
   line-height: 1.4 !important;
   white-space: nowrap !important;
