@@ -22,7 +22,6 @@ build/flatpak-repo/
 .flatpak-builder/
 
 # Windows portable build outputs
-aph-win64-portable.zip
 build/win-portable/
 
 # Manually downloaded vendor assets (fetch.py uses temp dirs; never commit these)

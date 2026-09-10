@@ -73,6 +73,12 @@ sync-chrome *args:
 test:
     node --test "tests/*.test.js"
 
+# Pack the repo for LLM context (repomix-output.xml, gitignored). Excludes
+# the generated bundles (branding/workspaces.js, branding/command-palette.js)
+# — byte-derivable from branding/src/, so including them doubles ~3.5k lines.
+repomix:
+    bunx repomix --ignore "branding/workspaces.js,branding/command-palette.js"
+
 # Show profile and build status
 status:
     @echo "profile: $(test -d profile && echo exists || echo missing)"

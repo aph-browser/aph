@@ -2,7 +2,7 @@ name: Build Linux packages (No Release)
 
 # Private cloud builds: manual "Run workflow" button or push to main.
 # The AppImage, the Flatpak single-file bundle, and the Windows portable
-# ZIP are uploaded as Action artifacts (auto-deleted after retention-days)
+# folder are uploaded as Action artifacts (auto-deleted after retention-days)
 # — no releases, tags, or notifications.
 on:
   workflow_dispatch:
@@ -205,13 +205,9 @@ jobs:
           test -f build/win-portable/aph.bat
           python -c "import sys; sys.exit(0 if open('build/win-portable/firefox/browser/omni.ja','rb').read().find(b'Aph') != -1 else 1)"
 
-      - name: Bundle portable ZIP
-        run: |
-          python -c "import shutil; shutil.make_archive('aph-win64-portable', 'zip', root_dir='build/win-portable')"
-
       - name: Upload Windows portable as private artifact
         uses: actions/upload-artifact@v6
         with:
           name: aph-win64-portable
-          path: aph-win64-portable.zip
+          path: build/win-portable/
           retention-days: 7
