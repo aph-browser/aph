@@ -228,6 +228,9 @@ jobs:
           python -c "from PIL import Image; Image.open('branding/aph.png').save('packaging/aph.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
           VER="${GITHUB_REF#refs/tags/}"
           VER="${VER#v}"
+          # git-bash (MSYS2) rewrites leading-slash args as POSIX paths, which
+          # would mangle ISCC's /D flag into a second "script filename".
+          export MSYS2_ARG_CONV_EXCL="*"
           ISCC "/DVersion=$VER" packaging/aph.iss
           ls packaging/Output/
 
