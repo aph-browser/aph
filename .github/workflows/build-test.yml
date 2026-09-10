@@ -16,10 +16,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -47,10 +47,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -98,7 +98,7 @@ jobs:
           ./aph-x86_64.AppImage --version
 
       - name: Upload AppImage as private artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: aph-x86_64
           path: aph-x86_64.AppImage
@@ -110,10 +110,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -159,7 +159,7 @@ jobs:
           flatpak build-bundle build/flatpak-repo aph-x86_64.flatpak io.github.aph_browser.Aph --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
 
       - name: Upload Flatpak as private artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: aph-flatpak-x86_64
           path: aph-x86_64.flatpak
@@ -174,10 +174,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -232,14 +232,14 @@ jobs:
           test ! -f "/c/aph-inst-test/aph.bat"
 
       - name: Upload Windows portable as private artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: aph-win64-portable
           path: build/win-portable/
           retention-days: 7
 
       - name: Upload Windows installer as private artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: aph-win64-setup
           path: packaging/Output/Aph-Setup-*.exe
