@@ -21,10 +21,15 @@ jobs:
           fetch-depth: 0
 
       - name: Push mirror to GitLab
+        # Push from remote-tracking refs, not local branches: on tag events
+        # the checkout is detached with no local branches, so `push --all`
+        # would try to *delete* the mirror's main (GitLab rejects that).
+        # Pushing refs/remotes/origin/* is correct on every event type.
         run: |
           set -eu
+          git fetch --prune --prune-tags origin
+          git remote set-head origin -d
           git remote add gitlab "https://oauth2:${GITLAB_TOKEN}@gitlab.com/aph-browser/aph.git"
-          git push gitlab --all --force --prune
-          git push gitlab --tags --force
+          git push gitlab --force --prune '+refs/remotes/origin/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
         env:
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
