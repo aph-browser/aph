@@ -22,10 +22,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -53,10 +53,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -108,14 +108,14 @@ jobs:
           ./aph-x86_64.AppImage --version
 
       - name: Hand off to publish
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: rel-appimage
           path: aph-x86_64.AppImage
           retention-days: 1
 
       - name: Hand off base version
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: rel-meta
           path: firefox-version.txt
@@ -127,10 +127,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -177,7 +177,7 @@ jobs:
           flatpak build-bundle build/flatpak-repo aph-x86_64.flatpak io.github.aph_browser.Aph --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
 
       - name: Hand off to publish
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: rel-flatpak
           path: aph-x86_64.flatpak
@@ -192,10 +192,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -238,14 +238,14 @@ jobs:
           ls packaging/Output/
 
       - name: Hand off to publish
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: rel-winportable
           path: build/win-portable/
           retention-days: 1
 
       - name: Hand off installer to publish
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: rel-wininstaller
           path: packaging/Output/Aph-Setup-*.exe
@@ -257,7 +257,7 @@ jobs:
 
     steps:
       - name: Collect handoffs
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           path: dist
 
