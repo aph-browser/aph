@@ -2596,41 +2596,62 @@
   // cannot be found", downloads.js — so no progress ring or auto-open
   // panel ever appears); stop-reload-button goes missing the same way.
   // Modeled on Mozilla's own ShowHomeButton enterprise policy
-  // (Policies.sys.mjs): if unplaced, re-add at the stock position. Runs
-  // once per profile (DL_RESCUE_PREF marker) so it never fights an
-  // intentional user removal afterwards. The marker was renamed when the
-  // rescue widened beyond downloads-button so already-healed profiles get
-  // one more pass (the old aph.toolbar.downloadsRescued lingers harmlessly).
-  const DL_RESCUE_PREF = "aph.toolbar.widgetsRescued";
+  // (Policies.sys.mjs): if unplaced, re-add at a stock-relative position.
+  // Runs once per profile (DL_RESCUE_PREF marker) so it never fights an
+  // intentional user removal afterwards. Each generation renames the
+  // marker so already-healed profiles get one more pass (older markers
+  // linger harmlessly).
+  // v3 spots (pair-aware, after v1/v2 glued downloads into the arrow
+  // cluster of inverted bars and split forward/back with reload):
+  // downloads-button goes directly after urlbar-container; stop-reload
+  // goes after the back/forward pair, whichever order the pair is in.
+  // A placed button is MOVED only if it still sits exactly where an older
+  // rescue put it (downloads at urlbar+2, stop-reload at forward+1) —
+  // manual arrangements are left alone.
+  const DL_RESCUE_PREF = "aph.toolbar.widgetsOrdered";
 
-  // Re-place one widget at its stock position (anchor + offset, mirroring
-  // ShowHomeButton, which inserts home-button after forward-button + 2).
-  // Returns true when the widget is placed (or already was).
-  function rescueToolbarWidget(cui, id, anchorId, offset) {
-    let placement = null;
+  function cuiPlace(cui, id) {
     try {
-      placement = cui.getPlacementOfWidget(id);
+      return cui.getPlacementOfWidget(id) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function inNavBar(cui, place) {
+    try {
+      return !!place && place.area === cui.AREA_NAVBAR;
     } catch (e) {
       return false;
     }
-    if (placement) {
+  }
+
+  // Re-place one widget: add it when missing, move it when stuck at an
+  // older rescue's spot. wantPos is computed from live placements by the
+  // caller; oldPos is the v1/v2 spot (null skips the move check).
+  // Returns true when the widget ends up placed (or already was).
+  function rescueToolbarWidget(cui, id, wantPos, oldPos) {
+    const place = cuiPlace(cui, id);
+    if (!place) {
+      try {
+        cui.addWidgetToArea(id, cui.AREA_NAVBAR, wantPos);
+      } catch (e) {
+        return false;
+      }
       return true;
     }
-    let pos = null;
-    try {
-      const anchor = cui.getPlacementOfWidget(anchorId);
-      if (
-        anchor &&
-        anchor.area === cui.AREA_NAVBAR &&
-        typeof anchor.position === "number"
-      ) {
-        pos = anchor.position + offset;
+    if (
+      oldPos !== null &&
+      inNavBar(cui, place) &&
+      place.position === oldPos &&
+      place.position !== wantPos &&
+      typeof cui.moveWidgetWithinArea === "function"
+    ) {
+      try {
+        cui.moveWidgetWithinArea(id, wantPos);
+      } catch (e) {
+        return false;
       }
-    } catch (e) {}
-    try {
-      cui.addWidgetToArea(id, cui.AREA_NAVBAR, pos);
-    } catch (e) {
-      return false;
     }
     return true;
   }
@@ -2669,12 +2690,43 @@
     }
     let ok = true;
     try {
-      ok = rescueToolbarWidget(cui, "downloads-button", "urlbar-container", 2) && ok;
-    } catch (e) {
-      ok = false;
-    }
-    try {
-      ok = rescueToolbarWidget(cui, "stop-reload-button", "forward-button", 1) && ok;
+      // downloads-button directly after the urlbar (stock-adjacent, clear
+      // of the arrow pair on either side). v1/v2 used urlbar + 2.
+      const urlbar = cuiPlace(cui, "urlbar-container");
+      const urlbarPos =
+        inNavBar(cui, urlbar) && typeof urlbar.position === "number"
+          ? urlbar.position
+          : null;
+      ok =
+        rescueToolbarWidget(
+          cui,
+          "downloads-button",
+          urlbarPos === null ? null : urlbarPos + 1,
+          urlbarPos === null ? null : urlbarPos + 2
+        ) && ok;
+      // stop-reload after the back/forward pair, whichever order it is in
+      // (keeps the pair intact; stock order yields the stock trio). v2
+      // used forward + 1, which split inverted pairs.
+      const back = cuiPlace(cui, "back-button");
+      const forward = cuiPlace(cui, "forward-button");
+      let pairEnd = null;
+      let rlOld = null;
+      try {
+        const spots = [];
+        if (inNavBar(cui, back) && typeof back.position === "number") {
+          spots.push(back.position);
+        }
+        if (inNavBar(cui, forward) && typeof forward.position === "number") {
+          spots.push(forward.position);
+        }
+        if (spots.length) {
+          pairEnd = Math.max.apply(null, spots) + 1;
+        }
+        if (inNavBar(cui, forward) && typeof forward.position === "number") {
+          rlOld = forward.position + 1;
+        }
+      } catch (e) {}
+      ok = rescueToolbarWidget(cui, "stop-reload-button", pairEnd, rlOld) && ok;
     } catch (e) {
       ok = false;
     }

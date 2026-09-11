@@ -1,17 +1,51 @@
 // Regression guards for the toolbar-button rescue (workspaces bundle,
 // 110-chrome-init.js): fresh profiles that pre-seed sidebar.verticalTabs
-// lose the removable navbar defaults, banishing buttons to the
-// customization palette. The rescue re-places downloads-button and
-// stop-reload-button once per profile (marker-guarded).
+// lose the removable navbar defaults. The rescue adds downloads-button
+// (after urlbar) and stop-reload-button (after the back/forward pair) once
+// per profile, and migrates buttons stuck at older rescues' spots — manual
+// arrangements are left alone.
 // The real bundle runs in node:vm with Firefox globals mocked (same shape
-// as tests/pinreset.test.js); init() runs the rescue on load, so each case
-// builds a fresh env and asserts on the recorded CustomizableUI calls.
+// as tests/pinreset.test.js); init() runs the rescue on load. The mock
+// CustomizableUI keeps a real order array so index math is exercised.
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { run, makeTab } = require("./helpers");
 
 const tabVals = new WeakMap();
-const MARKER = "aph.toolbar.widgetsRescued";
+const MARKER = "aph.toolbar.widgetsOrdered";
+
+function makeCUI(order, log) {
+  const list = order.slice();
+  return {
+    AREA_NAVBAR: "nav-bar",
+    _list: list,
+    getPlacementOfWidget: (id) => {
+      const i = list.indexOf(id);
+      return i === -1 ? null : { area: "nav-bar", position: i };
+    },
+    addWidgetToArea: (id, area, pos) => {
+      log.push({ op: "add", id, area, pos: pos === undefined ? null : pos });
+      if (list.includes(id)) {
+        return;
+      }
+      const p = typeof pos === "number" ? Math.min(Math.max(pos, 0), list.length) : list.length;
+      list.splice(p, 0, id);
+    },
+    moveWidgetWithinArea: (id, pos) => {
+      log.push({ op: "move", id, pos });
+      const i = list.indexOf(id);
+      if (i === -1) {
+        return;
+      }
+      const p = typeof pos === "number" ? Math.min(Math.max(pos, 0), list.length) : list.length;
+      if (p === i) {
+        return;
+      }
+      list.splice(i, 1);
+      list.splice(Math.min(p, list.length), 0, id);
+    },
+  };
+}
 
 function makeEnv(opts) {
   const o = opts || {};
@@ -19,18 +53,8 @@ function makeEnv(opts) {
   const containerHandlers = {};
   const winHandlers = {};
   const boolStore = Object.assign({}, o.boolPrefs);
-  const placements = Object.assign({}, o.placements);
-  const added = [];
-  const cui = o.noWindowCUI
-    ? undefined
-    : {
-        AREA_NAVBAR: "nav-bar",
-        getPlacementOfWidget: (id) => placements[id] || null,
-        addWidgetToArea: (id, area, pos) => {
-          added.push({ id, area, pos: pos === undefined ? null : pos });
-          placements[id] = { area, position: pos === undefined || pos === null ? 99 : pos };
-        },
-      };
+  const log = [];
+  const cui = o.noWindowCUI ? undefined : makeCUI(o.order || [], log);
   const importCUI = o.importCUI;
   const sb = {
     URL,
@@ -113,95 +137,117 @@ function makeEnv(opts) {
   sb.window.window = sb.window;
   let sel = null;
   run("workspaces.js", sb);
-  return { sb, added, boolStore, placements };
+  return { sb, log, boolStore, list: cui ? cui._list : null };
 }
 
-const NAVBAR_URLBAR = { area: "nav-bar", position: 4 };
-const NAVBAR_FORWARD = { area: "nav-bar", position: 7 };
+const SPARSE = [
+  "alltabs-button", "ai-window-toggle", "reset-pbm-toolbar-button",
+  "unified-extensions-button", "urlbar-container", "vertical-spacer",
+  "forward-button", "back-button", "ublock0_raymondhill_net-browser-action",
+];
+// The user's actual post-v1/v2 state: downloads glued into the arrow
+// cluster (urlbar + 2), reload splitting forward/back (forward + 1).
+const OLD_SPOTS = [
+  "alltabs-button", "ai-window-toggle", "reset-pbm-toolbar-button",
+  "unified-extensions-button", "urlbar-container", "vertical-spacer",
+  "downloads-button", "forward-button", "stop-reload-button", "back-button",
+  "ublock0_raymondhill_net-browser-action",
+];
 
 describe("toolbar-button rescue", () => {
-  it("re-places both missing buttons at stock positions and sets the marker", () => {
-    const env = makeEnv({
-      placements: { "urlbar-container": NAVBAR_URLBAR, "forward-button": NAVBAR_FORWARD },
-    });
-    assert.deepEqual(env.added, [
-      { id: "downloads-button", area: "nav-bar", pos: 6 },
-      { id: "stop-reload-button", area: "nav-bar", pos: 8 },
+  it("fresh inverted bar: downloads after urlbar, reload after the pair", () => {
+    const env = makeEnv({ order: SPARSE });
+    assert.deepEqual(env.log, [
+      { op: "add", id: "downloads-button", area: "nav-bar", pos: 5 },
+      { op: "add", id: "stop-reload-button", area: "nav-bar", pos: 9 },
+    ]);
+    assert.deepEqual(env.list, [
+      "alltabs-button", "ai-window-toggle", "reset-pbm-toolbar-button",
+      "unified-extensions-button", "urlbar-container", "downloads-button",
+      "vertical-spacer", "forward-button", "back-button",
+      "stop-reload-button", "ublock0_raymondhill_net-browser-action",
     ]);
     assert.equal(env.boolStore[MARKER], true);
   });
 
-  it("appends when the anchors are unavailable", () => {
-    const env = makeEnv({ placements: {} });
-    assert.deepEqual(env.added, [
-      { id: "downloads-button", area: "nav-bar", pos: null },
-      { id: "stop-reload-button", area: "nav-bar", pos: null },
+  it("stock-order bar: reload lands exactly after forward (stock trio)", () => {
+    const env = makeEnv({
+      order: ["back-button", "forward-button", "urlbar-container"],
+    });
+    assert.deepEqual(env.log, [
+      { op: "add", id: "downloads-button", area: "nav-bar", pos: 3 },
+      { op: "add", id: "stop-reload-button", area: "nav-bar", pos: 2 },
+    ]);
+    assert.deepEqual(env.list.slice(0, 5), [
+      "back-button", "forward-button", "stop-reload-button",
+      "urlbar-container", "downloads-button",
     ]);
     assert.equal(env.boolStore[MARKER], true);
   });
 
-  it("leaves placed buttons alone but still records the marker", () => {
+  it("migrates buttons stuck at older rescues' spots", () => {
+    const env = makeEnv({ order: OLD_SPOTS });
+    // stop-reload targets pair-end (10); the move itself shifts indices so
+    // it lands after uBO — pair intact, reload out from between the arrows.
+    assert.deepEqual(env.log, [
+      { op: "move", id: "downloads-button", pos: 5 },
+      { op: "move", id: "stop-reload-button", pos: 10 },
+    ]);
+    assert.deepEqual(env.list, [
+      "alltabs-button", "ai-window-toggle", "reset-pbm-toolbar-button",
+      "unified-extensions-button", "urlbar-container", "downloads-button",
+      "vertical-spacer", "forward-button", "back-button",
+      "ublock0_raymondhill_net-browser-action", "stop-reload-button",
+    ]);
+    assert.equal(env.boolStore[MARKER], true);
+  });
+
+  it("leaves manual arrangements alone but still records the marker", () => {
     const env = makeEnv({
-      placements: {
-        "urlbar-container": NAVBAR_URLBAR,
-        "forward-button": NAVBAR_FORWARD,
-        "downloads-button": { area: "nav-bar", position: 6 },
-        "stop-reload-button": { area: "nav-bar", position: 8 },
-      },
+      order: [
+        "downloads-button", "stop-reload-button", "urlbar-container",
+        "forward-button", "back-button",
+      ],
     });
-    assert.deepEqual(env.added, []);
+    assert.deepEqual(env.log, []);
     assert.equal(env.boolStore[MARKER], true);
   });
 
   it("heals only what's missing", () => {
     const env = makeEnv({
-      placements: {
-        "urlbar-container": NAVBAR_URLBAR,
-        "forward-button": NAVBAR_FORWARD,
-        "downloads-button": { area: "nav-bar", position: 6 },
-      },
+      order: [
+        "urlbar-container", "downloads-button", "forward-button",
+        "back-button",
+      ],
     });
-    assert.deepEqual(env.added, [
-      { id: "stop-reload-button", area: "nav-bar", pos: 8 },
+    assert.deepEqual(env.log, [
+      { op: "add", id: "stop-reload-button", area: "nav-bar", pos: 4 },
     ]);
     assert.equal(env.boolStore[MARKER], true);
   });
 
-  it("never fights the user: marker set + missing means hands off", () => {
+  it("never fights the user: marker set means hands off, even at old spots", () => {
     const env = makeEnv({
-      placements: { "urlbar-container": NAVBAR_URLBAR, "forward-button": NAVBAR_FORWARD },
+      order: OLD_SPOTS,
       boolPrefs: { [MARKER]: true },
     });
-    assert.deepEqual(env.added, []);
+    assert.deepEqual(env.log, []);
     assert.equal(env.boolStore[MARKER], true);
   });
 
   it("uses the importESModule fallback when no window global exists", () => {
-    const added = [];
-    const fallback = {
-      AREA_NAVBAR: "nav-bar",
-      getPlacementOfWidget: (id) => {
-        if (id === "urlbar-container") {
-          return NAVBAR_URLBAR;
-        }
-        if (id === "forward-button") {
-          return NAVBAR_FORWARD;
-        }
-        return null;
-      },
-      addWidgetToArea: (id, area, pos) => { added.push({ id, area, pos }); },
-    };
+    const log = [];
+    const fallback = makeCUI(SPARSE, log);
     const env = makeEnv({ noWindowCUI: true, importCUI: { CustomizableUI: fallback } });
-    assert.deepEqual(added, [
-      { id: "downloads-button", area: "nav-bar", pos: 6 },
-      { id: "stop-reload-button", area: "nav-bar", pos: 8 },
-    ]);
+    assert.equal(log.length, 2);
+    assert.equal(log[0].id, "downloads-button");
+    assert.equal(log[1].id, "stop-reload-button");
     assert.equal(env.boolStore[MARKER], true);
   });
 
   it("no-ops silently when CustomizableUI is unavailable anywhere", () => {
     const env = makeEnv({ noWindowCUI: true, importCUI: {} });
-    assert.deepEqual(env.added, []);
+    assert.deepEqual(env.log, []);
     assert.ok(!(MARKER in env.boolStore));
   });
 });
