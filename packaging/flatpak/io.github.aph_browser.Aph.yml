@@ -2,7 +2,8 @@
 # tarball as the AppImage job (see .github/workflows/build-test.yml).
 #
 # Build inputs are staged by CI into build/flatpak-stage/ (rebranded
-# build/firefox + config/user.js + launcher/desktop/metainfo/icon), so this
+# build/firefox + config/user.js + branding/userChrome.css +
+# launcher/desktop/metainfo/icon), so this
 # manifest needs no network access at build time. `type: dir` sources are
 # intentionally local-only: they always rebuild and are not submittable to
 # Flathub as-is (see https://docs.flatpak.org/en/latest/module-sources.html).
@@ -61,6 +62,8 @@ modules:
       # Managed prefs, shipped read-only; the launcher copies them into the
       # profile on every start (dev.py parity).
       - install -Dm644 stage/user.js /app/share/aph/user.js
+      # Menu accents, seeded once into profile/chrome/ (dev.py parity).
+      - install -Dm644 stage/userChrome.css /app/share/aph/userChrome.css
       # Launcher + desktop integration (filenames already match the app-id).
       - install -Dm755 stage/aph /app/bin/aph
       - install -Dm644 stage/io.github.aph_browser.Aph.desktop -t /app/share/applications/

@@ -280,9 +280,10 @@
     } catch (e) {}
   }
 
-  // The + button / menu opens tabs we can't intercept pre-creation (the
-  // container is immutable after TabOpen), so repair selected, still-empty
-  // newtab pages one tick later by swapping in a correctly-containered tab.
+  // Fallback for empty-tab births that bypass the BrowserOpenTab wrapper
+  // (window.open, extensions, restore paths): the container is immutable
+  // after TabOpen, so repair selected, still-empty newtab pages one tick
+  // later by swapping in a correctly-containered tab.
   // ONLY about:newtab/about:home — never about:blank — so window.open
   // popups and in-flight link loads (blank at TabOpen) are never touched.
   function armContainerRepair(tab) {

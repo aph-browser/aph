@@ -109,7 +109,11 @@ const sb = {
     }),
   },
   Ci: {
-    nsIWebProgressListener: { LOCATION_CHANGE_SAME_DOCUMENT: 2 },
+    nsIWebProgressListener: {
+      LOCATION_CHANGE_SAME_DOCUMENT: 2,
+      STATE_START: 1,
+      STATE_IS_DOCUMENT: 0x20000,
+    },
     nsIWebProgress: { NOTIFY_LOCATION: 1 },
   },
 };
@@ -126,6 +130,32 @@ function fireLoc(tab, host, o = {}) {
     { scheme: o.scheme || "https", asciiHost: host },
     o.sameDoc ? 2 : 0
   );
+}
+
+// Document STATE_START with a channel-like request: { canceled: [] } after.
+function fireStart(tab, host, o = {}) {
+  const req = {
+    URI: {
+      scheme: o.scheme || "https",
+      asciiHost: host,
+      spec: o.spec || `https://${host}/`,
+    },
+  };
+  if (!o.noCancel) {
+    req.canceled = [];
+    req.cancel = function (status) { this.canceled.push(status); };
+  }
+  let flags = 1 | 0x20000;
+  if (o.nonDocument) flags = 1;
+  if (o.stop) flags = 16 | 0x20000;
+  listener.onStateChange(
+    tab.__browser,
+    { isTopLevel: o.topLevel !== false },
+    o.noRequest ? null : req,
+    flags,
+    0
+  );
+  return req;
 }
 
 describe("domain routing", () => {
@@ -183,8 +213,7 @@ describe("domain routing", () => {
     assert.equal(wsOf(rep), "2");
   });
 
-  it("ignores the old shifted arg order (regression guard)", () => {
-    const n = created.length;
+  it("ignores the old shifted arg order (regression guard)", () => {    const n = created.length;
     const t = makeTab(tabVals, {
       label: "t6", ws: "1", fresh: true, spec: "https://github.com/",
     });
@@ -198,6 +227,112 @@ describe("domain routing", () => {
     );
     assert.equal(created.length, n);
     assert.ok(!removed.includes("t6"));
+  });
+
+  it("cancels pre-dispatch and reopens bound on document START", () => {
+    // Privacy core: the channel is cancelled before DNS/TLS/cookies, and
+    // the reopen carries the channel URI (the tab still shows about:newtab).
+    const prevCurrent = api.getCurrent();
+    const prevSel = sb.gBrowser.selectedTab;
+    const t = makeTab(tabVals, {
+      label: "pre", ws: "1", fresh: true, spec: "about:newtab",
+    });
+    sb.gBrowser.tabs.push(t);
+    sb.gBrowser.selectedTab = home;
+    api.switchTo("1");
+    try {
+      const req = fireStart(t, "github.com");
+      assert.deepEqual(req.canceled, [0x804b0002], "cancelled pre-dispatch");
+      assert.ok(!sb.gBrowser.tabs.includes(t), "original removed");
+      const rep = created[created.length - 1];
+      assert.equal(rep.userContextId, 7);
+      assert.equal(wsOf(rep), "2");
+      assert.equal(rep.linkedBrowser.currentURI.spec, "https://github.com/");
+      assert.equal(rep.__aphFresh, false, "replacement born settled");
+      assert.equal(rep.hidden, true, "background stays silent");
+      assert.equal(api.getCurrent(), "1");
+      // Settled replacement never re-routes, on either stage.
+      const n = created.length;
+      fireLoc(rep, "github.com");
+      fireStart(rep, "github.com");
+      assert.equal(created.length, n, "no routing loop");
+    } finally {
+      sb.gBrowser.selectedTab = prevSel;
+      if (api.getCurrent() !== prevCurrent) api.switchTo(prevCurrent);
+    }
+  });
+
+  it("START without a rule leaves the tab fresh for the commit stage", () => {
+    const prevCurrent = api.getCurrent();
+    const prevSel = sb.gBrowser.selectedTab;
+    const t = makeTab(tabVals, {
+      label: "nomatch", ws: "1", fresh: true, spec: "about:newtab",
+    });
+    sb.gBrowser.tabs.push(t);
+    sb.gBrowser.selectedTab = home;
+    api.switchTo("1");
+    try {
+      const req = fireStart(t, "example.com");
+      assert.deepEqual(req.canceled, [], "nothing dispatched to cancel");
+      assert.ok(sb.gBrowser.tabs.includes(t), "tab untouched");
+      // Still fresh: a later ruled commit still routes (redirect chains).
+      fireLoc(t, "github.com");
+      const rep = created[created.length - 1];
+      assert.equal(rep.userContextId, 7);
+      assert.equal(wsOf(rep), "2");
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(t);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      sb.gBrowser.selectedTab = prevSel;
+      if (api.getCurrent() !== prevCurrent) api.switchTo(prevCurrent);
+    }
+  });
+
+  it("START ignores settled tabs, subframes and non-documents", () => {
+    const n = created.length;
+    const s = makeTab(tabVals, {
+      label: "ss", ws: "1", fresh: false, spec: "https://jira.example.com/",
+    });
+    const f = makeTab(tabVals, {
+      label: "ff", ws: "1", fresh: true, spec: "about:newtab",
+    });
+    sb.gBrowser.tabs.push(s, f);
+    try {
+      assert.deepEqual(fireStart(s, "github.com").canceled, []);
+      assert.deepEqual(fireStart(f, "github.com", { topLevel: false }).canceled, []);
+      assert.deepEqual(fireStart(f, "github.com", { nonDocument: true }).canceled, []);
+      assert.deepEqual(fireStart(f, "github.com", { stop: true }).canceled, []);
+      assert.equal(created.length, n);
+    } finally {
+      for (const t of [s, f]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+    }
+  });
+
+  it("START still migrates when cancel is unavailable", () => {
+    // Defense in depth: without a cancellable channel the tab still lands
+    // in the right workspace/container via reopen (with the old leak).
+    const prevCurrent = api.getCurrent();
+    const prevSel = sb.gBrowser.selectedTab;
+    const t = makeTab(tabVals, {
+      label: "nocancel", ws: "1", fresh: true, spec: "about:newtab",
+    });
+    sb.gBrowser.tabs.push(t);
+    sb.gBrowser.selectedTab = home;
+    api.switchTo("1");
+    try {
+      const req = fireStart(t, "github.com", { noCancel: true });
+      assert.ok(!("canceled" in req) || req.canceled.length === 0);
+      assert.ok(!sb.gBrowser.tabs.includes(t), "original removed");
+      const rep = created[created.length - 1];
+      assert.equal(rep.userContextId, 7);
+      assert.equal(wsOf(rep), "2");
+    } finally {
+      sb.gBrowser.selectedTab = prevSel;
+      if (api.getCurrent() !== prevCurrent) api.switchTo(prevCurrent);
+    }
   });
 
   it("stores workspace names (trim, cap, clear, reject)", () => {
@@ -521,6 +656,75 @@ describe("new-tab urlbar focus", () => {
           if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
         }
       }
+    }
+  });
+});
+
+describe("bound new-tab interception (BrowserOpenTab wrap)", () => {
+  function rebindWs2() {
+    api.switchTo("2");
+    const binder = makeTab(tabVals, {
+      label: "binder", ws: "2", cid: 7, spec: "https://example.com/",
+    });
+    sb.gBrowser.tabs.push(binder);
+    sb.gBrowser.selectedTab = binder;
+    assert.equal(api.bindCurrentWs().ok, true, "rebound WS2 to cid 7");
+    return binder;
+  }
+  function dropTabs(tabs) {
+    for (const tab of tabs) {
+      if (tab) {
+        const i = sb.gBrowser.tabs.indexOf(tab);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+    }
+  }
+
+  it("births the tab containered with no phantom kill", () => {
+    // + button / menu path: the tab must be born in the bound container
+    // (create-then-kill repair would push into `removed` instead).
+    let binder = null;
+    let t = null;
+    try {
+      binder = rebindWs2();
+      const removedBefore = removed.length;
+      t = sb.window.BrowserOpenTab();
+      assert.ok(t, "tab opened");
+      assert.equal(t.userContextId, 7, "born in the bound container");
+      assert.equal(sb.gBrowser.selectedTab, t, "new tab selected");
+      assert.equal(removed.length, removedBefore, "no phantom tab killed");
+    } finally {
+      dropTabs([t, binder]);
+      api.switchTo("1");
+    }
+  });
+
+  it("falls through to a plain tab on unbound workspaces", () => {
+    let t = null;
+    try {
+      api.switchTo("1");
+      t = sb.window.BrowserOpenTab();
+      assert.ok(t, "tab opened");
+      assert.equal(t.userContextId, 0, "default container");
+    } finally {
+      dropTabs([t]);
+    }
+  });
+
+  it("never containers a tab in private windows", () => {
+    let binder = null;
+    const tabsBefore = sb.gBrowser.tabs.length;
+    sb.window.PrivateBrowsingUtils = { isWindowPrivate: () => true };
+    try {
+      binder = rebindWs2();
+      // No stock opener in this harness, so the wrapper must decline
+      // (null) rather than birth a container tab in a private window.
+      assert.equal(sb.window.BrowserOpenTab(), null);
+      assert.equal(sb.gBrowser.tabs.length, tabsBefore + 1, "only the binder");
+    } finally {
+      delete sb.window.PrivateBrowsingUtils;
+      dropTabs([binder]);
+      api.switchTo("1");
     }
   });
 });

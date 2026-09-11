@@ -63,8 +63,8 @@
     try {
       tab.__aphFresh = true;
     } catch (err) {}
-    // + button / menu tabs in a bound workspace: arm the container repair
-    // (deferred swap); everything else stamps immediately.
+    // Non-BrowserOpenTab births in a bound workspace: arm the container
+    // repair (deferred swap); everything else stamps immediately.
     if (armContainerRepair(tab)) {
       return;
     }

@@ -89,6 +89,7 @@ jobs:
           mkdir -p build/AppDir/usr/bin build/AppDir/usr/share/aph build/AppDir/usr/share/icons/hicolor/128x128/apps
           cp -r build/firefox/. build/AppDir/usr/bin/
           cp config/user.js build/AppDir/usr/share/aph/user.js
+          cp branding/userChrome.css build/AppDir/usr/share/aph/userChrome.css
           cp branding/aph.png build/AppDir/aph.png
           cp branding/aph.png build/AppDir/usr/share/icons/hicolor/128x128/apps/aph.png
           cp packaging/aph.desktop build/AppDir/aph.desktop
@@ -157,6 +158,7 @@ jobs:
           mkdir -p build/flatpak-stage
           cp -a build/firefox build/flatpak-stage/firefox
           cp config/user.js build/flatpak-stage/user.js
+          cp branding/userChrome.css build/flatpak-stage/userChrome.css
           cp packaging/flatpak/aph build/flatpak-stage/aph
           cp "packaging/flatpak/io.github.aph_browser.Aph.desktop" build/flatpak-stage/
           cp "packaging/flatpak/io.github.aph_browser.Aph.metainfo.xml" build/flatpak-stage/
@@ -212,6 +214,7 @@ jobs:
           mkdir -p build/win-portable/config
           cp -a build/firefox build/win-portable/firefox
           cp config/user.js build/win-portable/config/user.js
+          cp branding/userChrome.css build/win-portable/config/userChrome.css
           cp packaging/aph.bat build/win-portable/aph.bat
 
       - name: Smoke test

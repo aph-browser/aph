@@ -141,6 +141,18 @@
     } catch (e) {}
     navPopupObserver = null;
     try {
+      if (
+        window.__aphNewTabWrapped &&
+        typeof origBrowserOpenTab === "function"
+      ) {
+        window.BrowserOpenTab = origBrowserOpenTab;
+      }
+    } catch (e) {}
+    try {
+      window.__aphNewTabWrapped = false;
+    } catch (e) {}
+    origBrowserOpenTab = null;
+    try {
       if (wsPulseTimer) {
         clearTimeout(wsPulseTimer);
         wsPulseTimer = null;
@@ -162,167 +174,74 @@
     } catch (e) {}
   }
 
-  // One-time rescue for toolbar buttons wiped on fresh profiles.
-  // Fresh profiles that pre-seed sidebar.verticalTabs (Aph does) hit a
-  // CustomizableUI restore path that builds the navbar from
-  // verticalTabsDefaultPlacements (["alltabs-button", "ai-window-toggle"])
-  // INSTEAD of the full defaultPlacements — so the removable defaults are
-  // never placed and end up banished to the customization palette. The
-  // downloads-button case is the loud one (no node in the document means
-  // Firefox's own DownloadsButton.getAnchor() fails — "Downloads button
-  // cannot be found", downloads.js — so no progress ring or auto-open
-  // panel ever appears); stop-reload-button goes missing the same way.
-  // Modeled on Mozilla's own ShowHomeButton enterprise policy
-  // (Policies.sys.mjs): if unplaced, re-add at a stock-relative position.
-  // Runs once per profile (DL_RESCUE_PREF marker) so it never fights an
-  // intentional user removal afterwards. Each generation renames the
-  // marker so already-healed profiles get one more pass (older markers
-  // linger harmlessly).
-  // v3 spots (pair-aware, after v1/v2 glued downloads into the arrow
-  // cluster of inverted bars and split forward/back with reload):
-  // downloads-button goes directly after urlbar-container; stop-reload
-  // goes after the back/forward pair, whichever order the pair is in.
-  // A placed button is MOVED only if it still sits exactly where an older
-  // rescue put it (downloads at urlbar+2, stop-reload at forward+1) —
-  // manual arrangements are left alone.
-  const DL_RESCUE_PREF = "aph.toolbar.widgetsOrdered";
+  // Navbar order needs no runtime repair: `just rebrand` patches
+  // verticalTabsDefaultPlacements in CustomizableUI.sys.mjs (root omni.ja)
+  // so vertical-tabs profiles inherit the full stock navbar at birth.
+  // See scripts/aph_rebrand/injectors/toolbar.py. Already-wiped profiles
+  // heal via Customize > Restore Defaults (or `just nuke` for a fresh one).
 
-  function cuiPlace(cui, id) {
+  // Bound-workspace new tabs are born containered: wrap the window's
+  // BrowserOpenTab (+ button, menus) so a bound workspace opens the tab
+  // directly in its container — no phantom tab, no deferred swap, no
+  // Recently-Closed pollution, no typing race. Unbound workspaces fall
+  // through to stock (args and return preserved); private windows always
+  // fall through (containers don't exist there). Coverage is narrow on
+  // purpose: births that never call BrowserOpenTab (window.open,
+  // extensions, restore) still arrive via TabOpen, where
+  // armContainerRepair remains the fallback.
+  function initBoundNewTab() {
+    let orig = null;
     try {
-      return cui.getPlacementOfWidget(id) || null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function inNavBar(cui, place) {
-    try {
-      return !!place && place.area === cui.AREA_NAVBAR;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // Re-place one widget: add it when missing, move it when stuck at an
-  // older rescue's spot. wantPos is computed from live placements by the
-  // caller; oldPos is the v1/v2 spot (null skips the move check).
-  // Returns true when the widget ends up placed (or already was).
-  function rescueToolbarWidget(cui, id, wantPos, oldPos) {
-    const place = cuiPlace(cui, id);
-    if (!place) {
-      try {
-        cui.addWidgetToArea(id, cui.AREA_NAVBAR, wantPos);
-      } catch (e) {
-        return false;
-      }
-      return true;
-    }
-    if (
-      oldPos !== null &&
-      inNavBar(cui, place) &&
-      place.position === oldPos &&
-      place.position !== wantPos &&
-      typeof cui.moveWidgetWithinArea === "function"
-    ) {
-      try {
-        cui.moveWidgetWithinArea(id, wantPos);
-      } catch (e) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  function rescueToolbarButtons() {
-    let rescued = false;
-    try {
-      if (!Services.prefs || typeof Services.prefs.getBoolPref !== "function") {
+      if (window.__aphNewTabWrapped) {
         return;
       }
-      rescued = !!Services.prefs.getBoolPref(DL_RESCUE_PREF);
-    } catch (e) {
-      rescued = false; // unset pref reads as "not rescued yet"
-    }
-    if (rescued) {
-      return;
-    }
-    let cui = null;
-    try {
-      cui = window.CustomizableUI || null;
-    } catch (e) {
-      cui = null;
-    }
-    if (!cui) {
-      // moz-src path first: canonical in packaged builds (see 00-core-open.js).
-      try {
-        ({ CustomizableUI: cui } = ChromeUtils.importESModule(
-          "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs"
-        ));
-      } catch (e) {
-        return;
+      orig = window.BrowserOpenTab;
+      if (typeof orig !== "function") {
+        orig = null;
       }
-      if (!cui) {
-        return;
-      }
+    } catch (e) {
+      orig = null;
     }
-    let ok = true;
-    try {
-      // downloads-button directly after the urlbar (stock-adjacent, clear
-      // of the arrow pair on either side). v1/v2 used urlbar + 2.
-      const urlbar = cuiPlace(cui, "urlbar-container");
-      const urlbarPos =
-        inNavBar(cui, urlbar) && typeof urlbar.position === "number"
-          ? urlbar.position
-          : null;
-      ok =
-        rescueToolbarWidget(
-          cui,
-          "downloads-button",
-          urlbarPos === null ? null : urlbarPos + 1,
-          urlbarPos === null ? null : urlbarPos + 2
-        ) && ok;
-      // stop-reload after the back/forward pair, whichever order it is in
-      // (keeps the pair intact; stock order yields the stock trio). v2
-      // used forward + 1, which split inverted pairs.
-      const back = cuiPlace(cui, "back-button");
-      const forward = cuiPlace(cui, "forward-button");
-      let pairEnd = null;
-      let rlOld = null;
+    origBrowserOpenTab = orig;
+    const wrapped = function (...args) {
+      let isPrivate = false;
       try {
-        const spots = [];
-        if (inNavBar(cui, back) && typeof back.position === "number") {
-          spots.push(back.position);
-        }
-        if (inNavBar(cui, forward) && typeof forward.position === "number") {
-          spots.push(forward.position);
-        }
-        if (spots.length) {
-          pairEnd = Math.max.apply(null, spots) + 1;
-        }
-        if (inNavBar(cui, forward) && typeof forward.position === "number") {
-          rlOld = forward.position + 1;
+        const pbu = window.PrivateBrowsingUtils;
+        if (pbu && typeof pbu.isWindowPrivate === "function") {
+          isPrivate = !!pbu.isWindowPrivate(window);
         }
       } catch (e) {}
-      ok = rescueToolbarWidget(cui, "stop-reload-button", pairEnd, rlOld) && ok;
-    } catch (e) {
-      ok = false;
-    }
-    if (!ok) {
-      return; // retry next launch; partial progress stands
-    }
-    try {
-      if (typeof Services.prefs.setBoolPref === "function") {
-        Services.prefs.setBoolPref(DL_RESCUE_PREF, true);
+      if (!isPrivate) {
+        try {
+          const bound = isValidId(current) ? getWsContainerId(current) : 0;
+          if (bound) {
+            return openBoundTab("about:newtab", current);
+          }
+        } catch (e) {}
       }
+      try {
+        if (typeof origBrowserOpenTab === "function") {
+          return origBrowserOpenTab.apply(window, args);
+        }
+      } catch (e) {
+        return null;
+      }
+      if (isPrivate) {
+        return null;
+      }
+      // No stock opener (tests, popups): plain open beats dropping the tab.
+      try {
+        return openBoundTab("about:newtab", current);
+      } catch (e) {}
+      return null;
+    };
+    try {
+      window.BrowserOpenTab = wrapped;
+      window.__aphNewTabWrapped = true;
     } catch (e) {}
   }
 
   function init() {
-    // Heal toolbar state first: re-place wiped removable defaults
-    // (one-time, marker-guarded — see below).
-    try {
-      rescueToolbarButtons();
-    } catch (e) {}
     // Public API for command palette (and future chrome UI).
     try {
       window.AphWorkspaces = {
@@ -401,6 +320,9 @@
     } catch (e) {
       navPopupObserver = null;
     }
+    try {
+      initBoundNewTab();
+    } catch (e) {}
     // Cross-window binding sync: re-read the pref + repaint the badge.
     try {
       bindingObserver = {

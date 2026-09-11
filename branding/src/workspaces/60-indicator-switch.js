@@ -86,6 +86,10 @@
   let nameObserver = null;
   let startupRestoreObserver = null;
   let navPopupObserver = null;
+  // Original window.BrowserOpenTab, captured before initBoundNewTab wraps
+  // it so + button / menu births land in the bound container. Restored on
+  // unload (cleanupWindowObservers).
+  let origBrowserOpenTab = null;
   function pulseWorkspaceIndicator() {
     try {
       const el = gBrowser.tabContainer;

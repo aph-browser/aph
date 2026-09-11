@@ -11,6 +11,7 @@ from .features import (
     WorkspacesInjector,
 )
 from .logos import LogoInjector
+from .toolbar import ToolbarDefaultsInjector
 from .xhtml import CANONICAL_TAG_ORDER, XhtmlInjector
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "TabrenameInjector",
     "TextpickInjector",
     "ThemeInjector",
+    "ToolbarDefaultsInjector",
     "WorkspacesInjector",
     "XhtmlInjector",
 ]

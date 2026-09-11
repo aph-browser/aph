@@ -25,6 +25,7 @@ from .injectors.features import (
     WorkspacesInjector,
 )
 from .injectors.logos import LogoInjector
+from .injectors.toolbar import ToolbarDefaultsInjector
 from .injectors.xhtml import XhtmlInjector
 from .omni import atomic_ja_temp, normalize_omni_ja
 
@@ -72,11 +73,12 @@ class BrandPatcher:
             ),
             TabrenameInjector(payloads.tabrename_js),
         ]
-        self._replace_injectors: list[Injector] = [brand, logos]
+        self._replace_injectors: list[Injector] = [brand, logos, ToolbarDefaultsInjector()]
         self._feature_injectors: list[Injector] = features
         self._xhtml = XhtmlInjector(features)
-        # Brand/string + logo replacements run for every entry; xhtml
-        # injection only touches browser.xhtml (handled inline in patch()).
+        # Brand/string + logo + toolbar-defaults replacements run for every
+        # entry; xhtml injection only touches browser.xhtml (handled inline
+        # in patch()).
         self._counts = PatchCounts()
 
     @property
