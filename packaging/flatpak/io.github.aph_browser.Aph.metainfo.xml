@@ -26,6 +26,6 @@
     <mediatype>x-scheme-handler/https</mediatype>
   </provides>
   <releases>
-    <release version="0.1.0" date="2026-09-08"/>
+    <release version="0.1.0" date="2026-09-11"/>
   </releases>
 </component>

@@ -289,7 +289,7 @@ jobs:
           - Aph version: __VER__
           - Firefox base: __FXVER__ (recorded from application.ini at build time)
           - Profiles: Linux `~/.config/aph/profile` (daily install) ·
-            Windows `%APPDATA%\Aph\profile` (seed-once user.js)
+            Windows `%APPDATA%\Aph\profile` (seed-once user.js + userChrome.css)
 
           ### Install
 
