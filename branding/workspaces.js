@@ -2585,22 +2585,57 @@
     } catch (e) {}
   }
 
-  // One-time rescue for the downloads toolbar button.
+  // One-time rescue for toolbar buttons wiped on fresh profiles.
   // Fresh profiles that pre-seed sidebar.verticalTabs (Aph does) hit a
   // CustomizableUI restore path that builds the navbar from
   // verticalTabsDefaultPlacements (["alltabs-button", "ai-window-toggle"])
-  // INSTEAD of the full defaultPlacements — so downloads-button (and the
-  // other removable defaults) is never placed and ends up banished to the
-  // customization palette. With no node in the document, Firefox's own
-  // DownloadsButton.getAnchor() fails ("Downloads button cannot be found",
-  // downloads.js) and no progress ring or auto-open panel ever appears.
+  // INSTEAD of the full defaultPlacements — so the removable defaults are
+  // never placed and end up banished to the customization palette. The
+  // downloads-button case is the loud one (no node in the document means
+  // Firefox's own DownloadsButton.getAnchor() fails — "Downloads button
+  // cannot be found", downloads.js — so no progress ring or auto-open
+  // panel ever appears); stop-reload-button goes missing the same way.
   // Modeled on Mozilla's own ShowHomeButton enterprise policy
   // (Policies.sys.mjs): if unplaced, re-add at the stock position. Runs
   // once per profile (DL_RESCUE_PREF marker) so it never fights an
-  // intentional user removal afterwards.
-  const DL_RESCUE_PREF = "aph.toolbar.downloadsRescued";
+  // intentional user removal afterwards. The marker was renamed when the
+  // rescue widened beyond downloads-button so already-healed profiles get
+  // one more pass (the old aph.toolbar.downloadsRescued lingers harmlessly).
+  const DL_RESCUE_PREF = "aph.toolbar.widgetsRescued";
 
-  function rescueDownloadsButton() {
+  // Re-place one widget at its stock position (anchor + offset, mirroring
+  // ShowHomeButton, which inserts home-button after forward-button + 2).
+  // Returns true when the widget is placed (or already was).
+  function rescueToolbarWidget(cui, id, anchorId, offset) {
+    let placement = null;
+    try {
+      placement = cui.getPlacementOfWidget(id);
+    } catch (e) {
+      return false;
+    }
+    if (placement) {
+      return true;
+    }
+    let pos = null;
+    try {
+      const anchor = cui.getPlacementOfWidget(anchorId);
+      if (
+        anchor &&
+        anchor.area === cui.AREA_NAVBAR &&
+        typeof anchor.position === "number"
+      ) {
+        pos = anchor.position + offset;
+      }
+    } catch (e) {}
+    try {
+      cui.addWidgetToArea(id, cui.AREA_NAVBAR, pos);
+    } catch (e) {
+      return false;
+    }
+    return true;
+  }
+
+  function rescueToolbarButtons() {
     let rescued = false;
     try {
       if (!Services.prefs || typeof Services.prefs.getBoolPref !== "function") {
@@ -2632,31 +2667,19 @@
         return;
       }
     }
-    let placement = null;
+    let ok = true;
     try {
-      placement = cui.getPlacementOfWidget("downloads-button");
+      ok = rescueToolbarWidget(cui, "downloads-button", "urlbar-container", 2) && ok;
     } catch (e) {
-      return;
+      ok = false;
     }
-    if (!placement) {
-      // Stock position: right after urlbar-container (mirrors ShowHomeButton,
-      // which inserts home-button after forward-button + 2).
-      let pos = null;
-      try {
-        const urlbar = cui.getPlacementOfWidget("urlbar-container");
-        if (
-          urlbar &&
-          urlbar.area === cui.AREA_NAVBAR &&
-          typeof urlbar.position === "number"
-        ) {
-          pos = urlbar.position + 2;
-        }
-      } catch (e) {}
-      try {
-        cui.addWidgetToArea("downloads-button", cui.AREA_NAVBAR, pos);
-      } catch (e) {
-        return;
-      }
+    try {
+      ok = rescueToolbarWidget(cui, "stop-reload-button", "forward-button", 1) && ok;
+    } catch (e) {
+      ok = false;
+    }
+    if (!ok) {
+      return; // retry next launch; partial progress stands
     }
     try {
       if (typeof Services.prefs.setBoolPref === "function") {
@@ -2666,10 +2689,10 @@
   }
 
   function init() {
-    // Heal toolbar state first: re-place downloads-button if a fresh profile
-    // lost the removable defaults (one-time, marker-guarded — see below).
+    // Heal toolbar state first: re-place wiped removable defaults
+    // (one-time, marker-guarded — see below).
     try {
-      rescueDownloadsButton();
+      rescueToolbarButtons();
     } catch (e) {}
     // Public API for command palette (and future chrome UI).
     try {

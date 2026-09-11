@@ -1,7 +1,8 @@
-// Regression guards for the downloads-button rescue (workspaces bundle,
-// 115-dl-rescue.js): fresh profiles that pre-seed sidebar.verticalTabs lose
-// the removable navbar defaults, banishing downloads-button to the
-// customization palette. The rescue re-places it once per profile.
+// Regression guards for the toolbar-button rescue (workspaces bundle,
+// 110-chrome-init.js): fresh profiles that pre-seed sidebar.verticalTabs
+// lose the removable navbar defaults, banishing buttons to the
+// customization palette. The rescue re-places downloads-button and
+// stop-reload-button once per profile (marker-guarded).
 // The real bundle runs in node:vm with Firefox globals mocked (same shape
 // as tests/pinreset.test.js); init() runs the rescue on load, so each case
 // builds a fresh env and asserts on the recorded CustomizableUI calls.
@@ -10,7 +11,7 @@ const assert = require("node:assert/strict");
 const { run, makeTab } = require("./helpers");
 
 const tabVals = new WeakMap();
-const MARKER = "aph.toolbar.downloadsRescued";
+const MARKER = "aph.toolbar.widgetsRescued";
 
 function makeEnv(opts) {
   const o = opts || {};
@@ -116,34 +117,59 @@ function makeEnv(opts) {
 }
 
 const NAVBAR_URLBAR = { area: "nav-bar", position: 4 };
+const NAVBAR_FORWARD = { area: "nav-bar", position: 7 };
 
-describe("downloads-button rescue", () => {
-  it("re-places a missing button at the stock position and sets the marker", () => {
-    const env = makeEnv({ placements: { "urlbar-container": NAVBAR_URLBAR } });
-    assert.deepEqual(env.added, [{ id: "downloads-button", area: "nav-bar", pos: 6 }]);
+describe("toolbar-button rescue", () => {
+  it("re-places both missing buttons at stock positions and sets the marker", () => {
+    const env = makeEnv({
+      placements: { "urlbar-container": NAVBAR_URLBAR, "forward-button": NAVBAR_FORWARD },
+    });
+    assert.deepEqual(env.added, [
+      { id: "downloads-button", area: "nav-bar", pos: 6 },
+      { id: "stop-reload-button", area: "nav-bar", pos: 8 },
+    ]);
     assert.equal(env.boolStore[MARKER], true);
   });
 
-  it("appends when the urlbar anchor is unavailable", () => {
+  it("appends when the anchors are unavailable", () => {
     const env = makeEnv({ placements: {} });
-    assert.deepEqual(env.added, [{ id: "downloads-button", area: "nav-bar", pos: null }]);
+    assert.deepEqual(env.added, [
+      { id: "downloads-button", area: "nav-bar", pos: null },
+      { id: "stop-reload-button", area: "nav-bar", pos: null },
+    ]);
     assert.equal(env.boolStore[MARKER], true);
   });
 
-  it("leaves a placed button alone but still records the marker", () => {
+  it("leaves placed buttons alone but still records the marker", () => {
     const env = makeEnv({
       placements: {
         "urlbar-container": NAVBAR_URLBAR,
+        "forward-button": NAVBAR_FORWARD,
         "downloads-button": { area: "nav-bar", position: 6 },
+        "stop-reload-button": { area: "nav-bar", position: 8 },
       },
     });
     assert.deepEqual(env.added, []);
     assert.equal(env.boolStore[MARKER], true);
   });
 
+  it("heals only what's missing", () => {
+    const env = makeEnv({
+      placements: {
+        "urlbar-container": NAVBAR_URLBAR,
+        "forward-button": NAVBAR_FORWARD,
+        "downloads-button": { area: "nav-bar", position: 6 },
+      },
+    });
+    assert.deepEqual(env.added, [
+      { id: "stop-reload-button", area: "nav-bar", pos: 8 },
+    ]);
+    assert.equal(env.boolStore[MARKER], true);
+  });
+
   it("never fights the user: marker set + missing means hands off", () => {
     const env = makeEnv({
-      placements: { "urlbar-container": NAVBAR_URLBAR },
+      placements: { "urlbar-container": NAVBAR_URLBAR, "forward-button": NAVBAR_FORWARD },
       boolPrefs: { [MARKER]: true },
     });
     assert.deepEqual(env.added, []);
@@ -154,11 +180,22 @@ describe("downloads-button rescue", () => {
     const added = [];
     const fallback = {
       AREA_NAVBAR: "nav-bar",
-      getPlacementOfWidget: (id) => (id === "urlbar-container" ? NAVBAR_URLBAR : null),
+      getPlacementOfWidget: (id) => {
+        if (id === "urlbar-container") {
+          return NAVBAR_URLBAR;
+        }
+        if (id === "forward-button") {
+          return NAVBAR_FORWARD;
+        }
+        return null;
+      },
       addWidgetToArea: (id, area, pos) => { added.push({ id, area, pos }); },
     };
     const env = makeEnv({ noWindowCUI: true, importCUI: { CustomizableUI: fallback } });
-    assert.deepEqual(added, [{ id: "downloads-button", area: "nav-bar", pos: 6 }]);
+    assert.deepEqual(added, [
+      { id: "downloads-button", area: "nav-bar", pos: 6 },
+      { id: "stop-reload-button", area: "nav-bar", pos: 8 },
+    ]);
     assert.equal(env.boolStore[MARKER], true);
   });
 
