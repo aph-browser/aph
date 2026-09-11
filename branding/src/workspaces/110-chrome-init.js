@@ -162,7 +162,92 @@
     } catch (e) {}
   }
 
+  // One-time rescue for the downloads toolbar button.
+  // Fresh profiles that pre-seed sidebar.verticalTabs (Aph does) hit a
+  // CustomizableUI restore path that builds the navbar from
+  // verticalTabsDefaultPlacements (["alltabs-button", "ai-window-toggle"])
+  // INSTEAD of the full defaultPlacements — so downloads-button (and the
+  // other removable defaults) is never placed and ends up banished to the
+  // customization palette. With no node in the document, Firefox's own
+  // DownloadsButton.getAnchor() fails ("Downloads button cannot be found",
+  // downloads.js) and no progress ring or auto-open panel ever appears.
+  // Modeled on Mozilla's own ShowHomeButton enterprise policy
+  // (Policies.sys.mjs): if unplaced, re-add at the stock position. Runs
+  // once per profile (DL_RESCUE_PREF marker) so it never fights an
+  // intentional user removal afterwards.
+  const DL_RESCUE_PREF = "aph.toolbar.downloadsRescued";
+
+  function rescueDownloadsButton() {
+    let rescued = false;
+    try {
+      if (!Services.prefs || typeof Services.prefs.getBoolPref !== "function") {
+        return;
+      }
+      rescued = !!Services.prefs.getBoolPref(DL_RESCUE_PREF);
+    } catch (e) {
+      rescued = false; // unset pref reads as "not rescued yet"
+    }
+    if (rescued) {
+      return;
+    }
+    let cui = null;
+    try {
+      cui = window.CustomizableUI || null;
+    } catch (e) {
+      cui = null;
+    }
+    if (!cui) {
+      // moz-src path first: canonical in packaged builds (see 00-core-open.js).
+      try {
+        ({ CustomizableUI: cui } = ChromeUtils.importESModule(
+          "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs"
+        ));
+      } catch (e) {
+        return;
+      }
+      if (!cui) {
+        return;
+      }
+    }
+    let placement = null;
+    try {
+      placement = cui.getPlacementOfWidget("downloads-button");
+    } catch (e) {
+      return;
+    }
+    if (!placement) {
+      // Stock position: right after urlbar-container (mirrors ShowHomeButton,
+      // which inserts home-button after forward-button + 2).
+      let pos = null;
+      try {
+        const urlbar = cui.getPlacementOfWidget("urlbar-container");
+        if (
+          urlbar &&
+          urlbar.area === cui.AREA_NAVBAR &&
+          typeof urlbar.position === "number"
+        ) {
+          pos = urlbar.position + 2;
+        }
+      } catch (e) {}
+      try {
+        cui.addWidgetToArea("downloads-button", cui.AREA_NAVBAR, pos);
+      } catch (e) {
+        return;
+      }
+    }
+    try {
+      if (typeof Services.prefs.setBoolPref === "function") {
+        Services.prefs.setBoolPref(DL_RESCUE_PREF, true);
+      }
+    } catch (e) {}
+  }
+
   function init() {
+    // Heal toolbar state first: re-place downloads-button if a fresh profile
+    // lost the removable defaults (one-time, marker-guarded — see below).
+    try {
+      rescueDownloadsButton();
+    } catch (e) {}
     // Public API for command palette (and future chrome UI).
     try {
       window.AphWorkspaces = {

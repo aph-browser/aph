@@ -7,6 +7,13 @@
   /* Hide grace: show instantly, hide after this delay. 0.5s is the sweet
      spot — <0.2s still flickers, >1s feels sticky (macOS dock ≈0.5s). */
   --aph-hide-delay: 0.5s;
+  /* Radius system: single source for every Aph corner. sm = inline
+     fields, md = rows/badges/items, lg = toasts, xl = panels. Swap
+     values here and all Aph surfaces follow together. */
+  --aph-radius-sm: 4px;
+  --aph-radius-md: 6px;
+  --aph-radius-lg: 8px;
+  --aph-radius-xl: 10px;
   --urlbar-container-min-width: 0px !important;
 }
 
@@ -130,6 +137,23 @@
   transition: margin-inline-end var(--aph-pop-in) 0s, opacity 0.15s ease 0s, visibility 0s linear 0s !important;
 }
 
+/* ==========================================================================
+   4b. Downloads Button: Reveal on Activity (Progress / Unviewed)
+   Firefox marks #downloads-button with [progress] while downloading and
+   [attention] afterwards. Without this carve-out the §3 hide rules keep the
+   button — its progress ring and the auto-open panel's anchor — invisible
+   at idle, so downloads start with zero UI. Presence selectors match
+   whatever attribute value Firefox sets. Self-clearing: Firefox drops the
+   states once the downloads are viewed, and the button sinks back into
+   hiding on its own.
+   ========================================================================== */
+#nav-bar-customization-target > #downloads-button:is([progress], [attention]) {
+  margin-inline: 2px !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  transition: margin-inline var(--aph-pop-in) 0s, opacity 0.15s ease 0s, visibility 0s linear 0s !important;
+}
+
 /* Windows: native Min/Max/Close must never slide away. The hide rules above
    are already scoped to #nav-bar-customization-target children plus the two
    explicit button IDs, so this is belt-and-braces against Firefox ever
@@ -240,7 +264,7 @@
   font-size: 13px !important;
   font-weight: 600 !important;
   line-height: 1 !important;
-  border-radius: 6px !important;
+  border-radius: var(--aph-radius-md) !important;
   /* Theme-driven tint: subtle wash of the toolbar text color, so the pill
      reads on cream (Sun light) and dark toolbars alike. */
   background: color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 10%, transparent) !important;
@@ -251,8 +275,12 @@
 }
 
 #aph-ws-indicator[data-aph-ws-pulse="1"] {
-  background: crimson !important;
-  color: white !important;
+  /* Formerly hardcoded crimson — the only off-palette color in chrome.
+     Now the shared hover token so the flash reads as Aph, and the text
+     color follows the toolbar button color (dark-on-gold in Sun light,
+     light-on-brown in Sun dark) instead of assuming a dark backdrop. */
+  background: var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) !important;
+  color: var(--toolbarbutton-color, white) !important;
   opacity: 1 !important;
 }
 
@@ -304,7 +332,7 @@ tab[pending]:not([selected]) .tab-label,
   transform: translateX(-50%) translateY(8px) !important;
   max-width: 60ch !important;
   padding: 8px 14px !important;
-  border-radius: 8px !important;
+  border-radius: var(--aph-radius-lg) !important;
   /* Theme-driven: panel surface/text, slightly translucent. */
   background: color-mix(
     in srgb,
@@ -363,7 +391,7 @@ tab[pending]:not([selected]) .tab-label,
   padding: 0 !important;
   border: none !important;
   outline: none !important;
-  border-radius: 4px !important;
+  border-radius: var(--aph-radius-sm) !important;
   background: var(--toolbar-field-background-color, #24283b) !important;
   color: var(--toolbar-field-text-color, #e6e8f5) !important;
   font: inherit !important;
@@ -373,6 +401,53 @@ tab[pending]:not([selected]) .tab-label,
 
 #aph-tab-rename-input::selection {
   background-color: var(--lwt-toolbar-field-highlight, rgba(125, 190, 255, 0.28)) !important;
+}
+
+/* ==========================================================================
+   13. Selected tab presence: same hover token as §12 at a stronger mix,
+   so selected reads as "hover, committed". Exempt from the §12 hover
+   rule by its :not([selected]) guard, so the two never fight. Container
+   identity lines and pending dim keep working untouched; background-only,
+   both tab-strip orientations.
+   ========================================================================== */
+
+.tabbrowser-tab[selected] > .tab-stack > .tab-background {
+  background-color: color-mix(
+    in srgb,
+    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 70%,
+    transparent
+  ) !important;
+}
+
+/* ==========================================================================
+   14. URL-bar focus ring: inset accent outline while typing goes here.
+   Inset box-shadow (never outline/border) so focus never shifts layout
+   by even a pixel. Mirrors the palette input's bottom-border language.
+   ========================================================================== */
+
+#urlbar:focus-within #urlbar-background {
+  box-shadow: inset 0 0 0 2px
+    color-mix(
+      in srgb,
+      var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 80%,
+      transparent
+    ) !important;
+}
+
+/* ==========================================================================
+   15. Themed scrollbars: thin, theme-text wash on transparent track, so
+   Aph's own scrollable surfaces (palette list) stop showing stock gray.
+   Scoped per-surface on purpose — never a global * rule.
+   ========================================================================== */
+
+#aph-palette-list {
+  scrollbar-width: thin !important;
+  scrollbar-color: color-mix(
+      in srgb,
+      var(--toolbar-text-color, #e8e8ec) 30%,
+      transparent
+    )
+    transparent !important;
 }
 
 /* ==========================================================================
