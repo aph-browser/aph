@@ -141,6 +141,9 @@
     } catch (e) {}
     navPopupObserver = null;
     try {
+      cleanupDock();
+    } catch (e) {}
+    try {
       if (
         window.__aphNewTabWrapped &&
         typeof origBrowserOpenTab === "function"
@@ -256,6 +259,8 @@
         openInWorkspace,
         bindCurrentWs: bindCurrentWsToSelectedTab,
         clearWsBinding,
+        setWsBinding,
+        listContainers,
         getWsContainer: getWsContainerId,
         describeContainer,
         getAllBindings,
@@ -273,6 +278,8 @@
         canUnloadTab,
         unloadEligibleTabs,
         getUnloadOnSwitch,
+        renderDock,
+        closeWorkspaceTabs,
       };
     } catch (e) {}
     current = initialWorkspace();

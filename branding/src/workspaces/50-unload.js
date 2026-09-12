@@ -124,6 +124,14 @@
         if (scope === "foreign" && getWs(t) === current) {
           continue;
         }
+        // Dock "Unload Inactive Tabs": one workspace only. Unknown or
+        // missing ws fails closed (nothing unloads).
+        if (scope === "workspace") {
+          const only = opts && opts.ws;
+          if (!isValidId(only) || getWs(t) !== only) {
+            continue;
+          }
+        }
         const c = canUnloadTab(t);
         if (!c.ok) {
           skipped++;

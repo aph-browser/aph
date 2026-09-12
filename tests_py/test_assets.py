@@ -21,3 +21,10 @@ def test_manifest_covers_all_sources() -> None:
     }
     manifest_files = {rel for rels in BUNDLES.values() for rel in rels}
     assert src_files == manifest_files
+
+
+def test_dock_after_indicator_in_bundle() -> None:
+    """65-dock.js consumes switchTo/sendTabTo/getActiveIds from
+    60-indicator-switch.js (same IIFE scope) — order matters."""
+    order = BUNDLES["workspaces.js"]
+    assert order.index("workspaces/60-indicator-switch.js") < order.index("workspaces/65-dock.js")

@@ -44,3 +44,24 @@ def test_carve_out_uses_visibility_not_display() -> None:
     css = _css()
     body = css[css.find(CARVE_OUT) : css.find(CARVE_OUT) + 600]
     assert not re.search(r"(?m)^\s*display\s*:", body)
+
+
+def test_workspace_dock_selectors_present() -> None:
+    """The sidebar dock (65-dock.js) needs its container, pills, drop
+    highlight and collapsed-dots rules."""
+    css = _css()
+    for sel in (
+        "#aph-ws-dock",
+        ".aph-ws-pill",
+        ".aph-ws-pill.drop-target",
+        "sidebar-main:not([expanded])",
+    ):
+        assert sel in css, f"missing dock selector: {sel}"
+
+
+def test_dock_stacks_vertically() -> None:
+    """#vertical-tabs is a horizontal box by default: without an explicit
+    vertical stack the dock squeezes in beside the tab list."""
+    css = _css()
+    body = css[css.find("#vertical-tabs {") : css.find("#aph-ws-dock {")]
+    assert "vertical" in body and "column" in body

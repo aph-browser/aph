@@ -468,3 +468,108 @@ tab[pending]:not([selected]) .tab-label,
     transparent
   ) !important;
 }
+
+/* ==========================================================================
+   16. Workspace dock: mouse-first pills at the bottom of the vertical
+   tab strip (#vertical-tabs). The strip is a plain XUL box, so force
+   vertical stacking and let the flex-filling tab list keep all free
+   space — the dock (no flex) settles at the bottom. Paint only, never
+   layout of stock children: container underline rides inline boxShadow
+   (dynamic container colors can't live in static CSS — indicator parity).
+   Collapsed strips (sidebar-main without [expanded]) shrink to dots:
+   counts hide, pills compress. Horizontal-tabs mode never builds the
+   dock (JS skips it), so no fallback rules needed here.
+   ========================================================================== */
+
+#vertical-tabs {
+  /* Stock orientation is horizontal (plain XUL box): without this the
+     trailing dock squeezes in beside the tab list instead of settling
+     underneath it. Both properties: -moz-box for XUL box layout, flex
+     direction in case the box ever renders as flex. */
+  -moz-box-orient: vertical !important;
+  flex-direction: column !important;
+}
+
+#aph-ws-dock {
+  flex: none !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  padding: 6px 4px 8px !important;
+  border-top: 1px solid var(--panel-border-color, rgba(255, 255, 255, 0.1)) !important;
+}
+
+#aph-ws-dock[hidden] {
+  display: none !important;
+}
+
+.aph-ws-pill {
+  flex: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  min-width: 26px !important;
+  height: 26px !important;
+  padding: 0 6px !important;
+  box-sizing: border-box !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  border-radius: var(--aph-radius-md) !important;
+  background: color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 10%, transparent) !important;
+  color: var(--toolbar-text-color, #e8e8ec) !important;
+  opacity: 0.85 !important;
+  user-select: none !important;
+  cursor: pointer !important;
+}
+
+.aph-ws-pill:hover {
+  opacity: 1 !important;
+  background: var(--toolbarbutton-background-color-hover, rgba(255, 255, 255, 0.12)) !important;
+}
+
+.aph-ws-pill[data-current="1"] {
+  opacity: 1 !important;
+  background: var(--toolbarbutton-background-color-hover, rgba(255, 255, 255, 0.12)) !important;
+  color: var(--toolbarbutton-color, white) !important;
+}
+
+.aph-ws-pill.drop-target {
+  outline: 2px solid var(--lwt-toolbar-field-highlight, rgba(125, 190, 255, 0.55)) !important;
+  outline-offset: -2px !important;
+  opacity: 1 !important;
+}
+
+.aph-ws-count {
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  opacity: 0.7 !important;
+}
+
+.aph-ws-add {
+  opacity: 0.55 !important;
+}
+
+.aph-ws-add:hover {
+  opacity: 1 !important;
+}
+
+/* Collapsed strip: dots only. Counts hide, pills compress to icon width. */
+sidebar-main:not([expanded]) #aph-ws-dock {
+  gap: 3px !important;
+  padding: 4px 2px 6px !important;
+}
+
+sidebar-main:not([expanded]) .aph-ws-pill {
+  min-width: 22px !important;
+  height: 22px !important;
+  padding: 0 2px !important;
+  font-size: 11px !important;
+}
+
+sidebar-main:not([expanded]) .aph-ws-count {
+  display: none !important;
+}

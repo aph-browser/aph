@@ -72,6 +72,11 @@
           el.style.boxShadow = color ? `inset 0 -2px 0 ${color}` : "";
         } catch (e) {}
       }
+      // Dock repaints with the badge: switch/rename/bind/pref-sync covered.
+      // Tab open/close/restore/pin call renderDock from their own handlers.
+      try {
+        renderDock();
+      } catch (e) {}
     } catch (e) {}
   }
 

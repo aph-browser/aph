@@ -57,6 +57,9 @@
         }
       } catch (err) {}
       syncGroupHeaders(current);
+      try {
+        renderDock();
+      } catch (err) {}
       return;
     }
     // Fresh until its first real commit — the progress router may claim it.
@@ -69,6 +72,9 @@
       return;
     }
     stampTab(tab);
+    try {
+      renderDock();
+    } catch (err) {}
   }
 
   // Restored tabs arrive after load, past init and TabOpen.
@@ -104,6 +110,9 @@
     if (isValidId(current)) {
       syncGroupHeaders(current);
     }
+    try {
+      renderDock();
+    } catch (err) {}
   }
 
   function onTabClose(e) {
@@ -114,6 +123,9 @@
       }
     }
     cleanupTempContainer(tab);
+    try {
+      renderDock();
+    } catch (err) {}
   }
 
   // Pin/unpin keeps the tab's workspace tag as dormant state (used when
@@ -146,6 +158,9 @@
       } else if (tab.hidden) {
         aphShowTab(tab);
       }
+    } catch (err) {}
+    try {
+      renderDock();
     } catch (err) {}
   }
 

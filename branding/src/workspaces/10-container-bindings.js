@@ -225,6 +225,64 @@
     syncAllTabBindingMatches();
   }
 
+  // Bind any workspace (not just current) to a container id. 0 clears.
+  // Same guards as bindCurrentWsToSelectedTab: unknown ids and disposable
+  // temp containers refuse. Used by the dock's Bind submenu.
+  function setWsBinding(ws, id) {
+    if (!isValidId(ws)) {
+      return { ok: false, reason: "bad-workspace" };
+    }
+    const nid = Number(id) || 0;
+    if (!nid) {
+      clearWsBinding(ws);
+      return { ok: true, cleared: true };
+    }
+    try {
+      if (tempContainers.has(nid)) {
+        return { ok: false, reason: "temp" };
+      }
+    } catch (e) {}
+    const ident = describeContainer(nid);
+    if (!ident) {
+      return { ok: false, reason: "unknown" };
+    }
+    loadBindings()[ws] = nid;
+    saveBindings();
+    updateIndicator();
+    syncAllTabBindingMatches();
+    pulseWorkspaceIndicator();
+    return { ok: true, userContextId: nid, name: ident.name };
+  }
+
+  // All bindable containers for the dock's Bind submenu. Temp containers
+  // excluded (deleted on last close — can never be bound).
+  function listContainers() {
+    const out = [];
+    try {
+      const svc = IdentityService;
+      if (svc && typeof svc.getPublicIdentities === "function") {
+        for (const ident of Array.from(svc.getPublicIdentities() || [])) {
+          const nid = Number(ident && ident.userContextId) || 0;
+          if (!nid) {
+            continue;
+          }
+          try {
+            if (tempContainers.has(nid)) {
+              continue;
+            }
+          } catch (e) {}
+          out.push({
+            userContextId: nid,
+            name: (ident && ident.name) || "",
+            color: (ident && ident.color) || "",
+            icon: (ident && ident.icon) || "",
+          });
+        }
+      }
+    } catch (e) {}
+    return out;
+  }
+
   // New tab in `ws` using its bound container (plain tab when unbound).
   function openBoundTab(url = "about:newtab", wsArg) {
     const ws = isValidId(wsArg) ? wsArg : isValidId(current) ? current : "1";
