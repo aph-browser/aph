@@ -24,6 +24,9 @@
  * gBrowser.discardBrowser (V1: manual palette command + optional
  * unload-on-switch behind aph.workspaces.unloadOnSwitch, default off).
  * Never unloads selected/pinned/audible/sharing/pending/about:/offline tabs.
+ * Addon first-run silencer: managed extensions that open welcome/help tabs
+ * on install (no 3rdparty policy support — e.g. SponsorBlock help page)
+ * are closed pre-paint (pref aph.addons.silenceFirstRun, default on).
  * Injected into browser.xhtml via rebrand.py (chrome://browser/content/workspaces.js).
  */
 (function () {

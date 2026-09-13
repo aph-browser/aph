@@ -277,6 +277,11 @@ user_pref("extensions.activeThemeID", "nova-sun@mozilla.org");
 // Set true to also discard eligible hidden-workspace tabs after each switch.
 user_pref("aph.workspaces.unloadOnSwitch", false);
 
+// 14. Silence extension first-run/welcome tabs (e.g. SponsorBlock help page).
+// Managed extensions can't take 3rdparty policy, so noisy install tabs are
+// closed pre-paint instead. Set false to keep them.
+user_pref("aph.addons.silenceFirstRun", true);
+
 // 13. Default New Tab wallpaper: Celestial "eclipse-time-lapse" (dark).
 // NOTE: this pref stores the wallpaper *title*, not the record ID/UUID.
 // (title eclipse-time-lapse; attachment main-workspace/newtab-wallpapers-v2/55b678ff-15c3-49d5-bdbc-40f8413cfb8a.avif;

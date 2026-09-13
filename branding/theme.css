@@ -573,3 +573,106 @@ sidebar-main:not([expanded]) .aph-ws-pill {
 sidebar-main:not([expanded]) .aph-ws-count {
   display: none !important;
 }
+
+/* ==========================================================================
+   17. Tree tabs: automatic 2-level hierarchy, vertical strip only.
+   Level 0 roots sit flush; L1/L2 indent one/two steps via inline-start
+   margin (layout only in the vertical strip — the horizontal strip is
+   untouched on purpose). Parents show a clickable chevron floating in
+   the tab's existing left padding; collapsed parents show a count badge
+   for hidden descendants. Collapse hiding reuses the `hidden` attribute
+   (same mechanism as workspaces), so no extra display rules are needed
+   here. Paint only: indentation never shifts selected/hover backgrounds
+   (§12-13), and the twisty/badge ride the theme hover token like menus
+   and tabs.
+   RULE: a tab's favicon must never move when it gains or loses children.
+   The chevron is absolutely positioned in the existing left gutter, out
+   of the inline flow, so toggling `data-aph-has-kids` shifts no icon.
+   ========================================================================== */
+
+/* Twisty + badge exist only as JS-injected hooks: hidden everywhere by
+   default, revealed in the vertical strip below. */
+tab .aph-tree-twisty,
+.tabbrowser-tab .aph-tree-twisty,
+tab .aph-tree-count,
+.tabbrowser-tab .aph-tree-count {
+  display: none !important;
+}
+
+#sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-level="1"],
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-level="1"] {
+  margin-inline-start: 12px !important;
+}
+
+#sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-level="2"],
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-level="2"] {
+  margin-inline-start: 24px !important;
+}
+
+#sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-has-kids="1"] .tab-content,
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-has-kids="1"] .tab-content,
+#sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-has-kids="1"] .tab-stack,
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-has-kids="1"] .tab-stack {
+  position: relative !important;
+}
+
+#sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-has-kids="1"] .aph-tree-twisty,
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-has-kids="1"] .aph-tree-twisty {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  /* Out of flow: floats in the existing left gutter so the favicon never
+     shifts when the chevron appears or disappears. */
+  position: absolute !important;
+  inset-inline-start: 0 !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  flex: none !important;
+  width: 14px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 9px !important;
+  line-height: 1 !important;
+  border-radius: var(--aph-radius-sm) !important;
+  opacity: 0.7 !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+}
+
+#sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-has-kids="1"] .aph-tree-twisty:hover,
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-has-kids="1"] .aph-tree-twisty:hover {
+  opacity: 1 !important;
+  background-color: var(
+    --toolbarbutton-background-color-hover,
+    rgba(125, 190, 255, 0.28)
+  ) !important;
+}
+
+#sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-collapsed="1"] .aph-tree-count,
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-collapsed="1"] .aph-tree-count {
+  display: inline-flex !important;
+  align-items: center !important;
+  flex: none !important;
+  margin-inline-start: 4px !important;
+  padding: 0 4px !important;
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  line-height: 1.4 !important;
+  border-radius: var(--aph-radius-md) !important;
+  background: color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 12%, transparent) !important;
+  opacity: 0.75 !important;
+}
+
+/* Collapsed sidebar-main: dots only — twisty and counts would clip. */
+sidebar-main:not([expanded]) .aph-tree-twisty,
+sidebar-main:not([expanded]) .aph-tree-count {
+  display: none !important;
+}
+
+sidebar-main:not([expanded]) #vertical-tabs tab[data-aph-level="1"],
+sidebar-main:not([expanded]) #vertical-tabs .tabbrowser-tab[data-aph-level="1"],
+sidebar-main:not([expanded]) #vertical-tabs tab[data-aph-level="2"],
+sidebar-main:not([expanded]) #vertical-tabs .tabbrowser-tab[data-aph-level="2"] {
+  margin-inline-start: 0 !important;
+}

@@ -162,12 +162,26 @@
       }
     } catch (e) {}
     try {
-      if (
-        typeof gBrowser !== "undefined" &&
+      if (typeof gBrowser !== "undefined" &&
         gBrowser &&
         typeof gBrowser.removeTabsProgressListener === "function"
       ) {
         gBrowser.removeTabsProgressListener(routeListener);
+      }
+    } catch (e) {}
+    try {
+      if (gBrowser && gBrowser.tabContainer) {
+        try {
+          gBrowser.tabContainer.removeEventListener("TabSelect", onTreeTabSelect);
+        } catch (_e) {}
+        try {
+          gBrowser.tabContainer.removeEventListener("TabMove", onTreeTabMove);
+        } catch (_e) {}
+      }
+    } catch (e) {}
+    try {
+      if (typeof collapsedTreeParents !== "undefined" && collapsedTreeParents) {
+        collapsedTreeParents.clear();
       }
     } catch (e) {}
     try {
@@ -280,6 +294,21 @@
         getUnloadOnSwitch,
         renderDock,
         closeWorkspaceTabs,
+        getTreeLevel,
+        getTreeParent: getTreeParentTab,
+        getTreeChildren,
+        getTreeDescendants,
+        countTreeDescendants,
+        isTreeCollapsed,
+        isTreeHidden: isTreeHiddenByCollapse,
+        setTreeCollapsed,
+        toggleTreeCollapsed,
+        expandTreeAncestors,
+        attachTreeChild,
+        findEnclosingTreeParent,
+        renderTree,
+        applyTreeVisibility,
+        healTreeLinks,
       };
     } catch (e) {}
     current = initialWorkspace();
@@ -298,6 +327,12 @@
         try {
           t.__aphFresh = false;
         } catch (e) {}
+        // Every tab owns a stable tree id (roots simply have no parent).
+        try {
+          if (typeof ensureTreeId === "function") {
+            ensureTreeId(t);
+          }
+        } catch (e) {}
         // Heal legacy per-workspace pins: pins are global, never hidden.
         try {
           if (t.pinned && t.hidden) {
@@ -307,6 +342,18 @@
       }
       // Restored tabs keep their tags (no setWs above) — sync matches anyway.
       syncAllTabBindingMatches();
+      // Restored tree links survive via SessionStore; collapsed state
+      // always starts expanded. Prune dangling/cross-WS edges.
+      try {
+        if (typeof healTreeLinks === "function") {
+          healTreeLinks();
+        }
+      } catch (e) {}
+      try {
+        if (typeof renderTree === "function") {
+          renderTree();
+        }
+      } catch (e) {}
     } catch (e) {}
     // Session restore may not preserve hidden state; force a full pass.
     try {
@@ -321,6 +368,12 @@
     gBrowser.tabContainer.addEventListener("TabUnpinned", onTabPinned);
     gBrowser.tabContainer.addEventListener("TabGroupCreate", onGroupChange);
     gBrowser.tabContainer.addEventListener("TabGroupUpdate", onGroupChange);
+    try {
+      gBrowser.tabContainer.addEventListener("TabSelect", onTreeTabSelect);
+    } catch (e) {}
+    try {
+      gBrowser.tabContainer.addEventListener("TabMove", onTreeTabMove);
+    } catch (e) {}
     window.addEventListener("keydown", onKey, true);
     try {
       navPopupObserver = initNavPopupHold() || null;

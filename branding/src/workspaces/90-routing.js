@@ -49,6 +49,24 @@
             gBrowser.ungroupTab(rep);
           } catch (e) {}
           setWs(rep, target);
+          // Routed replacements land as Level 0 roots in the target
+          // workspace (workspace-scoped trees never span workspaces).
+          // The original's removal promotes any children left behind.
+          try {
+            if (typeof clearTreeParent === "function") {
+              clearTreeParent(rep);
+            }
+          } catch (e) {}
+          try {
+            if (typeof ensureTreeId === "function") {
+              ensureTreeId(rep);
+            }
+          } catch (e) {}
+          try {
+            if (typeof renderTree === "function") {
+              renderTree();
+            }
+          } catch (e) {}
           if (selected && target !== current) {
             switchTo(target);
           }
@@ -90,6 +108,15 @@
         }
         // Reopen failed — fall through to a plain retag.
       }
+      // Cross-workspace move detaches to a Level 0 root (children stay
+      // behind, promoted in place); same-workspace retags keep the link.
+      try {
+        if (typeof getWs === "function" && typeof detachTreeForWorkspaceSend === "function") {
+          if (getWs(tab) !== target) {
+            detachTreeForWorkspaceSend(tab);
+          }
+        }
+      } catch (e) {}
       setWs(tab, target);
       if (selected && target !== current) {
         switchTo(target);
@@ -111,6 +138,135 @@
         aphShowTab(tab);
       }
     } catch (e) {}
+  }
+
+  // Extension first-run silencer (startup interceptor): managed extensions
+  // installed via policies.json ExtensionSettings (e.g. SponsorBlock) can
+  // open welcome/help tabs on install — chrome.tabs.create fires on the
+  // extension's onInstalled event, which no 3rdparty policy can suppress
+  // for addons without managed-storage support. Those tabs are junk by
+  // construction, so they are closed pre-paint (channel cancelled, then
+  // removed) with a commit-stage backstop, reusing the domain router's two
+  // stages. Precision guards (all must hold — fail closed): kill-switch
+  // pref on, moz-extension scheme, welcome-path pattern, tab born seconds
+  // ago via TabOpen (never a restored tab), first content still blank
+  // (never a deliberate navigation), and no opener tab (never a link).
+  const ADDON_SILENCE_PREF = "aph.addons.silenceFirstRun";
+  const ADDON_SILENCE_MAX_AGE_MS = 30000;
+  const ADDON_FIRSTRUN_PATTERNS = [
+    "/help/index.html",
+    "first-run",
+    "welcome",
+    "onboarding",
+    "installed",
+    "thank-you",
+  ];
+
+  function getSilenceFirstRun() {
+    try {
+      if (Services.prefs && typeof Services.prefs.getBoolPref === "function") {
+        return Services.prefs.getBoolPref(ADDON_SILENCE_PREF);
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  function isAddonFirstRunSpec(spec) {
+    try {
+      const lower = String(spec || "").toLowerCase();
+      if (!lower.startsWith("moz-extension://")) {
+        return false;
+      }
+      for (const pat of ADDON_FIRSTRUN_PATTERNS) {
+        if (lower.includes(pat)) {
+          return true;
+        }
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // Brand-new tabs show about:blank (extension tabs.create) — anything else
+  // means content already lived here; never touch those.
+  function isFirstContentTab(tab) {
+    try {
+      const cur = String(tab.linkedBrowser?.currentURI?.spec || "");
+      return cur === "about:blank" || cur === "about:newtab" || cur === "about:home" || cur === "";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function isYoungTab(tab) {
+    try {
+      const birth = (tab && tab.__aphBirth) || 0;
+      if (!birth) {
+        return false;
+      }
+      return Date.now() - birth <= ADDON_SILENCE_MAX_AGE_MS;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Returns true when the tab was closed.
+  function silenceAddonTab(tab, spec, request) {
+    try {
+      if (!tab || tab.closing) {
+        return false;
+      }
+      if (!getSilenceFirstRun() || !isAddonFirstRunSpec(spec)) {
+        return false;
+      }
+      if (!isYoungTab(tab) || !isFirstContentTab(tab)) {
+        return false;
+      }
+      // A followed link is deliberate — background-created install tabs
+      // have no opener.
+      try {
+        if (typeof resolveTreeOpener === "function" && resolveTreeOpener(tab, null)) {
+          return false;
+        }
+      } catch (e) {}
+      try {
+        tab.__aphFresh = false;
+      } catch (e) {}
+      // Cancel pre-paint so nothing flashes, then remove (same abort code
+      // the domain router uses).
+      try {
+        if (request && typeof request.cancel === "function") {
+          let aborted = 0x804b0002; // NS_BINDING_ABORTED
+          try {
+            if (typeof Cr !== "undefined" && Cr && typeof Cr.NS_BINDING_ABORTED === "number") {
+              aborted = Cr.NS_BINDING_ABORTED;
+            } else if (
+              typeof Components !== "undefined" &&
+              Components &&
+              Components.results &&
+              typeof Components.results.NS_BINDING_ABORTED === "number"
+            ) {
+              aborted = Components.results.NS_BINDING_ABORTED;
+            }
+          } catch (e) {}
+          request.cancel(aborted);
+        }
+      } catch (e) {}
+      try {
+        gBrowser.removeTab(tab, { animate: false });
+      } catch (e) {
+        try {
+          gBrowser.removeTab(tab);
+        } catch (_e) {
+          return false;
+        }
+      }
+      try {
+        routeLog(`silenced addon first-run tab (${String(spec || "").slice(0, 80)})`);
+      } catch (e) {}
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   // Pre-paint router, two stages sharing the fresh-tab protocol:
@@ -167,6 +323,16 @@
         try {
           scheme = String(aLocation.scheme || "").toLowerCase();
         } catch (e) {
+          return;
+        }
+        // Commit-stage backstop for the addon first-run silencer (covers a
+        // missed pre-dispatch). aLocation always has .spec in chrome.
+        if (scheme === "moz-extension") {
+          let spec = "";
+          try {
+            spec = String(aLocation.spec || "");
+          } catch (e) {}
+          silenceAddonTab(tab, spec, aRequest);
           return;
         }
         if (scheme !== "http" && scheme !== "https") {
@@ -254,6 +420,16 @@
         try {
           scheme = String(uri.scheme || "").toLowerCase();
         } catch (e) {
+          return;
+        }
+        // Pre-dispatch stage for the addon first-run silencer: the channel
+        // exists but nothing has painted yet.
+        if (scheme === "moz-extension") {
+          let spec = "";
+          try {
+            spec = String((uri && uri.spec) || "");
+          } catch (e) {}
+          silenceAddonTab(tab, spec, aRequest);
           return;
         }
         if (scheme !== "http" && scheme !== "https") {

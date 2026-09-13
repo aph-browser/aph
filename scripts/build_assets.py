@@ -38,6 +38,7 @@ BUNDLES: dict[str, list[str]] = {
         "workspaces/20-domain-routes.js",
         "workspaces/30-names-tags.js",
         "workspaces/40-visibility-groups.js",
+        "workspaces/45-tree-tabs.js",
         "workspaces/50-unload.js",
         "workspaces/60-indicator-switch.js",
         "workspaces/65-dock.js",

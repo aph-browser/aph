@@ -201,32 +201,37 @@ def fetch(version: str, arch: str) -> None:
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Fetch Firefox release (default: latest from Mozilla)"
+    parser = argparse.ArgumentParser(description="Fetch Firefox release (default: pinned VERSION)")
+    parser.add_argument(
+        "version",
+        nargs="?",
+        default=None,
+        help="Fetch a specific release version (default: pinned VERSION)",
     )
     parser.add_argument(
-        "version", nargs="?", default=None, help="Pin a specific release version (default: latest)"
-    )
-    parser.add_argument(
-        "--latest", action="store_true", help="Use latest release from Mozilla (default behavior)"
+        "--latest",
+        action="store_true",
+        help="Ignore the pin and use latest release from Mozilla",
     )
     args = parser.parse_args()
+    if args.version and args.latest:
+        parser.error("Pass either a version or --latest, not both.")
 
     current = installed_version()
     binary_present = (FIREFOX_DIR / ("firefox.exe" if is_windows() else "firefox")).is_file()
 
     if args.version:
         version = args.version
-    else:
+    elif args.latest:
         latest = fetch_latest_version()
         if latest is None:
             if binary_present and current:
                 print(f"Offline: keeping installed Firefox {current} at {FIREFOX_DIR}")
                 return
-            print(f"Offline: falling back to {VERSION}")
-            version = VERSION
-        else:
-            version = latest
+            sys.exit(f"Offline: cannot query latest and no Firefox installed (pin is {VERSION})")
+        version = latest
+    else:
+        version = VERSION
 
     if binary_present and current == version:
         print(f"Firefox {current} already up to date at {FIREFOX_DIR}")

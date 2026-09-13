@@ -225,9 +225,21 @@
           gBrowser.ungroupTab(tab);
         }
       } catch (e) {}
+      // Workspace-scoped trees: sending detaches to a Level 0 root in the
+      // target workspace (children left behind are promoted in place).
+      try {
+        if (typeof detachTreeForWorkspaceSend === "function") {
+          detachTreeForWorkspaceSend(tab);
+        }
+      } catch (e) {}
       setWs(tab, target);
     }
     anchorAllGroups();
+    try {
+      if (typeof renderTree === "function") {
+        renderTree();
+      }
+    } catch (e) {}
     try {
       reconcile(current, Array.from(gBrowser.tabs));
       pruneExtraNewTabs(current);

@@ -1,11 +1,22 @@
   // Open a clean disposable container tab in the current workspace. Falls
   // back to a normal tab if the identity service is unavailable.
+  // Manual birth: always a Level 0 root.
   function openTempTab(url = "about:newtab") {
     const ws = isValidId(current) ? current : "1";
     if (!IdentityService) {
       try {
         const t = gBrowser.addTrustedTab(url);
         setWs(t, ws);
+        try {
+          if (typeof clearTreeParent === "function") {
+            clearTreeParent(t);
+          }
+        } catch (_e) {}
+        try {
+          if (typeof ensureTreeId === "function") {
+            ensureTreeId(t);
+          }
+        } catch (_e) {}
         gBrowser.selectedTab = t;
         focusUrlBar();
       } catch (e) {}
@@ -20,6 +31,21 @@
       } catch (e) {}
       tempContainers.add(identity.userContextId);
       setWs(tab, ws);
+      try {
+        if (typeof clearTreeParent === "function") {
+          clearTreeParent(tab);
+        }
+      } catch (_e) {}
+      try {
+        if (typeof ensureTreeId === "function") {
+          ensureTreeId(tab);
+        }
+      } catch (_e) {}
+      try {
+        if (typeof renderTree === "function") {
+          renderTree();
+        }
+      } catch (_e) {}
       aphShowTab(tab);
       gBrowser.selectedTab = tab;
       focusUrlBar();

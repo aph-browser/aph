@@ -10,11 +10,12 @@ bootstrap:
     just rebrand
     @echo "Ready to launch: just dev"
 
-# Download and extract Firefox into build/
+# Download and extract Firefox into build/ (pinned VERSION by default;
+# pass --latest or an explicit version to override)
 setup *args:
     uv run python scripts/fetch.py {{args}}
 
-# Remove current Firefox and re-download
+# Remove current Firefox and re-download (same pin/override contract as setup)
 refetch *args:
     rm -rf build/firefox
     uv run python scripts/fetch.py {{args}}
@@ -76,6 +77,10 @@ test:
 # Pack the repo for LLM context (repomix-output.xml, gitignored). Excludes
 # the generated bundles (branding/workspaces.js, branding/command-palette.js)
 # — byte-derivable from branding/src/, so including them doubles ~3.5k lines.
+# NOTE: config/user.js is intentionally KEPT: it embeds the upstream Betterfox
+# block (~220 lines) that lives nowhere else in the repo; excluding it would
+# drop that context. The ~67-line Aph tail duplicates config/user-overrides.js
+# by design (last-line-wins merge, see scripts/update_prefs.py).
 repomix:
     bunx repomix --ignore "branding/workspaces.js,branding/command-palette.js"
 
