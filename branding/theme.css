@@ -214,7 +214,11 @@
   min-height: 28px !important;
 }
 
-#urlbar-input-container {
+/* NOTE: urlbar internals are plain light-DOM children of the moz-urlbar
+   host but carry CLASSES, not ids (see UrlbarInput #markup) — selectors
+   here must use .urlbar-input-container / .urlbar-background, never
+   #ids (id forms parse fine and silently never match). */
+.urlbar-input-container {
   min-height: 28px !important;
   height: 28px !important;
   padding: 0 8px !important;
@@ -225,18 +229,12 @@
    Sun dark -> #272429) via Firefox's own variables, which update live on
    theme switch. Fallback keeps Aph's elevated dark surface when no theme
    provides the variable. */
-#urlbar-background,
+.urlbar-background,
 .urlbarView {
   background-color: var(
     --toolbar-field-background-color-focus,
     var(--aph-bg-elevated, #202028)
   ) !important;
-}
-
-/* URL highlight: text selection inside the urlbar follows the active
-   theme's highlight color (unset by Sun -> falls back to Aph blue). */
-#urlbar-input::selection {
-  background-color: var(--lwt-toolbar-field-highlight, rgba(125, 190, 255, 0.28)) !important;
 }
 
 /* Clean square hamburger icon */
@@ -399,8 +397,14 @@ tab[pending]:not([selected]) .tab-label,
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
 }
 
+/* Tab-rename selection: same paint as the selected tab (§13), matching
+   the urlbar rule above. */
 #aph-tab-rename-input::selection {
-  background-color: var(--lwt-toolbar-field-highlight, rgba(125, 190, 255, 0.28)) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 70%,
+    transparent
+  ) !important;
 }
 
 /* ==========================================================================
@@ -420,18 +424,36 @@ tab[pending]:not([selected]) .tab-label,
 }
 
 /* ==========================================================================
-   14. URL-bar focus ring: inset accent outline while typing goes here.
-   Inset box-shadow (never outline/border) so focus never shifts layout
-   by even a pixel. Mirrors the palette input's bottom-border language.
+   14. URL-bar border + selection theme.
+   The urlbar internals are light-DOM children of the moz-urlbar host but
+   carry CLASSES, not ids (UrlbarInput #markup) — reach them as
+   .urlbar-background / .urlbar-input, never #ids. Focus outline and text
+   selection are painted from stock variables, so one :root block themes
+   both, tracking the selected tab (§13) via the same token and mix.
+   When a theme defines its own values, the lightweight-theme consumer
+   writes these variables inline and wins automatically. Borders use a
+   shared sharpened accent below: the hover token with saturation pushed
+   (red themes read redder, green themes greener — hue preserved,
+   vividness raised) so it stays clearly brighter than dark toolbar
+   backgrounds. Fully opaque — a translucent 1px line blends into its
+   backdrop and reads as invisible.
    ========================================================================== */
 
-#urlbar:focus-within #urlbar-background {
-  box-shadow: inset 0 0 0 2px
-    color-mix(
-      in srgb,
-      var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 80%,
-      transparent
-    ) !important;
+:root {
+  --aph-urlbar-accent: hsl(
+    from var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.85))
+    h calc(s * 1.6) l
+  ) !important;
+  --toolbar-field-border-color-focus: var(--aph-urlbar-accent) !important;
+  --lwt-toolbar-field-highlight: color-mix(
+    in srgb,
+    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 70%,
+    transparent
+  ) !important;
+}
+
+.urlbar:not([focused]) .urlbar-background {
+  border-color: var(--aph-urlbar-accent) !important;
 }
 
 /* ==========================================================================

@@ -123,3 +123,58 @@ def test_tree_rails_hidden_when_collapsed() -> None:
     assert "sidebar-main:not([expanded])" in body
     assert ".aph-tree-rail" in body
     assert "display: none" in body
+
+
+def test_urlbar_themed_through_root_variables() -> None:
+    """Urlbar internals are light-DOM children with classes, painted from
+    stock variables — so focus border + text selection are themed via
+    :root overrides. The shared accent sharpens the hover token with a
+    hue-preserving saturation boost (red stays red, green stays green),
+    never a hardcoded hue."""
+    css = _css()
+    head = css.find("14. URL-bar border + selection theme.")
+    assert head != -1
+    body = css[head : head + 1500]
+    assert ":root" in body
+    for var in ("--toolbar-field-border-color-focus", "--lwt-toolbar-field-highlight"):
+        assert var in body, f"missing root override: {var}"
+    assert "--toolbarbutton-background-color-hover" in body
+    assert "hsl(" in body and "from" in body
+    assert "calc(s *" in body
+
+
+def test_unfocused_urlbar_border_stays_visible() -> None:
+    """The field must stand out from the toolbar even unfocused: a
+    class-based rule (never #ids — urlbar internals carry classes)
+    paints the resting border from the shared sharpened accent (fully
+    opaque). A translucent mix at 1px blends into its backdrop and
+    reads as invisible, so transparent is banned here; focus uses the
+    same accent through the variable above."""
+    css = _css()
+    sel = ".urlbar:not([focused]) .urlbar-background"
+    assert sel in css, f"missing resting border rule: {sel}"
+    body = css[css.find(sel) :]
+    body = body[: body.find("}") + 1]
+    assert "border-color: var(--aph-urlbar-accent)" in body
+    assert "outline" not in body
+
+
+def test_no_dead_urlbar_shadow_selectors() -> None:
+    """Regression guard for the urlbar saga: its internals are light-DOM
+    children of the moz-urlbar host but carry CLASSES, not ids
+    (UrlbarInput #markup) — and a shadow boundary was wrongly blamed
+    along the way. ID forms (#urlbar-background, #urlbar-input,
+    #urlbar-input-container, focused-background children) parse fine
+    and silently never match. Reach internals via classes, or theme the
+    :root variables instead (see §14)."""
+    css = _css()
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    for dead in (
+        "#urlbar-background",
+        "#urlbar-input",
+        "#urlbar-input-container",
+        "#urlbar[focused]",
+    ):
+        assert dead not in code, f"dead urlbar selector still present: {dead}"
+    for live in (".urlbar-background", ".urlbar-input-container"):
+        assert live in code, f"expected class selector missing: {live}"

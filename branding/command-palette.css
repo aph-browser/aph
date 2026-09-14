@@ -37,11 +37,16 @@
   color: inherit !important;
   background: transparent !important;
   border: none !important;
-  border-bottom: 1px solid var(--panel-border-color, rgba(255, 255, 255, 0.1)) !important;
+  /* Same bright accent as the urlbar border: one shared voice. */
+  border-bottom: 1px solid var(--aph-urlbar-accent, var(--panel-border-color, rgba(255, 255, 255, 0.1))) !important;
   outline: none !important;
 }
 #aph-palette-input::selection {
-  background-color: var(--lwt-toolbar-field-highlight, rgba(125, 190, 255, 0.28)) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 70%,
+    transparent
+  ) !important;
 }
 #aph-palette-list {
   overflow-y: auto !important;
@@ -79,9 +84,10 @@
   text-overflow: ellipsis !important;
 }
 /* Fuzzy-match highlight: why this row matched the query.
-   Follows the active theme's highlight color when it defines one. */
+   Explicit theme highlight first, else the same hover gold as the
+   selected row above (Sun never sets toolbar_field_highlight). */
 .aph-palette-mark {
-  background: var(--lwt-toolbar-field-highlight, rgba(125, 190, 255, 0.28)) !important;
+  background: var(--lwt-toolbar-field-highlight, var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28))) !important;
   border-radius: 2px !important;
   color: inherit !important;
 }
