@@ -364,6 +364,128 @@
     };
   }
 
+  // Dock-parity bind rows (flat — the palette has no nested menus).
+  // Titles start with "Bind" so typing `bind` lists them all inline
+  // (same pattern as routeCommands below). Private windows hide all
+  // rows (dock parity: containers don't exist there). Fully guarded:
+  // the workspaces API may be absent or partial (tests).
+  function isPrivatePaletteWindow() {
+    try {
+      const pbu = window.PrivateBrowsingUtils;
+      if (pbu && typeof pbu.isWindowPrivate === "function") {
+        return !!pbu.isWindowPrivate(window);
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function bindCommands(api) {
+    const out = [];
+    try {
+      if (!api || !api.getCurrent) {
+        return out;
+      }
+      if (isPrivatePaletteWindow()) {
+        return out;
+      }
+      const cur = api.getCurrent();
+      if (!cur) {
+        return out;
+      }
+      const label = wsFull(api, cur);
+      let bound = 0;
+      try {
+        bound = (api.getWsContainer && api.getWsContainer(cur)) || 0;
+      } catch (e) {}
+      let boundName = "";
+      try {
+        if (bound && api.describeContainer) {
+          const d = api.describeContainer(bound);
+          if (d && d.name) {
+            boundName = d.name;
+          }
+        }
+      } catch (e) {}
+      // Current tab as source (keeps the Ctrl+Alt+B muscle memory).
+      // Default tab clears (bindCurrentWsToSelectedTab contract); temp
+      // containers refuse silently, so the sub states both upfront.
+      let tabName = "";
+      try {
+        const cid = (gBrowser && gBrowser.selectedTab && gBrowser.selectedTab.userContextId) || 0;
+        if (cid && api.describeContainer) {
+          const d = api.describeContainer(cid);
+          if (d && d.name) {
+            tabName = d.name;
+          }
+        }
+      } catch (e) {}
+      if (api.bindCurrentWs) {
+        out.push({
+          title: tabName
+            ? `Bind ${label} to This Tab's Container (${tabName})`
+            : `Bind ${label} to This Tab's Container`,
+          hint: "Ctrl+Alt+B",
+          sub: tabName
+            ? `This tab uses ${tabName} · ${
+                boundName ? `currently ${boundName} · Enter rebinds` : "Enter binds"
+              } · default tab clears · temp never binds`
+            : `Current tab is containerless · ${
+                boundName ? `currently ${boundName} · Enter clears` : "already unbound"
+              } · temp never binds`,
+          run: () => api && api.bindCurrentWs && api.bindCurrentWs(),
+        });
+      }
+      let containers = [];
+      try {
+        if (api.listContainers) {
+          containers = api.listContainers() || [];
+        }
+      } catch (e) {}
+      for (const c of containers) {
+        let cid = 0;
+        let name = "";
+        try {
+          cid = Number((c && c.userContextId) || 0) || 0;
+          name = (c && c.name) || "";
+        } catch (e) {}
+        if (!cid) {
+          continue;
+        }
+        const canRun = api.setWsBinding ? true : false;
+        out.push({
+          title: `Bind ${label} to ${name || `Container ${cid}`}`,
+          hint: "",
+          sub:
+            bound === cid
+              ? "Currently bound · Enter keeps · future Ctrl+T opens here"
+              : `Currently ${boundName || "unbound"} · Enter rebinds · future Ctrl+T opens here`,
+          run: canRun
+            ? () => {
+                try {
+                  api.setWsBinding(cur, cid);
+                } catch (e) {}
+              }
+            : () => {},
+        });
+      }
+      if (api.clearWsBinding) {
+        out.push({
+          title: `Bind ${label} to None (Unbound)`,
+          hint: "",
+          sub: boundName
+            ? `Currently ${boundName} · Enter clears · new tabs open containerless`
+            : "Already unbound · new tabs open containerless",
+          run: () => {
+            try {
+              api.clearWsBinding(cur);
+            } catch (e) {}
+          },
+        });
+      }
+    } catch (e) {}
+    return out;
+  }
+
   function commands() {
     const api = ws();
     const cmds = [];
@@ -419,22 +541,7 @@
         hint: "Ctrl+T in bound WS",
         run: () => api && api.openBoundTab && api.openBoundTab(),
       },
-      {
-        title: "Bind Current Workspace to This Tab's Container",
-        hint: "Ctrl+Alt+B",
-        run: () => api && api.bindCurrentWs && api.bindCurrentWs(),
-      },
-      {
-        title: "Clear Current Workspace Container Binding",
-        hint: "",
-        run: () => {
-          try {
-            if (api && api.clearWsBinding && api.getCurrent) {
-              api.clearWsBinding(api.getCurrent());
-            }
-          } catch (e) {}
-        },
-      },
+      ...bindCommands(api),
       {
         title: "Close Current Tab",
         hint: "Ctrl+W",

@@ -58,11 +58,21 @@ function fakeNode(localName) {
   return n;
 }
 
-function makeEnv(prefs) {
+function makeEnv(prefs, identityService) {
   const tabs = [];
   const containerHandlers = {};
   const prompts = [];
   const prefStore = Object.assign({}, prefs || {});
+  const identities = identityService || {
+    getPublicIdentityFromId: (id) =>
+      id === 7 ? { name: "Work", color: "blue", icon: "briefcase" } : null,
+    getPublicIdentities: () => ([
+      { userContextId: 1, name: "Personal", color: "green", icon: "user" },
+      { userContextId: 7, name: "Work", color: "blue", icon: "briefcase" },
+    ]),
+    create: () => { throw new Error("unused"); },
+    remove: () => {},
+  };
   let sel = null;
 
   const anchor = fakeNode("box");
@@ -176,16 +186,7 @@ function makeEnv(prefs) {
     ChromeUtils: {
       generateQI: () => () => {},
       importESModule: () => ({
-        ContextualIdentityService: {
-          getPublicIdentityFromId: (id) =>
-            id === 7 ? { name: "Work", color: "blue", icon: "briefcase" } : null,
-          getPublicIdentities: () => ([
-            { userContextId: 1, name: "Personal", color: "green", icon: "user" },
-            { userContextId: 7, name: "Work", color: "blue", icon: "briefcase" },
-          ]),
-          create: () => { throw new Error("unused"); },
-          remove: () => {},
-        },
+        ContextualIdentityService: identities,
       }),
     },
     Ci: {
@@ -452,5 +453,36 @@ describe("workspace dock", () => {
     m.fire("popupshowing", { currentTarget: m, target: sub });
     assert.deepEqual(m.children, before, "parent menu untouched by nested showing");
     assert.ok(m.children.includes(bind), "bind submenu survives");
+  });
+
+  it("resolves stock l10n-only containers to names, not Container N", () => {
+    // Stock Firefox defaults carry l10nId instead of name.
+    const stock = {
+      getPublicIdentityFromId: (id) =>
+        id === 1
+          ? { userContextId: 1, color: "blue", icon: "fingerprint", l10nId: "user-context-personal" }
+          : id === 2
+            ? { userContextId: 2, color: "orange", icon: "briefcase", l10nId: "user-context-work" }
+            : null,
+      getPublicIdentities: () => ([
+        { userContextId: 1, color: "blue", icon: "fingerprint", l10nId: "user-context-personal" },
+        { userContextId: 2, color: "orange", icon: "briefcase", l10nId: "user-context-work" },
+      ]),
+      getUserContextLabel: (id) => (id === 1 ? "Personal" : id === 2 ? "Work" : ""),
+      create: () => { throw new Error("unused"); },
+      remove: () => {},
+    };
+    const env = makeEnv(undefined, stock);
+    assert.equal(env.api.describeContainer(1).name, "Personal");
+    assert.equal(env.api.describeContainer(2).name, "Work");
+    assert.equal(
+      [...env.api.listContainers()].map((c) => c.name).join("|"),
+      "Personal|Work"
+    );
+    // Without getUserContextLabel the static l10n map still resolves.
+    const noLabel = Object.assign({}, stock);
+    delete noLabel.getUserContextLabel;
+    const env2 = makeEnv(undefined, noLabel);
+    assert.equal(env2.api.describeContainer(1).name, "Personal");
   });
 });

@@ -109,6 +109,45 @@
     } catch (e) {}
   }
 
+  // Stock Firefox ships four default containers WITHOUT a `name` — only
+  // an `l10nId` (user-context-personal/work/banking/shopping). Reading
+  // `ident.name` alone renders them as "Container 1..4". The service's own
+  // `getUserContextLabel(id)` resolves name-first, l10n-second, so prefer
+  // it; the static map covers contexts where it is unavailable (tests,
+  // older layouts). User-created containers always carry `name`.
+  const CONTAINER_L10N_FALLBACK = {
+    "user-context-personal": "Personal",
+    "user-context-work": "Work",
+    "user-context-banking": "Banking",
+    "user-context-shopping": "Shopping",
+  };
+
+  function containerLabel(nid, ident) {
+    try {
+      if (ident && ident.name) {
+        return ident.name;
+      }
+    } catch (e) {}
+    try {
+      if (
+        IdentityService &&
+        typeof IdentityService.getUserContextLabel === "function"
+      ) {
+        const label = IdentityService.getUserContextLabel(nid);
+        if (label) {
+          return label;
+        }
+      }
+    } catch (e) {}
+    try {
+      const l10n = ident && (ident.l10nId || ident.l10nID);
+      if (l10n && CONTAINER_L10N_FALLBACK[l10n]) {
+        return CONTAINER_L10N_FALLBACK[l10n];
+      }
+    } catch (e) {}
+    return "";
+  }
+
   function describeContainer(id) {
     try {
       const nid = Number(id) || 0;
@@ -119,7 +158,11 @@
       if (!ident) {
         return null;
       }
-      return { name: ident.name || "", color: ident.color || "", icon: ident.icon || "" };
+      return {
+        name: containerLabel(nid, ident),
+        color: ident.color || "",
+        icon: ident.icon || "",
+      };
     } catch (e) {
       return null;
     }
@@ -337,7 +380,7 @@
           } catch (e) {}
           out.push({
             userContextId: nid,
-            name: (ident && ident.name) || "",
+            name: containerLabel(nid, ident),
             color: (ident && ident.color) || "",
             icon: (ident && ident.icon) || "",
           });

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.dev import profile_locked, seed_user_js, sync_user_js
+from scripts.dev import profile_locked, resolve_launch, seed_user_js, sync_user_js
 
 
 def _make_root(tmp_path: Path, user_js: str | None = 'user_pref("a.b", true);\n') -> Path:
@@ -85,3 +85,28 @@ def test_sync_refuses_while_running(tmp_path: Path) -> None:
         sync_user_js(root, profile)
     # existing file untouched
     assert (profile / "user.js").read_text(encoding="utf-8") == 'user_pref("a.b", false);\n'
+
+
+def test_resolve_launch_defaults_to_dev_profile(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    profile, extra, no_remote = resolve_launch([], root)
+    assert profile == root / "profile"
+    assert extra == []
+    assert no_remote is True
+
+
+def test_resolve_launch_passthrough_kept(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    profile, extra, no_remote = resolve_launch(["https://example.com", "-new-tab"], root)
+    assert profile == root / "profile"
+    assert extra == ["https://example.com", "-new-tab"]
+    assert no_remote is True
+
+
+def test_resolve_launch_daily_strips_flag(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    for flag in ("--daily", "--local"):
+        profile, extra, no_remote = resolve_launch([flag, "https://example.com"], root)
+        assert profile == Path.home() / ".config" / "aph" / "profile"
+        assert extra == ["https://example.com"]
+        assert no_remote is False

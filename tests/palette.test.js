@@ -121,3 +121,95 @@ describe("direct-to-route navigation", () => {
     assert.ok(!opened[opened.length - 1][1]);
   });
 });
+
+describe("dock-parity bind rows", () => {
+  function bindSandbox(opts) {
+    const o = opts || {};
+    const calls = [];
+    const sb2 = {
+      window: {
+        addEventListener() {},
+        AphWorkspaces: {
+          getCurrent: () => "2",
+          getWsName: () => "Work",
+          getWsContainer: () => (o.bound === undefined ? 7 : o.bound),
+          describeContainer: (id) =>
+            id === 7 ? { name: "Personal" } : id === 8 ? { name: "Banking" } : null,
+          listContainers: () => {
+            if (o.noList) throw new Error("no api");
+            return [
+              { userContextId: 7, name: "Personal" },
+              { userContextId: 8, name: "Banking" },
+            ];
+          },
+          bindCurrentWs: () => { calls.push("bind-tab"); },
+          clearWsBinding: (w) => { calls.push(`clear:${w}`); },
+          setWsBinding: (w, c) => { calls.push(`set:${w}:${c}`); },
+          getRoutes: () => ({}),
+          setRoute: () => {},
+          deleteRoute: () => {},
+          getWs: () => "2",
+          switchTo: () => {},
+          sendTabTo: () => {},
+          openBoundTab: () => {},
+          openTempTab: () => {},
+        },
+      },
+      document: { readyState: "loading" },
+      gBrowser: {
+        tabs: [],
+        addTrustedTab: () => ({}),
+        get selectedTab() {
+          return {
+            linkedBrowser: { currentURI: { spec: "about:newtab" } },
+            userContextId: o.tabCid === undefined ? 8 : o.tabCid,
+          };
+        },
+      },
+      SessionStore: {},
+    };
+    if (o.private) {
+      sb2.window.PrivateBrowsingUtils = { isWindowPrivate: () => true };
+    }
+    run(
+      "command-palette.js",
+      sb2,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest = { allItems };"
+    );
+    return { api: sb2.window.__aphTest, calls };
+  }
+
+  it("lists tab-source + per-container + none on 'bind'", () => {
+    const { api } = bindSandbox({});
+    const titles = api.allItems("bind").map((r) => r.title);
+    assert.ok(
+      titles.some((t) => t.includes("This Tab's Container (Banking)")),
+      titles.join(" | ")
+    );
+    assert.ok(titles.some((t) => t === "Bind Workspace 2 (Work) · Personal to Personal"));
+    assert.ok(titles.some((t) => t === "Bind Workspace 2 (Work) · Personal to Banking"));
+    assert.ok(titles.some((t) => t === "Bind Workspace 2 (Work) · Personal to None (Unbound)"));
+    assert.ok(titles.every((t) => !t.startsWith("Clear Current Workspace")));
+  });
+
+  it("dispatches set / clear / tab-source runs", () => {
+    const { api, calls } = bindSandbox({});
+    const res = api.allItems("bind");
+    res.find((r) => r.title.endsWith("to Banking")).run();
+    res.find((r) => r.title.endsWith("to None (Unbound)")).run();
+    res.find((r) => r.title.includes("This Tab's Container")).run();
+    assert.deepEqual(calls, ["set:2:8", "clear:2", "bind-tab"]);
+  });
+
+  it("states clear on containerless tabs and hides in private windows", () => {
+    const { api } = bindSandbox({ tabCid: 0, bound: 0 });
+    const row = api.allItems("bind").find((r) => r.title.includes("This Tab's Container"));
+    assert.ok(row && row.sub.includes("containerless"), row && row.sub);
+    const priv = bindSandbox({ private: true });
+    assert.equal(
+      priv.api.allItems("bind").filter((r) => r.title.startsWith("Bind")).length,
+      0
+    );
+  });
+});

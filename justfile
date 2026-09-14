@@ -112,16 +112,26 @@ restore:
     test -f build/firefox/distribution/policies.json.bak && cp build/firefox/distribution/policies.json.bak build/firefox/distribution/policies.json || true
     @echo "Restored pristine omni.ja and policies.json"
 
+# Launch Firefox with the daily profile (same as the installed launcher:
+# persistent ~/.config/aph/profile, remote allowed). Quick way to test
+# `just install-local` behavior without clicking the desktop icon.
+daily *args:
+    uv run python scripts/dev.py --daily {{args}}
+
 # Install Aph as a daily driver: desktop launcher + icon + persistent
 # profile at ~/.config/aph/profile (outside the repo, safe from `just nuke`).
-# The launcher drops --no-remote (unlike `just dev`) so external links from
-# Slack/Discord/terminals open in the running Aph instance.
+# The installed launcher delegates to scripts/dev.py --daily, so every launch
+# gets the same freshness as `just dev` (seed-once prefs, merged policies,
+# rebrand-if-stale) — no reinstall needed after `git pull`. Remote is allowed
+# (unlike `just dev`) so external links from Slack/Discord/terminals open in
+# the running Aph instance.
 install-local:
     just rebrand
     uv run python -c "import sys; sys.path.insert(0, '.'); from scripts.dev import merge_policies; from pathlib import Path; merge_policies(Path('.').resolve())"
     mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/128x128/apps" "$HOME/.config/aph/profile"
+    touch "$HOME/.local/share/icons/hicolor/128x128/apps/aph.png" "$HOME/.local/share/applications/aph.desktop"
     cp branding/aph.png "$HOME/.local/share/icons/hicolor/128x128/apps/aph.png"
-    printf '%s\n' '#!/bin/sh' '# Aph daily launcher (installed by `just install-local`).' '# Seed-once prefs (dev.py parity). No --no-remote so' '# external links reuse the running instance.' 'set -eu' 'PROFILE="$HOME/.config/aph/profile"' 'APH_ROOT="{{justfile_directory()}}"' 'mkdir -p "$PROFILE"' 'if [ ! -f "$PROFILE/user.js" ]; then cp -f "$APH_ROOT/config/user.js" "$PROFILE/user.js"; fi' 'mkdir -p "$PROFILE/chrome"' 'if [ ! -f "$PROFILE/chrome/userChrome.css" ]; then cp -f "$APH_ROOT/branding/userChrome.css" "$PROFILE/chrome/userChrome.css"; fi' 'exec "$APH_ROOT/build/firefox/firefox" --profile "$PROFILE" "$@"' > "$HOME/.local/bin/aph"
+    printf '%s\n' '#!/bin/sh' '# Aph daily launcher (installed by `just install-local`).' '# Same freshness as `just dev` on every launch (seed, policies,' '# rebrand-if-stale) via scripts/dev.py --daily; the daily profile lives' '# at ~/.config/aph/profile and remote is allowed so external links' '# reuse the running instance.' 'set -eu' 'APH_ROOT="{{justfile_directory()}}"' 'cd "$APH_ROOT"' 'if command -v uv >/dev/null 2>&1; then' '  exec uv run python scripts/dev.py --daily "$@"' 'else' '  exec python3 scripts/dev.py --daily "$@"' 'fi' > "$HOME/.local/bin/aph"
     chmod +x "$HOME/.local/bin/aph"
     sed "s|^Exec=.*|Exec=$HOME/.local/bin/aph %u|" packaging/aph.desktop > "$HOME/.local/share/applications/aph.desktop"
     update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true

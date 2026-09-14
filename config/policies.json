@@ -69,7 +69,7 @@
       "Fingerprinting": true,
       "EmailTracking": true,
       "BaselineExceptions": true,
-      "ConvenienceExceptions": false
+      "ConvenienceExceptions": true
     },
     "AutofillAddressEnabled": false,
     "AutofillCreditCardEnabled": false,

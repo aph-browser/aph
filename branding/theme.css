@@ -450,6 +450,12 @@ tab[pending]:not([selected]) .tab-label,
     var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 70%,
     transparent
   ) !important;
+  /* Selected suggestion row (auto-selected while typing): stock paints
+     the system accent (SelectedItem) blue. The shared accent keeps it
+     opaque and vivid; row text stays stock SelectedItemText, which
+     reads white-on-accent by design. Covers urlbar + search popups,
+     which read the same variable. */
+  --urlbarview-background-color-selected: var(--aph-urlbar-accent) !important;
 }
 
 .urlbar:not([focused]) .urlbar-background {

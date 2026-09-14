@@ -196,9 +196,28 @@ def sync_chrome_css(root: Path, profile: Path) -> None:
     print(f"Synced {src} -> {dst} (previous saved as userChrome.css.bak)")
 
 
+DAILY_FLAGS = ("--daily", "--local")
+
+
+def resolve_launch(argv: list[str], root: Path) -> tuple[Path, list[str], bool]:
+    """Split launcher flags from Firefox passthrough args.
+
+    ``--daily`` (alias ``--local``) selects the persistent daily profile at
+    ``~/.config/aph/profile`` and allows remote (no ``--no-remote``), so
+    external links reuse the running instance. Default is the repo
+    ``./profile`` with ``--no-remote`` (dev isolation).
+
+    Returns ``(profile, firefox_args, no_remote)``.
+    """
+    extra = [a for a in argv if a not in DAILY_FLAGS]
+    daily = len(extra) != len(argv)
+    profile = Path.home() / ".config" / "aph" / "profile" if daily else root / "profile"
+    return profile, extra, not daily
+
+
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
-    profile = root / "profile"
+    profile, extra_args, no_remote = resolve_launch(sys.argv[1:], root)
     binary = root / "build" / "firefox" / ("firefox.exe" if sys.platform == "win32" else "firefox")
 
     profile.mkdir(parents=True, exist_ok=True)
@@ -223,11 +242,12 @@ def main() -> None:
 
     # Always pass -purgecaches if cache was cleared
     purgecache_marker = profile / ".purgecache_done"
+    remote_flag = ["--no-remote"] if no_remote else []
     if not purgecache_marker.exists():
         purgecache_marker.touch()
-        cmd = [str(binary), "-purgecaches", "--profile", str(profile), "--no-remote", *sys.argv[1:]]
+        cmd = [str(binary), "-purgecaches", "--profile", str(profile), *remote_flag, *extra_args]
     else:
-        cmd = [str(binary), "--profile", str(profile), "--no-remote", *sys.argv[1:]]
+        cmd = [str(binary), "--profile", str(profile), *remote_flag, *extra_args]
     # Replace current process (like exec in bash)
     try:
         # Use exec on POSIX for exact bash parity

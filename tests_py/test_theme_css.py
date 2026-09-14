@@ -134,9 +134,13 @@ def test_urlbar_themed_through_root_variables() -> None:
     css = _css()
     head = css.find("14. URL-bar border + selection theme.")
     assert head != -1
-    body = css[head : head + 1500]
+    body = css[head : head + 2500]
     assert ":root" in body
-    for var in ("--toolbar-field-border-color-focus", "--lwt-toolbar-field-highlight"):
+    for var in (
+        "--toolbar-field-border-color-focus",
+        "--lwt-toolbar-field-highlight",
+        "--urlbarview-background-color-selected",
+    ):
         assert var in body, f"missing root override: {var}"
     assert "--toolbarbutton-background-color-hover" in body
     assert "hsl(" in body and "from" in body
