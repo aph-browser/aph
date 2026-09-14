@@ -1820,6 +1820,609 @@
     }
   }
 
+  // Resolve the action target: explicit tab wins, otherwise the selected tab
+  // (palette / keyboard path).
+  function resolveTreeActionTab(tab) {
+    try {
+      if (tab && !tab.closing) {
+        return tab;
+      }
+    } catch (e) {}
+    try {
+      const sel = gBrowser && gBrowser.selectedTab;
+      if (sel && !sel.closing) {
+        return sel;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  // Manual repair: link opening sometimes lands without an opener, or an
+  // external app opens a related tab that lands as an L0 root. Indent makes
+  // the tab a child of the tab above it in strip order: the preceding
+  // non-closing tab, then attachTreeChild(tab, prevTab). Same-workspace
+  // only (indent never retags across workspaces); pinned tabs and the
+  // first tab in the strip cannot indent. The tab's own subtree block is
+  // carried along so children are never stranded. Returns true on change.
+  // Live multiselection (Ctrl+click), strip-order agnostic. Falls back to
+  // [selectedTab] so palette/no-arg callers work with or without multi.
+  function getTreeSelectedTabs() {
+    try {
+      const live = Array.from(gBrowser.tabs || []);
+      const liveSet = new Set(live);
+      try {
+        const multi =
+          (gBrowser && (gBrowser.selectedTabs || gBrowser.multiselectedTabs)) || null;
+        if (Array.isArray(multi) && multi.length) {
+          const filtered = multi.filter((t) => t && liveSet.has(t));
+          if (filtered.length) {
+            return filtered;
+          }
+        }
+      } catch (e) {}
+      try {
+        const sel = gBrowser && gBrowser.selectedTab;
+        if (sel && liveSet.has(sel)) {
+          return [sel];
+        }
+      } catch (e) {}
+    } catch (e) {}
+    return [];
+  }
+
+  // Normalize action input: array passes through, single tab wraps to one,
+  // null/undefined resolves to the live selection (multi when present).
+  function resolveTreeActionTargets(input) {
+    try {
+      if (Array.isArray(input)) {
+        return input.filter((t) => !!t);
+      }
+      if (input) {
+        return [input];
+      }
+    } catch (e) {}
+    try {
+      const sel = getTreeSelectedTabs();
+      if (sel.length) {
+        return sel;
+      }
+    } catch (e) {}
+    try {
+      const single = resolveTreeActionTab(null);
+      return single ? [single] : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // True when any ancestor of `tab` is in `selSet` (multi-op ride-along:
+  // descendants move with their selected ancestor via block carry / level
+  // shift, so they must not be processed independently).
+  function hasSelectedTreeAncestor(tab, selSet) {
+    try {
+      if (!tab || !selSet || selSet.size === 0) {
+        return false;
+      }
+      let cur = null;
+      try {
+        cur = getTreeParentTab(tab);
+      } catch (e) {
+        return false;
+      }
+      let guard = 0;
+      while (cur && guard++ < 8) {
+        try {
+          if (selSet.has(cur)) {
+            return true;
+          }
+        } catch (e) {}
+        try {
+          cur = getTreeParentTab(cur);
+        } catch (e) {
+          break;
+        }
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // Preceding non-closing same-workspace candidate for `target`. When
+  // `skipSet` is given, members are skipped so a contiguous block indents
+  // as siblings under the same unselected parent instead of staircasing.
+  function findIndentPrev(target, ws, skipSet) {
+    try {
+      let tabs = [];
+      try {
+        tabs = Array.from(gBrowser.tabs || []);
+      } catch (e) {
+        return null;
+      }
+      const at = tabs.indexOf(target);
+      if (at <= 0) {
+        return null;
+      }
+      for (let i = at - 1; i >= 0; i--) {
+        const cand = tabs[i];
+        try {
+          if (!cand || cand === target || cand.closing) {
+            continue;
+          }
+          try {
+            if (cand.pinned) {
+              continue;
+            }
+          } catch (e) {}
+          try {
+            if (skipSet && skipSet.has(cand)) {
+              continue;
+            }
+          } catch (e) {}
+          try {
+            if (getWs(cand) !== ws) {
+              continue;
+            }
+          } catch (e) {
+            continue;
+          }
+          // Cycle guard: never indent under one of our own descendants.
+          let isDesc = false;
+          try {
+            let cur = cand;
+            let guard = 0;
+            while (cur && guard++ < 8) {
+              if (cur === target) {
+                isDesc = true;
+                break;
+              }
+              try {
+                cur = getTreeParentTab(cur);
+              } catch (_e) {
+                break;
+              }
+              if (!cur) {
+                break;
+              }
+            }
+          } catch (e) {}
+          if (isDesc) {
+            continue;
+          }
+          return cand;
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  // Single indent without render (caller batches). Returns true on change.
+  function indentOneNoRender(target, skipSet) {
+    try {
+      if (!target || target.closing) {
+        return false;
+      }
+      try {
+        if (target.pinned) {
+          return false;
+        }
+      } catch (e) {}
+      let tabs = [];
+      try {
+        tabs = Array.from(gBrowser.tabs || []);
+      } catch (e) {
+        return false;
+      }
+      if (!tabs.includes(target)) {
+        return false;
+      }
+      let ws = null;
+      try {
+        ws = getWs(target);
+      } catch (e) {}
+      if (!isValidId(ws)) {
+        return false;
+      }
+      let parentBefore = null;
+      try {
+        parentBefore = getTreeParentTab(target);
+      } catch (e) {}
+      const prev = findIndentPrev(target, ws, skipSet || null);
+      if (!prev) {
+        return false;
+      }
+      try {
+        if (getTreeParentTab(target) === prev) {
+          return false;
+        }
+      } catch (e) {}
+      // Snapshot the subtree block first: attachTreeChild moves only the
+      // tab itself, so re-hang descendants after it to keep the block whole.
+      let block = [];
+      try {
+        block = getTreeDescendants(target).slice();
+      } catch (e) {
+        block = [];
+      }
+      try {
+        block.sort((a, b) => tabs.indexOf(a) - tabs.indexOf(b));
+      } catch (e) {}
+      attachTreeChild(target, prev);
+      try {
+        for (let i = 0; i < block.length; i++) {
+          const d = block[i];
+          try {
+            if (!d || d.closing) {
+              continue;
+            }
+            const live = Array.from(gBrowser.tabs || []);
+            if (!live.includes(d)) {
+              continue;
+            }
+            const base = live.indexOf(target);
+            if (base === -1) {
+              break;
+            }
+            moveTreeTabTo(d, base + 1 + i);
+          } catch (e) {}
+        }
+      } catch (e) {}
+      try {
+        return getTreeParentTab(target) !== null && getTreeParentTab(target) !== parentBefore;
+      } catch (e) {
+        return false;
+      }
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function indentTreeTargets(targets) {
+    try {
+      const list = (targets || []).filter((t) => !!t);
+      if (!list.length) {
+        return false;
+      }
+      let tabs = [];
+      try {
+        tabs = Array.from(gBrowser.tabs || []);
+      } catch (e) {
+        return false;
+      }
+      const order = new Map();
+      try {
+        tabs.forEach((t, i) => order.set(t, i));
+      } catch (e) {}
+      const sorted = list.slice().sort(
+        (a, b) => (order.has(a) ? order.get(a) : 1e9) - (order.has(b) ? order.get(b) : 1e9)
+      );
+      const selSet = new Set(sorted);
+      let changed = false;
+      for (const target of sorted) {
+        try {
+          if (!target || target.closing) {
+            continue;
+          }
+          try {
+            if (target.pinned) {
+              continue;
+            }
+          } catch (e) {}
+          if (hasSelectedTreeAncestor(target, selSet)) {
+            continue;
+          }
+          if (indentOneNoRender(target, selSet)) {
+            changed = true;
+          }
+        } catch (e) {}
+      }
+      if (changed) {
+        try {
+          renderTree();
+        } catch (e) {}
+        try {
+          applyTreeVisibility();
+        } catch (e) {}
+      }
+      return changed;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Manual repair: link opening sometimes lands without an opener, or an
+  // external app opens a related tab that lands as an L0 root. Indent makes
+  // the tab a child of the tab above it in strip order: the preceding
+  // non-closing tab, then attachTreeChild(tab, prevTab). Same-workspace
+  // only (indent never retags across workspaces); pinned tabs and the
+  // first tab in the strip cannot indent. The tab's own subtree block is
+  // carried along so children are never stranded. Accepts a single tab,
+  // an array (multiselection), or nothing (live selection). Returns true
+  // when any tab changed.
+  function indentTreeTab(tab) {
+    try {
+      if (Array.isArray(tab)) {
+        if (tab.length === 1) {
+          const single = resolveTreeActionTab(tab[0]);
+          if (!single) {
+            return false;
+          }
+          const ok = indentOneNoRender(single, null);
+          if (ok) {
+            try {
+              renderTree();
+            } catch (e) {}
+            try {
+              applyTreeVisibility();
+            } catch (e) {}
+          }
+          return ok;
+        }
+        return indentTreeTargets(tab);
+      }
+      if (tab) {
+        const target = resolveTreeActionTab(tab);
+        if (!target) {
+          return false;
+        }
+        const ok = indentOneNoRender(target, null);
+        if (ok) {
+          try {
+            renderTree();
+          } catch (e) {}
+          try {
+            applyTreeVisibility();
+          } catch (e) {}
+        }
+        return ok;
+      }
+      const targets = resolveTreeActionTargets(null);
+      if (targets.length === 1) {
+        const ok = indentOneNoRender(targets[0], null);
+        if (ok) {
+          try {
+            renderTree();
+          } catch (e) {}
+          try {
+            applyTreeVisibility();
+          } catch (e) {}
+        }
+        return ok;
+      }
+      return indentTreeTargets(targets);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Single outdent without render (caller batches). Returns true on change.
+  function outdentOneNoRender(target) {
+    try {
+      if (!target || target.closing) {
+        return false;
+      }
+      try {
+        if (target.pinned) {
+          return false;
+        }
+      } catch (e) {}
+      let parent = null;
+      try {
+        parent = getTreeParentTab(target);
+      } catch (e) {
+        return false;
+      }
+      if (!parent) {
+        return false;
+      }
+      let gp = null;
+      try {
+        gp = getTreeParentTab(parent);
+      } catch (e) {
+        gp = null;
+      }
+      try {
+        if (gp) {
+          let gid = null;
+          try {
+            gid = rawTreeId(gp);
+          } catch (e) {}
+          if (!gid) {
+            return false;
+          }
+          try {
+            if (rawTreeId(target) === gid) {
+              return false;
+            }
+          } catch (e) {}
+          setTreeParent(target, gid);
+        } else {
+          clearTreeParent(target);
+        }
+      } catch (e) {
+        return false;
+      }
+      try {
+        ensureTreeId(target);
+      } catch (e) {}
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function outdentTreeTargets(targets) {
+    try {
+      const list = (targets || []).filter((t) => !!t);
+      if (!list.length) {
+        return false;
+      }
+      let tabs = [];
+      try {
+        tabs = Array.from(gBrowser.tabs || []);
+      } catch (e) {
+        return false;
+      }
+      const order = new Map();
+      try {
+        tabs.forEach((t, i) => order.set(t, i));
+      } catch (e) {}
+      const sorted = list.slice().sort(
+        (a, b) => (order.has(a) ? order.get(a) : 1e9) - (order.has(b) ? order.get(b) : 1e9)
+      );
+      const selSet = new Set(sorted);
+      let changed = false;
+      for (const target of sorted) {
+        try {
+          if (!target || target.closing) {
+            continue;
+          }
+          try {
+            if (target.pinned) {
+              continue;
+            }
+          } catch (e) {}
+          if (hasSelectedTreeAncestor(target, selSet)) {
+            continue;
+          }
+          if (outdentOneNoRender(target)) {
+            changed = true;
+          }
+        } catch (e) {}
+      }
+      if (changed) {
+        try {
+          renderTree();
+        } catch (e) {}
+        try {
+          applyTreeVisibility();
+        } catch (e) {}
+      }
+      return changed;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Manual repair counterpart: set the tab's parent to its grandparent
+  // (L2→L1, or L1→L0). Already-L0 roots and pinned tabs are no-ops. The
+  // tab keeps its strip position (in place), mirroring close-promotion and
+  // drag-detach; descendants stay with it (levels shift automatically).
+  // Accepts a single tab, an array (multiselection), or nothing (live
+  // selection). Returns true when any tab changed.
+  function outdentTreeTab(tab) {
+    try {
+      if (Array.isArray(tab)) {
+        if (tab.length === 1) {
+          const single = resolveTreeActionTab(tab[0]);
+          if (!single) {
+            return false;
+          }
+          const ok = outdentOneNoRender(single);
+          if (ok) {
+            try {
+              renderTree();
+            } catch (e) {}
+            try {
+              applyTreeVisibility();
+            } catch (e) {}
+          }
+          return ok;
+        }
+        return outdentTreeTargets(tab);
+      }
+      if (tab) {
+        const target = resolveTreeActionTab(tab);
+        if (!target) {
+          return false;
+        }
+        const ok = outdentOneNoRender(target);
+        if (ok) {
+          try {
+            renderTree();
+          } catch (e) {}
+          try {
+            applyTreeVisibility();
+          } catch (e) {}
+        }
+        return ok;
+      }
+      const targets = resolveTreeActionTargets(null);
+      if (targets.length === 1) {
+        const ok = outdentOneNoRender(targets[0]);
+        if (ok) {
+          try {
+            renderTree();
+          } catch (e) {}
+          try {
+            applyTreeVisibility();
+          } catch (e) {}
+        }
+        return ok;
+      }
+      return outdentTreeTargets(targets);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // "Promote" is the historical name for outdent (parent → grandparent).
+  function promoteTreeTab(tab) {
+    try {
+      return outdentTreeTab(tab);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // One-shot snapshot for the Browser Console (Ctrl+Shift+J, parent
+  // process): levels, injected rail counts, and whether aph-theme.css
+  // is linked. Same house pattern as AphPinReset.debug() — silent in
+  // prod, inspectable when visuals go missing.
+  function debugTree() {
+    try {
+      const out = { current: null, theme: false, tabs: [] };
+      try {
+        out.current = isValidId(current) ? current : String(current);
+      } catch (e) {}
+      try {
+        out.theme = !!(
+          document &&
+          typeof document.querySelector === "function" &&
+          document.querySelector('link[href*="aph-theme"]')
+        );
+      } catch (e) {}
+      let tabs = [];
+      try {
+        tabs = Array.from(gBrowser.tabs || []);
+      } catch (e) {}
+      for (const t of tabs) {
+        try {
+          let label = "";
+          try {
+            label = t.label || "";
+          } catch (e) {}
+          let level = 0;
+          try {
+            level = getTreeLevel(t);
+          } catch (e) {}
+          let rails = 0;
+          try {
+            if (t && typeof t.querySelectorAll === "function") {
+              rails = t.querySelectorAll(":scope > .aph-tree-rail").length;
+            } else if (t && typeof t.querySelector === "function") {
+              rails =
+                (t.querySelector(".aph-tree-rail--inner") ? 1 : 0) +
+                (t.querySelector(".aph-tree-rail--outer") ? 1 : 0);
+            }
+          } catch (e) {}
+          out.tabs.push({ label, level, rails });
+        } catch (e) {}
+      }
+      return out;
+    } catch (e) {
+      return { error: "debug-threw" };
+    }
+  }
+
   // Swapped-in replacements (container repair, domain-route reopen) keep
   // the original's tree slot: same parent, same workspace, same position.
   function inheritTreeLink(replacement, original) {
@@ -2451,9 +3054,98 @@
     } catch (err) {}
   }
 
-  // Chevron + count badge injection (vertical strip only via CSS; the
-  // elements stay hidden elsewhere). Idempotent: reuses existing nodes,
-  // never double-binds listeners, no-ops on mock tabs without DOM.
+  // Chevron + count badge + indent rails injection (vertical strip only
+  // via CSS; the elements stay hidden elsewhere). Idempotent: reuses
+  // existing nodes, never double-binds listeners, no-ops on mock tabs
+  // without DOM.
+  function syncTreeRails(tab) {
+    try {
+      if (!tab || tab.closing) {
+        return;
+      }
+      if (typeof tab.querySelector !== "function") {
+        return;
+      }
+      if (typeof document === "undefined" || !document) {
+        return;
+      }
+      let level = 0;
+      try {
+        level = getTreeLevel(tab);
+      } catch (e) {
+        level = 0;
+      }
+      try {
+        if (tab.pinned) {
+          level = 0;
+        }
+      } catch (e) {}
+      const wantInner = level >= 1;
+      const wantOuter = level >= 2;
+      const findRail = (cls) => {
+        try {
+          const scoped = tab.querySelector(":scope > ." + cls);
+          if (scoped) {
+            return scoped;
+          }
+        } catch (e) {}
+        try {
+          return tab.querySelector("." + cls);
+        } catch (e) {
+          return null;
+        }
+      };
+      const ensureRail = (cls) => {
+        let node = null;
+        try {
+          node = findRail(cls);
+        } catch (e) {}
+        if (node) {
+          return node;
+        }
+        try {
+          node =
+            typeof document.createXULElement === "function"
+              ? document.createXULElement("label")
+              : document.createElement("span");
+          node.className = "aph-tree-rail " + cls;
+          if (typeof tab.appendChild === "function") {
+            tab.appendChild(node);
+          }
+        } catch (e) {
+          node = null;
+        }
+        return node;
+      };
+      const dropRail = (cls) => {
+        let node = null;
+        try {
+          node = findRail(cls);
+        } catch (e) {}
+        if (!node) {
+          return;
+        }
+        try {
+          if (typeof node.remove === "function") {
+            node.remove();
+          } else if (node.parentNode) {
+            node.parentNode.removeChild(node);
+          }
+        } catch (e) {}
+      };
+      if (wantInner) {
+        ensureRail("aph-tree-rail--inner");
+      } else {
+        dropRail("aph-tree-rail--inner");
+      }
+      if (wantOuter) {
+        ensureRail("aph-tree-rail--outer");
+      } else {
+        dropRail("aph-tree-rail--outer");
+      }
+    } catch (e) {}
+  }
+
   function syncTreeChrome(tab) {
     try {
       if (!tab || tab.closing) {
@@ -2465,6 +3157,11 @@
       if (typeof document === "undefined" || !document) {
         return;
       }
+      // Rails anchor to the tab itself (margin gutter), independent of
+      // the inner content structure the twisty needs below.
+      try {
+        syncTreeRails(tab);
+      } catch (e) {}
       let pinned = false;
       try {
         pinned = !!tab.pinned;
@@ -2701,6 +3398,299 @@
         pruneCollapsedTreeSet(tabs);
       } catch (e) {}
     } catch (e) {}
+  }
+
+  // Tab context menu: manual tree repair next to the stock items. Pinned
+  // tabs are always Level 0 roots, so they get no tree entries. Otherwise
+  // both actions always show (discoverable), disabled when not applicable:
+  // indent needs a preceding same-workspace tab, outdent needs a parent.
+  function treeClickedTab(e) {
+    try {
+      const popup = e && (e.currentTarget || e.target);
+      const node = (popup && popup.triggerNode) || document.popupNode || null;
+      if (node) {
+        try {
+          const direct =
+            node.tab ||
+            (typeof node.closest === "function" ? node.closest("tab") : null);
+          if (direct) {
+            return direct;
+          }
+        } catch (err) {}
+      }
+      if (gBrowser && gBrowser.selectedTab) {
+        return gBrowser.selectedTab;
+      }
+    } catch (err) {}
+    return null;
+  }
+
+  function canIndentTreeTab(tab) {
+    try {
+      if (!tab || tab.closing) {
+        return false;
+      }
+      try {
+        if (tab.pinned) {
+          return false;
+        }
+      } catch (e) {}
+      let tabs = [];
+      try {
+        tabs = Array.from(gBrowser.tabs || []);
+      } catch (e) {
+        return false;
+      }
+      const at = tabs.indexOf(tab);
+      if (at <= 0) {
+        return false;
+      }
+      let ws = null;
+      try {
+        ws = getWs(tab);
+      } catch (e) {}
+      if (!isValidId(ws)) {
+        return false;
+      }
+      for (let i = at - 1; i >= 0; i--) {
+        const cand = tabs[i];
+        try {
+          if (!cand || cand === tab || cand.closing) {
+            continue;
+          }
+          try {
+            if (cand.pinned) {
+              continue;
+            }
+          } catch (e) {}
+          try {
+            if (getWs(cand) !== ws) {
+              continue;
+            }
+          } catch (e) {
+            continue;
+          }
+          let isDesc = false;
+          try {
+            let cur = cand;
+            let guard = 0;
+            while (cur && guard++ < 8) {
+              if (cur === tab) {
+                isDesc = true;
+                break;
+              }
+              try {
+                cur = getTreeParentTab(cur);
+              } catch (_e) {
+                break;
+              }
+              if (!cur) {
+                break;
+              }
+            }
+          } catch (e) {}
+          if (isDesc) {
+            continue;
+          }
+          try {
+            if (getTreeParentTab(tab) === cand) {
+              return false;
+            }
+          } catch (e) {}
+          return true;
+        } catch (e) {}
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function canOutdentTreeTab(tab) {
+    try {
+      if (!tab || tab.closing) {
+        return false;
+      }
+      try {
+        if (tab.pinned) {
+          return false;
+        }
+      } catch (e) {}
+      try {
+        return !!getTreeParentTab(tab);
+      } catch (e) {
+        return false;
+      }
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function makeTreeMenuItem(id, label, action, disabled) {
+    let item = null;
+    try {
+      item =
+        typeof document.createXULElement === "function"
+          ? document.createXULElement("menuitem")
+          : document.createElement("menuitem");
+      item.id = id;
+      item.setAttribute("label", label);
+      if (disabled) {
+        try {
+          item.setAttribute("disabled", "true");
+        } catch (e) {}
+      }
+      if (typeof item.addEventListener === "function") {
+        item.addEventListener("command", action);
+      }
+    } catch (err) {
+      item = null;
+    }
+    return item;
+  }
+
+  let treeMenuItems = [];
+
+  function clearTreeMenu() {
+    try {
+      for (const it of treeMenuItems) {
+        try {
+          if (it && it.parentNode) {
+            it.parentNode.removeChild(it);
+          } else if (it && typeof it.remove === "function") {
+            it.remove();
+          }
+        } catch (err) {}
+      }
+    } catch (err) {}
+    treeMenuItems = [];
+  }
+
+  // Menu targets: clicked tab wins; when it belongs to a multiselection
+  // the whole selection goes (archive.js pattern). Null falls back to the
+  // live selection so palette/no-arg callers share the same resolution.
+  function resolveTreeMenuTargets(clicked) {
+    try {
+      if (clicked) {
+        try {
+          const sel = getTreeSelectedTabs();
+          if (sel.length > 1) {
+            try {
+              if (sel.includes(clicked)) {
+                return sel.filter((t) => t && !t.closing);
+              }
+            } catch (e) {}
+          }
+        } catch (e) {}
+        return [clicked];
+      }
+    } catch (e) {}
+    try {
+      return getTreeSelectedTabs();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function onTreeMenuShowing(e) {
+    try {
+      const menu = (e && (e.currentTarget || e.target)) || null;
+      if (!menu || typeof menu.appendChild !== "function") {
+        return;
+      }
+      clearTreeMenu();
+      const clicked = treeClickedTab(e);
+      if (!clicked) {
+        return;
+      }
+      try {
+        if (clicked.pinned) {
+          return;
+        }
+      } catch (err) {}
+      const targets = resolveTreeMenuTargets(clicked);
+      if (!targets.length) {
+        return;
+      }
+      let usable = [];
+      try {
+        usable = targets.filter((t) => {
+          try {
+            return t && !t.pinned;
+          } catch (err) {
+            return false;
+          }
+        });
+      } catch (err) {
+        usable = [];
+      }
+      if (!usable.length) {
+        return;
+      }
+      const n = usable.length;
+      const indent = makeTreeMenuItem(
+        "aph-tree-indent",
+        n > 1 ? `Indent ${n} Tabs` : "Indent Tab",
+        () => {
+          try {
+            indentTreeTab(usable.length === 1 ? usable[0] : usable.slice());
+          } catch (err) {}
+        },
+        !usable.some((t) => canIndentTreeTab(t))
+      );
+      if (indent) {
+        try {
+          menu.appendChild(indent);
+          treeMenuItems.push(indent);
+        } catch (err) {}
+      }
+      const outdent = makeTreeMenuItem(
+        "aph-tree-outdent",
+        n > 1 ? `Outdent ${n} Tabs` : "Outdent Tab",
+        () => {
+          try {
+            outdentTreeTab(usable.length === 1 ? usable[0] : usable.slice());
+          } catch (err) {}
+        },
+        !usable.some((t) => canOutdentTreeTab(t))
+      );
+      if (outdent) {
+        try {
+          menu.appendChild(outdent);
+          treeMenuItems.push(outdent);
+        } catch (err) {}
+      }
+    } catch (err) {}
+  }
+
+  function cleanupTreeMenu() {
+    try {
+      clearTreeMenu();
+    } catch (e) {}
+    try {
+      const menu = document.getElementById("tabContextMenu");
+      if (menu) {
+        menu.removeEventListener("popupshowing", onTreeMenuShowing);
+      }
+    } catch (e) {}
+  }
+
+  function initTreeMenu() {
+    try {
+      const menu = document.getElementById("tabContextMenu");
+      if (menu && typeof menu.addEventListener === "function") {
+        menu.addEventListener("popupshowing", onTreeMenuShowing);
+      }
+    } catch (e) {}
+    try {
+      window.addEventListener("unload", cleanupTreeMenu, { once: true });
+    } catch (e) {}
+  }
+
+  if (document.readyState === "complete") {
+    initTreeMenu();
+  } else {
+    window.addEventListener("load", initTreeMenu, { once: true });
   }
   // Tab unloading (memory): discard eligible tabs via gBrowser.discardBrowser
   // (tab element + aphWs tag survive; selecting reloads). V1 scope is hidden
@@ -5695,6 +6685,10 @@
         toggleTreeCollapsed,
         expandTreeAncestors,
         attachTreeChild,
+        indentTreeTab,
+        outdentTreeTab,
+        promoteTreeTab,
+        debugTree,
         findEnclosingTreeParent,
         renderTree,
         applyTreeVisibility,

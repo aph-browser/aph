@@ -515,6 +515,30 @@
         },
       },
       {
+        title: "Indent Tab (Make Child of Tab Above)",
+        hint: "",
+        sub: "Manual tree repair · selected tabs become children of the tab above",
+        run: () => {
+          try {
+            if (api && api.indentTreeTab) {
+              api.indentTreeTab();
+            }
+          } catch (e) {}
+        },
+      },
+      {
+        title: "Outdent Tab (Promote One Level)",
+        hint: "",
+        sub: "Manual tree repair · selected tabs promote to their grandparent",
+        run: () => {
+          try {
+            if (api && api.outdentTreeTab) {
+              api.outdentTreeTab();
+            }
+          } catch (e) {}
+        },
+      },
+      {
         title: "Reload",
         hint: "Ctrl+R",
         run: () => {

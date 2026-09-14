@@ -578,24 +578,36 @@ sidebar-main:not([expanded]) .aph-ws-count {
    17. Tree tabs: automatic 2-level hierarchy, vertical strip only.
    Level 0 roots sit flush; L1/L2 indent one/two steps via inline-start
    margin (layout only in the vertical strip — the horizontal strip is
-   untouched on purpose). Parents show a clickable chevron floating in
+   untouched on purpose). Indent rails (JS-injected vertical guides in
+   the margin gutter) turn the indent into Tree Style Tab guides: L1
+   draws one rail, L2 draws two (outer ancestor continuation + inner).
+   Parents show a clickable chevron floating in
    the tab's existing left padding; collapsed parents show a count badge
    for hidden descendants. Collapse hiding reuses the `hidden` attribute
    (same mechanism as workspaces), so no extra display rules are needed
-   here. Paint only: indentation never shifts selected/hover backgrounds
-   (§12-13), and the twisty/badge ride the theme hover token like menus
+   here. Paint only: rails live in the margin gutter (negative
+   inline-start offsets, pointer-events none), so they never shift the
+   favicon and never cover selected/hover backgrounds (§12-13); the
+   twisty/badge ride the theme hover token like menus
    and tabs.
    RULE: a tab's favicon must never move when it gains or loses children.
    The chevron is absolutely positioned in the existing left gutter, out
    of the inline flow, so toggling `data-aph-has-kids` shifts no icon.
+   Rails follow the same rule: absolute pseudos in the gutter, tab
+   margins untouched by this block.
    ========================================================================== */
 
-/* Twisty + badge exist only as JS-injected hooks: hidden everywhere by
-   default, revealed in the vertical strip below. */
+/* Twisty + badge + rails exist only as JS-injected hooks: hidden
+   everywhere by default, revealed in the vertical strip below. Rails
+   are real elements (not ::before/::after — pseudo boxes don't
+   generate on XUL tab elements) with no text content, so unstyled they
+   are invisible empty inline nodes: a safe fail-closed default. */
 tab .aph-tree-twisty,
 .tabbrowser-tab .aph-tree-twisty,
 tab .aph-tree-count,
-.tabbrowser-tab .aph-tree-count {
+.tabbrowser-tab .aph-tree-count,
+tab > .aph-tree-rail,
+.tabbrowser-tab > .aph-tree-rail {
   display: none !important;
 }
 
@@ -607,6 +619,55 @@ tab .aph-tree-count,
 #sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-level="2"],
 #sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-level="2"] {
   margin-inline-start: 24px !important;
+}
+
+/* Indent rails: vertical Tree Style Tab guides in the margin gutter.
+   Real JS-injected elements (syncTreeRails): L1 tabs get one inner
+   rail, L2 tabs get inner + outer ancestor continuation. 12px rail
+   pitch matches the 12px/24px indent steps so nested rails stay
+   aligned. Logical inset-inline-start keeps LTR/RTL mirrored;
+   negative offsets place the 1px rails in the transparent margin
+   (never over the tab background, favicon, or twisty).
+   position:relative on the tab only anchors the rails — no offsets,
+   so no layout shift. */
+#sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-level="1"],
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-level="1"],
+#sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-level="2"],
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-level="2"] {
+  position: relative !important;
+  /* Stock XUL tabs clip painted overflow (computed overflow: clip), which
+     would cut off rails sitting in the margin gutter. Clip margins only
+     widen paint clipping — no layout, no scroll container — and 32px
+     covers the outer L2 rail (-20px) with room to spare. */
+  overflow-clip-margin: 32px !important;
+}
+
+#sidebar-container:not([hidden]) #vertical-tabs tab > .aph-tree-rail,
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab > .aph-tree-rail {
+  display: block !important;
+  position: absolute !important;
+  top: -2px !important;
+  bottom: -2px !important;
+  width: 1px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 1px !important;
+  background: color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 40%, transparent) !important;
+  pointer-events: none !important;
+}
+
+/* Inner rail pitch: half an indent step in from the tab edge. */
+#sidebar-container:not([hidden]) #vertical-tabs tab > .aph-tree-rail--inner,
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab > .aph-tree-rail--inner {
+  inset-inline-start: -8px !important;
+}
+
+/* Outer ancestor rail for L2: one full indent step further out, aligned
+   with the L1 rail above/below the L2 block. */
+#sidebar-container:not([hidden]) #vertical-tabs tab > .aph-tree-rail--outer,
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab > .aph-tree-rail--outer {
+  inset-inline-start: -20px !important;
 }
 
 #sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-has-kids="1"] .tab-content,
@@ -664,9 +725,11 @@ tab .aph-tree-count,
   opacity: 0.75 !important;
 }
 
-/* Collapsed sidebar-main: dots only — twisty and counts would clip. */
+/* Collapsed sidebar-main: dots only — twisty, counts, and rails would
+   clip. */
 sidebar-main:not([expanded]) .aph-tree-twisty,
-sidebar-main:not([expanded]) .aph-tree-count {
+sidebar-main:not([expanded]) .aph-tree-count,
+sidebar-main:not([expanded]) .aph-tree-rail {
   display: none !important;
 }
 

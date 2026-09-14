@@ -65,3 +65,61 @@ def test_dock_stacks_vertically() -> None:
     css = _css()
     body = css[css.find("#vertical-tabs {") : css.find("#aph-ws-dock {")]
     assert "vertical" in body and "column" in body
+
+
+def test_tree_rails_present() -> None:
+    """Indented tabs draw Tree Style Tab guides via injected rail elements:
+    one inner rail (L1), inner + outer ancestor rail (L2). Real elements,
+    not pseudos — pseudo boxes don't generate on XUL tab elements."""
+    css = _css()
+    for sel in (
+        ".aph-tree-rail--inner",
+        ".aph-tree-rail--outer",
+    ):
+        assert sel in css, f"missing tree rail selector: {sel}"
+
+
+def test_tree_rails_scoped_to_vertical_strip() -> None:
+    """Rails must never paint in the horizontal strip: every rail rule
+    that reveals or positions rails is scoped under #vertical-tabs
+    (hide-by-default and collapsed-dots hide rules are exempt)."""
+    css = _css()
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    for m in re.finditer(r"([^{}]*\.aph-tree-rail[^{}]*)\{([^{}]*)\}", code):
+        selectors, body = m.group(1), m.group(2)
+        if "display: none" in body:
+            continue
+        for sel in selectors.split(","):
+            sel = sel.strip()
+            if not sel:
+                continue
+            assert "#vertical-tabs" in sel, f"unscoped rail selector: {sel}"
+
+
+def test_tree_rails_are_paint_only() -> None:
+    """Rails live in the margin gutter as hit-test-transparent nodes:
+    absolute, 1px, pointer-events none — never layout, never clickable.
+    Stock tabs clip painted overflow, so indented tabs widen the clip
+    margin to let the gutter rails paint."""
+    css = _css()
+    head = css.find("Indent rails: vertical")
+    assert head != -1
+    body = css[head : head + 2500]
+    assert "position: absolute" in body
+    assert "width: 1px" in body
+    assert "pointer-events: none" in body
+    assert ".aph-tree-rail--inner" in body
+    assert "inset-inline-start" in body
+    assert "overflow-clip-margin" in body
+
+
+def test_tree_rails_hidden_when_collapsed() -> None:
+    """Collapsed sidebar-main shows dots with zero indent: rails would clip
+    like the twisty/counts, so they must hide there too."""
+    css = _css()
+    head = css.find("twisty, counts, and rails would")
+    assert head != -1
+    body = css[head : head + 1200]
+    assert "sidebar-main:not([expanded])" in body
+    assert ".aph-tree-rail" in body
+    assert "display: none" in body

@@ -1,9 +1,109 @@
 // Regression guards for automatic 2-level tab trees (workspaces bundle,
 // 45-tree-tabs.js): opener parenting, L2 cap, placement, collapse/expand,
-// selection safety, parent-close promotion, drag rules, workspace scope.
+// selection safety, parent-close promotion, drag rules, workspace scope,
+// manual indent/outdent repair, rail element injection.
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { run, makeTab } = require("./helpers");
+
+// Minimal fake-DOM surface for syncTreeChrome/syncTreeRails: real tabs
+// expose querySelector/appendChild; the plain mocks above deliberately
+// don't (chrome injection no-ops on them). Only the selectors and node
+// ops the bundle touches are implemented.
+function fakeHasClass(node, cls) {
+  try {
+    return String(node.className || "").split(/\s+/).includes(cls);
+  } catch (e) {
+    return false;
+  }
+}
+
+function fakeDescendants(node) {
+  const out = [];
+  (function walk(n) {
+    for (const c of n.children || []) {
+      out.push(c);
+      walk(c);
+    }
+  })(node);
+  return out;
+}
+
+function makeFakeEl(tag, cls) {
+  const el = {
+    tag: tag || "span",
+    className: cls || "",
+    children: [],
+    parentNode: null,
+    _attrs: {},
+    setAttribute(k, v) { this._attrs[k] = String(v); },
+    getAttribute(k) { return k in this._attrs ? this._attrs[k] : null; },
+    removeAttribute(k) { delete this._attrs[k]; },
+    addEventListener() {},
+    removeEventListener() {},
+    appendChild(c) { c.parentNode = this; this.children.push(c); return c; },
+    prepend(c) { c.parentNode = this; this.children.unshift(c); return c; },
+    removeChild(c) {
+      const i = this.children.indexOf(c);
+      if (i !== -1) this.children.splice(i, 1);
+      c.parentNode = null;
+      return c;
+    },
+    remove() {
+      if (this.parentNode) this.parentNode.removeChild(this);
+    },
+    closest(sel) {
+      if (sel === "tab") {
+        let cur = this;
+        while (cur) {
+          if (cur.isTab) return cur;
+          cur = cur.parentNode;
+        }
+      }
+      return null;
+    },
+    querySelector(sel) {
+      const m = String(sel).match(/\.([\w-]+)/);
+      if (!m) return null;
+      const pool = String(sel).includes(":scope")
+        ? this.children || []
+        : fakeDescendants(this);
+      return pool.find((c) => fakeHasClass(c, m[1])) || null;
+    },
+  };
+  return el;
+}
+
+function makeDomTab(tabVals, o) {
+  const t = makeTab(tabVals, o);
+  t.isTab = true;
+  t.children = [];
+  const content = makeFakeEl("div", "tab-content");
+  content.parentNode = t;
+  t.children.push(content);
+  t.querySelector = makeFakeEl("x", "").querySelector;
+  t.appendChild = function (c) { c.parentNode = this; this.children.push(c); return c; };
+  t.prepend = function (c) { c.parentNode = this; this.children.unshift(c); return c; };
+  t.removeChild = function (c) {
+    const i = this.children.indexOf(c);
+    if (i !== -1) this.children.splice(i, 1);
+    c.parentNode = null;
+    return c;
+  };
+  t.remove = function () {
+    if (this.parentNode) this.parentNode.removeChild(this);
+  };
+  t.closest = function (sel) { return sel === "tab" ? this : null; };
+  return t;
+}
+
+function railsOf(tab) {
+  const out = [];
+  for (const c of tab.children || []) {
+    if (fakeHasClass(c, "aph-tree-rail")) out.push(c.className);
+  }
+  return out.sort();
+}
 
 function makeEnv() {
   const tabVals = new WeakMap();
@@ -583,5 +683,249 @@ describe("drop adoption (outsider lands inside a block)", () => {
     assert.equal(env.level(c1), 1);
     assert.equal(env.api.getTreeChildren(p1).length, 0);
     assert.equal(p1.getAttribute("data-aph-has-kids"), null);
+  });
+});
+
+describe("manual indent / outdent repair", () => {
+  it("indent makes an L0 root a child of the tab above", () => {
+    const env = makeEnv();
+    const r1 = env.addTab("r1");
+    const r2 = env.addTab("r2");
+    assert.equal(env.api.indentTreeTab(r2), true);
+    assert.equal(env.level(r2), 1);
+    assert.equal(env.api.getTreeParent(r2), r1);
+    assert.deepEqual(env.order(), ["seed", "r1", "r2"]);
+  });
+
+  it("indent defaults to the selected tab and skips closing predecessors", () => {
+    const env = makeEnv();
+    const p1 = env.addTab("p1");
+    const closing = env.addTab("closing");
+    const x = env.addTab("x");
+    closing.closing = true;
+    env.select(x);
+    assert.equal(env.api.indentTreeTab(), true);
+    assert.equal(env.api.getTreeParent(x), p1);
+    assert.equal(env.level(x), 1);
+  });
+
+  it("indent is a no-op for the first tab, pinned tabs, and same-parent repeats", () => {
+    const env = makeEnv();
+    assert.equal(env.api.indentTreeTab(env.seed), false);
+    const p = env.addTab("p");
+    const pin = env.addTab("pin", { pinned: true });
+    assert.equal(env.api.indentTreeTab(pin), false);
+    const c = env.addTab("c");
+    env.api.attachTreeChild(c, p);
+    // Predecessor of c is p itself (already its parent) — no change.
+    assert.equal(env.api.indentTreeTab(c), false);
+    assert.equal(env.api.getTreeParent(c), p);
+  });
+
+  it("indent caps depth at L2 like attachTreeChild", () => {
+    const env = makeEnv();
+    const root = env.addTab("root");
+    const mid = env.addTab("mid");
+    env.api.attachTreeChild(mid, root);
+    const leaf = env.addTab("leaf");
+    env.api.attachTreeChild(leaf, mid);
+    const x = env.addTab("x");
+    assert.equal(env.api.indentTreeTab(x), true);
+    assert.equal(env.level(x), 2);
+    // Sibling under the same L1, not a deeper level.
+    assert.equal(env.api.getTreeParent(x), mid);
+  });
+
+  it("indent carries the tab's subtree block with it", () => {
+    const env = makeEnv();
+    const p = env.addTab("p");
+    const t = env.addTab("t");
+    const x = env.addTab("x");
+    const k = env.addTab("k");
+    env.api.attachTreeChild(k, x);
+    assert.equal(env.api.indentTreeTab(x), true);
+    assert.equal(env.api.getTreeParent(x), t);
+    assert.equal(env.api.getTreeParent(k), x);
+    assert.equal(env.order().indexOf("k"), env.order().indexOf("x") + 1);
+    void p;
+  });
+
+  it("outdent promotes L2→L1→L0 in place", () => {
+    const env = makeEnv();
+    const root = env.addTab("root");
+    const mid = env.addTab("mid");
+    env.api.attachTreeChild(mid, root);
+    const leaf = env.addTab("leaf");
+    env.api.attachTreeChild(leaf, mid);
+    const before = env.order().slice();
+    assert.equal(env.api.outdentTreeTab(leaf), true);
+    assert.equal(env.level(leaf), 1);
+    assert.equal(env.api.getTreeParent(leaf), root);
+    assert.deepEqual(env.order(), before, "outdent keeps strip position");
+    assert.equal(env.api.outdentTreeTab(leaf), true);
+    assert.equal(env.level(leaf), 0);
+    assert.equal(env.api.getTreeParent(leaf), null);
+    assert.deepEqual(env.order(), before);
+  });
+
+  it("outdent is a no-op for L0 roots and pinned tabs; promote aliases outdent", () => {
+    const env = makeEnv();
+    const root = env.addTab("root");
+    assert.equal(env.api.outdentTreeTab(root), false);
+    const pin = env.addTab("pin", { pinned: true });
+    assert.equal(env.api.outdentTreeTab(pin), false);
+    const parent = env.addTab("parent");
+    const kid = env.addTab("kid");
+    env.api.attachTreeChild(kid, parent);
+    assert.equal(env.api.promoteTreeTab(kid), true);
+    assert.equal(env.level(kid), 0);
+  });
+
+  it("indenting an array indents a contiguous block as siblings", () => {
+    const env = makeEnv();
+    const p = env.addTab("p");
+    const a = env.addTab("a");
+    const b = env.addTab("b");
+    const c = env.addTab("c");
+    assert.equal(env.api.indentTreeTab([a, b, c]), true);
+    assert.equal(env.api.getTreeParent(a), p);
+    assert.equal(env.api.getTreeParent(b), p);
+    assert.equal(env.api.getTreeParent(c), p);
+    assert.deepEqual(env.order(), ["seed", "p", "a", "b", "c"]);
+  });
+
+  it("indent with no arg uses the live multiselection", () => {
+    const env = makeEnv();
+    const p = env.addTab("p");
+    const a = env.addTab("a");
+    const b = env.addTab("b");
+    env.sb.gBrowser.selectedTabs = [a, b];
+    assert.equal(env.api.indentTreeTab(), true);
+    assert.equal(env.api.getTreeParent(a), p);
+    assert.equal(env.api.getTreeParent(b), p);
+  });
+
+  it("explicit single-tab indent stays single even with a multiselection", () => {
+    const env = makeEnv();
+    const q = env.addTab("q");
+    const m1 = env.addTab("m1");
+    const m2 = env.addTab("m2");
+    env.sb.gBrowser.selectedTabs = [m1, m2];
+    assert.equal(env.api.indentTreeTab(m1), true);
+    assert.equal(env.api.getTreeParent(m1), q);
+    assert.equal(env.level(m2), 0);
+  });
+
+  it("multi indent/outdent lets selected descendants ride with their parent", () => {
+    const env = makeEnv();
+    const rp = env.addTab("rp");
+    const pa = env.addTab("pa");
+    const ch = env.addTab("ch");
+    env.api.attachTreeChild(ch, pa);
+    assert.equal(env.api.indentTreeTab([pa, ch]), true);
+    assert.equal(env.api.getTreeParent(pa), rp);
+    assert.equal(env.api.getTreeParent(ch), pa);
+    assert.equal(env.level(ch), 2);
+
+    const env2 = makeEnv();
+    const r = env2.addTab("r");
+    const p = env2.addTab("p");
+    const k = env2.addTab("k");
+    env2.api.attachTreeChild(p, r);
+    env2.api.attachTreeChild(k, p);
+    assert.equal(env2.api.outdentTreeTab([p, k]), true);
+    assert.equal(env2.level(p), 0);
+    assert.equal(env2.api.getTreeParent(k), p);
+    assert.equal(env2.level(k), 1);
+  });
+
+  it("outdenting an array of siblings promotes each in place", () => {
+    const env = makeEnv();
+    const pp = env.addTab("pp");
+    const x = env.addTab("x");
+    const y = env.addTab("y");
+    env.api.attachTreeChild(x, pp);
+    env.api.attachTreeChild(y, pp);
+    const before = env.order().slice();
+    assert.equal(env.api.outdentTreeTab([x, y]), true);
+    assert.equal(env.level(x), 0);
+    assert.equal(env.level(y), 0);
+    assert.deepEqual(env.order(), before);
+  });
+});
+
+describe("rail element injection (fake DOM)", () => {
+  function makeDomEnv() {
+    const env = makeEnv();
+    // Route element creation through the fake DOM so chrome injection runs.
+    env.sb.document.createElement = (tag) => makeFakeEl(tag, "");
+    function addDomTab(label, o) {
+      const t = makeDomTab(env.tabVals, Object.assign(
+        { label, ws: "1", spec: `https://${label}.example/` }, o || {}
+      ));
+      env.tabs.push(t);
+      return t;
+    }
+    return { ...env, addDomTab };
+  }
+
+  it("L1 tabs get one inner rail, L0 roots and parents get none", () => {
+    const env = makeDomEnv();
+    const parent = env.addDomTab("parent");
+    const child = env.addDomTab("child");
+    env.api.attachTreeChild(child, parent);
+    assert.deepEqual(railsOf(child), ["aph-tree-rail aph-tree-rail--inner"]);
+    assert.deepEqual(railsOf(parent), []);
+    assert.equal(env.sb.gBrowser.tabs.includes(child), true);
+  });
+
+  it("L2 tabs get inner + outer rails; outdent to L0 removes them", () => {
+    const env = makeDomEnv();
+    const root = env.addDomTab("root");
+    const mid = env.addDomTab("mid");
+    env.api.attachTreeChild(mid, root);
+    const leaf = env.addDomTab("leaf");
+    env.api.attachTreeChild(leaf, mid);
+    assert.equal(env.level(leaf), 2);
+    assert.deepEqual(railsOf(leaf), [
+      "aph-tree-rail aph-tree-rail--inner",
+      "aph-tree-rail aph-tree-rail--outer",
+    ]);
+    env.api.outdentTreeTab(leaf);
+    env.api.outdentTreeTab(leaf);
+    assert.equal(env.level(leaf), 0);
+    assert.deepEqual(railsOf(leaf), []);
+  });
+
+  it("rails are idempotent across renders and never attach to pins", () => {
+    const env = makeDomEnv();
+    const parent = env.addDomTab("parent");
+    const child = env.addDomTab("child");
+    env.api.attachTreeChild(child, parent);
+    env.api.renderTree();
+    env.api.renderTree();
+    env.api.renderTree();
+    assert.deepEqual(railsOf(child), ["aph-tree-rail aph-tree-rail--inner"]);
+    const pin = env.addDomTab("pin", { pinned: true });
+    env.api.renderTree();
+    assert.deepEqual(railsOf(pin), []);
+  });
+
+  it("debugTree snapshots levels, rails, and theme linkage", () => {
+    const env = makeDomEnv();
+    const root = env.addDomTab("root");
+    const mid = env.addDomTab("mid");
+    env.api.attachTreeChild(mid, root);
+    const leaf = env.addDomTab("leaf");
+    env.api.attachTreeChild(leaf, mid);
+    const snap = env.api.debugTree();
+    assert.equal(typeof snap, "object");
+    assert.equal(snap.tabs.length, env.tabs.length);
+    const byLabel = Object.fromEntries(snap.tabs.map((t) => [t.label, t]));
+    assert.equal(byLabel.leaf.level, 2);
+    assert.equal(byLabel.leaf.rails, 2);
+    assert.equal(byLabel.mid.rails, 1);
+    assert.equal(byLabel.root.rails, 0);
+    assert.equal(byLabel.seed.level, 0);
   });
 });
