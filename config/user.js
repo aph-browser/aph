@@ -282,6 +282,19 @@ user_pref("aph.workspaces.unloadOnSwitch", false);
 // closed pre-paint instead. Set false to keep them.
 user_pref("aph.addons.silenceFirstRun", true);
 
+// 15. Ctrl/Cmd+W on a selected pinned tab keeps it open instead of
+// closing — a drifted pin resets to its pinned base URL in place, a pin
+// already at base parks (unloads); a second press (now pending) closes via
+// stock, as do middle-click and the tab context menu. Set false for stock
+// close-on-first-press.
+user_pref("aph.pins.ctrlWUnloads", true);
+
+// 16. Ctrl/Cmd+W on a selected starred tab mirrors pins — a drifted star
+// resets to its starred base URL in place, a star already at base parks
+// (unloads); a second press (now pending) closes via stock. Set false for
+// stock close-on-first-press.
+user_pref("aph.stars.ctrlWUnloads", true);
+
 // 13. Default New Tab wallpaper: Celestial "eclipse-time-lapse" (dark).
 // NOTE: this pref stores the wallpaper *title*, not the record ID/UUID.
 // (title eclipse-time-lapse; attachment main-workspace/newtab-wallpapers-v2/55b678ff-15c3-49d5-bdbc-40f8413cfb8a.avif;

@@ -23,10 +23,17 @@ MODULE_WITH_ANCHOR = (
     b'  "forward-button",\n'
     b'  "stop-reload-button",\n'
     b"];\n"
-    b'verticalTabsDefaultPlacements: ["alltabs-button", "ai-window-toggle"],\n'
+    b"verticalTabsDefaultPlacements: [\n"
+    b'          "alltabs-button",\n'
+    b'          "smartwindow-group-tabs-button",\n'
+    b'          "ai-window-toggle",\n'
+    b"        ],\n"
 )
 
-PATCHED_FRAGMENT = b'verticalTabsDefaultPlacements: ["alltabs-button", ...navbarPlacements],'
+PATCHED_FRAGMENT = (
+    b'verticalTabsDefaultPlacements: ["alltabs-button",\n'
+    b'      "smartwindow-group-tabs-button", ...navbarPlacements],'
+)
 
 
 def _brand_entries(z: zipfile.ZipFile) -> None:
@@ -61,6 +68,8 @@ def test_toolbar_anchor_rewritten_once(toolbar_ja) -> None:
     assert b'"ai-window-toggle"],' not in data
     # Stock placements survive verbatim behind the spread.
     assert b'"back-button"' in data
+    # The 156 smartwindow grouping button stays up front in vertical tabs.
+    assert b'"smartwindow-group-tabs-button", ...navbarPlacements' in data
 
 
 def test_toolbar_patch_idempotent_from_pristine_backup(toolbar_ja) -> None:

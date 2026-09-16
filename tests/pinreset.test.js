@@ -18,8 +18,7 @@ function makeEnv() {
   const menuHandlers = {};
   const menuKids = [];
   const prompts = [];
-    const sb = {
-    // Real chrome windows provide the WHATWG URL global; node:vm does not.
+  const sb = {    // Real chrome windows provide the WHATWG URL global; node:vm does not.
     URL,
     window: {
       opener: null,
@@ -125,8 +124,12 @@ function makeEnv() {
   let sel = null;
   const menu = {
     appendChild(el) { menuKids.push(el); },
-    addEventListener(t, fn) { menuHandlers[t] = fn; },
-    removeEventListener() {},
+    // Prod stacks listeners (pinreset + starred both watch popupshowing);
+    // the mock must too.
+    addEventListener(t, fn) { (menuHandlers[t] ||= []).push(fn); },
+    removeEventListener(t, fn) {
+      menuHandlers[t] = (menuHandlers[t] || []).filter((f) => f !== fn);
+    },
   };
   sb.window.window = sb.window;
   run("workspaces.js", sb);
@@ -139,6 +142,12 @@ function makeEnv() {
 
 function fireContainer(env, type, ev) {
   for (const fn of env.containerHandlers[type] || []) {
+    fn(ev);
+  }
+}
+
+function fireMenu(env, ev) {
+  for (const fn of env.menuHandlers.popupshowing || []) {
     fn(ev);
   }
 }
@@ -261,32 +270,36 @@ describe("pinned-tab URLs", () => {
     const pinned = pinTab(env, "https://example.com/a");
     const plain = makeTab(tabVals, { label: "plain", ws: "1", spec: "https://example.com/" });
     env.tabs.push(plain);
-    env.menuHandlers.popupshowing(popupEvent(env, plain));
-    assert.equal(env.menuKids.length, 0);
-    env.menuHandlers.popupshowing(popupEvent(env, pinned));
-    assert.equal(env.menuKids.length, 2);
-    assert.equal(env.menuKids[0].attrs.id, "aph-pinreset-reset");
-    assert.equal(env.menuKids[0].attrs.label, "Reset to Pinned Page");
-    assert.equal(env.menuKids[1].attrs.id, "aph-pinreset-set");
+    const pinItems = () =>
+      env.menuKids.filter((k) => String((k.attrs || {}).id || "").startsWith("aph-pinreset-"));
+    fireMenu(env, popupEvent(env, plain));
+    assert.equal(pinItems().length, 0);
+    fireMenu(env, popupEvent(env, pinned));
+    assert.equal(pinItems().length, 2);
+    assert.equal(pinItems()[0].attrs.id, "aph-pinreset-reset");
+    assert.equal(pinItems()[0].attrs.label, "Reset to Pinned Page");
+    assert.equal(pinItems()[1].attrs.id, "aph-pinreset-set");
     assert.ok(createdXUL.includes("menuitem"));
   });
 
   it("reset item is disabled when already at the pinned URL", () => {
     const env = makeEnv();
     const t = pinTab(env, "https://example.com/a");
-    env.menuHandlers.popupshowing(popupEvent(env, t));
-    assert.equal(env.menuKids[0].attrs.disabled, "true");
+    const resetItem = () =>
+      env.menuKids.find((k) => (k.attrs || {}).id === "aph-pinreset-reset");
+    fireMenu(env, popupEvent(env, t));
+    assert.equal(resetItem().attrs.disabled, "true");
     t.linkedBrowser.currentURI.spec = "https://example.com/elsewhere";
-    env.menuHandlers.popupshowing(popupEvent(env, t));
-    const latest = env.menuKids[env.menuKids.length - 2];
+    fireMenu(env, popupEvent(env, t));
+    const latest = env.menuKids.filter((k) => (k.attrs || {}).id === "aph-pinreset-reset").pop();
     assert.equal(latest.attrs.disabled, undefined);
   });
 
   it("edit dialog commits through the palette prompt", () => {
     const env = makeEnv();
     const t = pinTab(env, "https://example.com/a");
-    env.menuHandlers.popupshowing(popupEvent(env, t));
-    const edit = env.menuKids[env.menuKids.length - 1];
+    fireMenu(env, popupEvent(env, t));
+    const edit = env.menuKids.find((k) => (k.attrs || {}).id === "aph-pinreset-set");
     assert.equal(env.prompts.length, 0);
     edit.on_command();
     assert.equal(env.prompts.length, 1);

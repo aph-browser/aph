@@ -136,6 +136,34 @@
         return;
       }
     } catch (err) {}
+    // Ctrl/Cmd+W on a selected pinned or starred tab keeps it open
+    // instead of closing — a drifted pin/star resets to its base URL in
+    // place, one already at base parks (unload); the second press (now
+    // pending), middle-click, and the context menu still close via stock.
+    // Anything the parkers refuse (unpinned/unstarred, unsafe,
+    // unparkable) falls through to stock close untouched.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyW") {
+      let parked = false;
+      try {
+        parked = parkSelectedPinnedTab().ok === true;
+      } catch (err) {
+        parked = false;
+      }
+      if (!parked) {
+        try {
+          parked =
+            typeof parkSelectedStarredTab === "function" &&
+            parkSelectedStarredTab().ok === true;
+        } catch (err) {
+          parked = false;
+        }
+      }
+      if (parked) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      return;
+    }
     // Plain Ctrl+T opens in the workspace's bound container (if any).
     // Unbound workspaces fall through to stock Firefox behavior.
     if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && e.code === "KeyT") {
@@ -171,6 +199,24 @@
           clearWsBinding(isValidId(current) ? current : "1");
         } else {
           bindCurrentWsToSelectedTab();
+        }
+      } catch (err) {}
+      return;
+    }
+    // Ctrl+Alt+S toggles the star on the selected tab (starred tabs keep
+    // a base URL: Ctrl+W resets drifted stars, parks at-base ones).
+    // Skipped in editable text so typing stays safe.
+    if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.code === "KeyS") {
+      if (isEditableTarget(e.target)) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof toggleSelectedStar === "function") {
+          toggleSelectedStar();
+        } else if (window.AphStar && typeof window.AphStar.toggleSelectedStar === "function") {
+          window.AphStar.toggleSelectedStar();
         }
       } catch (err) {}
       return;

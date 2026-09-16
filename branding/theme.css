@@ -658,16 +658,27 @@ tab > .aph-tree-rail,
    (never over the tab background, favicon, or twisty).
    position:relative on the tab only anchors the rails — no offsets,
    so no layout shift. */
-#sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-level="1"],
-#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-level="1"],
-#sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-level="2"],
-#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-level="2"] {
+#sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-level="1"]:not([dragtarget]),
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-level="1"]:not([dragtarget]),
+#sidebar-container:not([hidden]) #vertical-tabs tab[data-aph-level="2"]:not([dragtarget]),
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[data-aph-level="2"]:not([dragtarget]) {
   position: relative !important;
   /* Stock XUL tabs clip painted overflow (computed overflow: clip), which
      would cut off rails sitting in the margin gutter. Clip margins only
      widen paint clipping — no layout, no scroll container — and 32px
      covers the outer L2 rail (-20px) with room to spare. */
   overflow-clip-margin: 32px !important;
+}
+
+/* Drag flight: stock pins the dragged tab with [dragtarget]
+   { position: absolute } + inline `top`. Our relative rule above would
+   still win mid-drag and turn that `top` into a relative offset (tab
+   parks ~its strip offset below the cursor), so :not([dragtarget])
+   yields to stock; rails hide for the flight (containing block gone,
+   pure CSS so nothing sticks hidden after drop). */
+#sidebar-container:not([hidden]) #vertical-tabs tab[dragtarget] > .aph-tree-rail,
+#sidebar-container:not([hidden]) #vertical-tabs .tabbrowser-tab[dragtarget] > .aph-tree-rail {
+  display: none !important;
 }
 
 #sidebar-container:not([hidden]) #vertical-tabs tab > .aph-tree-rail,
@@ -766,4 +777,39 @@ sidebar-main:not([expanded]) #vertical-tabs .tabbrowser-tab[data-aph-level="1"],
 sidebar-main:not([expanded]) #vertical-tabs tab[data-aph-level="2"],
 sidebar-main:not([expanded]) #vertical-tabs .tabbrowser-tab[data-aph-level="2"] {
   margin-inline-start: 0 !important;
+}
+
+/* ==========================================================================
+   18. Starred tabs: normal per-workspace tabs with a base URL
+   (76-starred.js sets `data-aph-starred="1"`). The tab's close (X) button
+   becomes a gold star: clicking it unstars (76-starred.js swallows the
+   click in capture phase) instead of closing; every other close path
+   (middle-click, context menu, Ctrl+W) still closes. A subtle background
+   tint keeps starred tabs distinct even when stock hides the close
+   button (unhovered background tabs). Paint only (never layout): the
+   swap reuses the real button (geometry, hover circle, and stock
+   show/hide logic untouched — visibility is deliberately NOT forced),
+   and the tint is guarded :not([selected]) so the selected-tab fill
+   (§13) stays authoritative. Pending dim (§8) keeps applying untouched.
+   NOTE: the star glyph rides `list-style-image`, the same mechanism
+   stock uses for the X — verify against the live build if the icon
+   ever stops swapping (unit tests only assert this file parses).
+   ========================================================================== */
+
+tab[data-aph-starred="1"]:not([selected]) > .tab-stack > .tab-background,
+.tabbrowser-tab[data-aph-starred="1"]:not([selected]) > .tab-stack > .tab-background {
+  background-color: color-mix(
+    in srgb,
+    var(--toolbarbutton-background-color-hover, rgba(255, 200, 80, 0.28)) 38%,
+    transparent
+  ) !important;
+}
+
+/* X → ★ on the real close button (starred tabs only). The gold is
+   baked into the SVG (hardcoded fill) rather than context-fill: the
+   close button's `-moz-context-properties` do not reliably flow into a
+   data-URI image context, and an unresolved context-fill renders black. */
+tab[data-aph-starred="1"] .tab-close-button,
+.tabbrowser-tab[data-aph-starred="1"] .tab-close-button {
+  list-style-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='%23e8b64c' d='M6 1l1.4 2.9 3.1.4-2.3 2.2.6 3.1L6 8.1 3.2 9.6l.6-3.1L1.5 4.3l3.1-.4z'/></svg>") !important;
 }

@@ -3,7 +3,8 @@
 Fresh profiles that pre-seed ``sidebar.verticalTabs`` (Aph does, via
 ``config/user.js``) hit a CustomizableUI restore path that builds the navbar
 from ``verticalTabsDefaultPlacements`` (``["alltabs-button",
-"ai-window-toggle"]``) INSTEAD of the full ``defaultPlacements`` — so the
+"smartwindow-group-tabs-button", "ai-window-toggle"]`` as of Firefox 156)
+INSTEAD of the full ``defaultPlacements`` — so the
 removable defaults (back/forward/reload, downloads, springs, home) are never
 placed and end up banished to the customization palette. That also breaks
 ``DownloadsButton.getAnchor()`` ("Downloads button cannot be found": no
@@ -12,9 +13,11 @@ tabs are on — both branch on the same array
 (``restoreStateForArea`` / future-widget positioning in the same module).
 
 This injector rewrites the array literal at rebrand time so vertical-tabs
-profiles inherit the full stock navbar behind the tab-list button::
+profiles inherit the full stock navbar behind the tab-list button, keeping
+the 156 smartwindow auto-tab-grouping button up front::
 
-    verticalTabsDefaultPlacements: ["alltabs-button", ...navbarPlacements],
+    verticalTabsDefaultPlacements: ["alltabs-button",
+      "smartwindow-group-tabs-button", ...navbarPlacements],
 
 ``navbarPlacements`` is the ``let`` defined just above the registration in
 the same ``initialize()`` scope, so the spread is valid JS and future
@@ -37,8 +40,17 @@ from .base import PatchCounts
 
 CUSTOMIZABLE_UI_PATH = "moz-src/browser/components/customizableui/CustomizableUI.sys.mjs"
 
-_ANCHOR = b'verticalTabsDefaultPlacements: ["alltabs-button", "ai-window-toggle"],'
-_REPLACEMENT = b'verticalTabsDefaultPlacements: ["alltabs-button", ...navbarPlacements],'
+_ANCHOR = (
+    b"verticalTabsDefaultPlacements: [\n"
+    b'          "alltabs-button",\n'
+    b'          "smartwindow-group-tabs-button",\n'
+    b'          "ai-window-toggle",\n'
+    b"        ],"
+)
+_REPLACEMENT = (
+    b'verticalTabsDefaultPlacements: ["alltabs-button",\n'
+    b'      "smartwindow-group-tabs-button", ...navbarPlacements],'
+)
 
 
 class ToolbarDefaultsInjector:

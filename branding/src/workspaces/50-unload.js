@@ -157,3 +157,365 @@
     return { unloaded, skipped };
   }
 
+  // Ctrl/Cmd+W on a selected pinned tab keeps it open (pref
+  // aph.pins.ctrlWUnloads, default on — same default-true shape as
+  // silenceFirstRun): pins are app anchors. A drifted pin first resets to
+  // its pinned base URL in place (stay selected, no unload — next press,
+  // now at base, parks); a pin already at base parks (unloads) instead of
+  // closing; a second press (now pending) falls through to stock close, as
+  // do middle-click and the context menu. Stock refuses to discard the
+  // SELECTED tab even forced (tabbrowser.js _mayDiscardBrowser), so parking
+  // moves selection to a visible neighbor first — the focus jump mirrors a
+  // close. Anything where a discard would silently lose state or no-op
+  // falls through to stock (which prompts or closes): unsaved work,
+  // already-pending, internal pages, sole-visible-tab windows,
+  // multiselections.
+  const PIN_PARK_PREF = "aph.pins.ctrlWUnloads";
+
+  function getCtrlWParksPinned() {
+    try {
+      if (Services.prefs && typeof Services.prefs.getBoolPref === "function") {
+        return Services.prefs.getBoolPref(PIN_PARK_PREF);
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  // Next visible tab after `tab` in strip order, else the nearest visible
+  // tab before it. Hidden (foreign-workspace / tree-collapsed), closing,
+  // and the tab itself never qualify. Null when nothing else is visible.
+  function findParkNeighbor(tab) {
+    try {
+      let tabs = [];
+      try {
+        tabs = Array.from(gBrowser.tabs || []);
+      } catch (e) {
+        return null;
+      }
+      const at = tabs.indexOf(tab);
+      if (at === -1) {
+        return null;
+      }
+      const visible = (t) => {
+        try {
+          if (!t || t === tab || t.closing) {
+            return false;
+          }
+        } catch (e) {
+          return false;
+        }
+        try {
+          if (t.hidden) {
+            return false;
+          }
+        } catch (e) {}
+        try {
+          if (typeof t.hasAttribute === "function" && t.hasAttribute("hidden")) {
+            return false;
+          }
+        } catch (e) {}
+        return true;
+      };
+      for (let i = at + 1; i < tabs.length; i++) {
+        try {
+          if (visible(tabs[i])) {
+            return tabs[i];
+          }
+        } catch (e) {}
+      }
+      for (let i = at - 1; i >= 0; i--) {
+        try {
+          if (visible(tabs[i])) {
+            return tabs[i];
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  // Ctrl/Cmd+W on a selected STARRED tab mirrors pins (pref
+  // aph.stars.ctrlWUnloads, default on): starred tabs are normal
+  // per-workspace tabs with a base URL owned by 76-starred.js. A drifted
+  // star first resets to its starred base URL in place (stay selected, no
+  // unload — next press, now at base, parks); a star already at base parks
+  // (unloads) instead of closing; a second press (now pending) falls
+  // through to stock close. Same guards as pins: unsaved work,
+  // already-pending, internal pages, sole-visible-tab windows,
+  // multiselections. Pinned tabs never reach here (pin park runs first).
+  const STAR_PARK_PREF = "aph.stars.ctrlWUnloads";
+
+  function getCtrlWParksStarred() {
+    try {
+      if (Services.prefs && typeof Services.prefs.getBoolPref === "function") {
+        return Services.prefs.getBoolPref(STAR_PARK_PREF);
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  // 76-starred.js loads after this file in the bundle; resolve through
+  // typeof guards so a missing star module fails closed to stock close.
+  function isStarredForPark(tab) {
+    try {
+      if (typeof isStarredTab === "function") {
+        return !!isStarredTab(tab);
+      }
+    } catch (e) {}
+    try {
+      if (SessionStore && typeof SessionStore.getCustomTabValue === "function") {
+        if (SessionStore.getCustomTabValue(tab, "aphStarred") === "1") {
+          return true;
+        }
+      }
+    } catch (e) {}
+    try {
+      if (tab && typeof tab.hasAttribute === "function" && tab.hasAttribute("data-aph-starred")) {
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function parkSelectedStarredTab() {
+    try {
+      if (!getCtrlWParksStarred()) {
+        return { ok: false, reason: "disabled" };
+      }
+      let sel = null;
+      try {
+        sel = gBrowser.selectedTab;
+      } catch (e) {}
+      if (!sel) {
+        return { ok: false, reason: "no-tab" };
+      }
+      try {
+        if (sel.closing) {
+          return { ok: false, reason: "closing" };
+        }
+      } catch (e) {}
+      try {
+        if (sel.pinned) {
+          return { ok: false, reason: "pinned" };
+        }
+      } catch (e) {}
+      if (!isStarredForPark(sel)) {
+        return { ok: false, reason: "not-starred" };
+      }
+      // Multiselection closes as a unit in stock — never half-park it.
+      try {
+        const multi = gBrowser.selectedTabs || gBrowser.multiselectedTabs || null;
+        if (Array.isArray(multi) && multi.length > 1) {
+          return { ok: false, reason: "multi" };
+        }
+      } catch (e) {}
+      // Already parked: let stock close (second press closes).
+      try {
+        if (typeof sel.hasAttribute === "function" && sel.hasAttribute("pending")) {
+          return { ok: false, reason: "pending" };
+        }
+      } catch (e) {}
+      // Unsaved work: non-force discard would not prompt, so fall through
+      // to stock close, which does.
+      try {
+        if (sel.linkedBrowser?.frameLoader?.tabParent?.hasBeforeUnload) {
+          return { ok: false, reason: "beforeunload" };
+        }
+      } catch (e) {}
+      let spec = null;
+      try {
+        spec = sel.linkedBrowser?.currentURI?.spec;
+      } catch (e) {}
+      if (typeof spec !== "string" || !spec) {
+        return { ok: false, reason: "unknown-url" };
+      }
+      if (
+        spec.startsWith("about:") ||
+        spec.startsWith("chrome:") ||
+        spec.startsWith("resource:")
+      ) {
+        return { ok: false, reason: "internal" };
+      }
+      try {
+        if (isNewTab(sel)) {
+          return { ok: false, reason: "newtab" };
+        }
+      } catch (e) {}
+      // Drifted star: reset to the starred base URL in place (stay
+      // selected, no unload) and claim the keystroke. Same ordering as
+      // pins: after the guards (unsaved work still prompts via stock,
+      // internal pages never navigate), before the neighbor check so a
+      // sole-tab star can still reset.
+      try {
+        const target =
+          typeof effectiveStarURL === "function" ? effectiveStarURL(sel) : "";
+        if (target && spec && target !== spec) {
+          try {
+            if (typeof resetStarTab === "function") {
+              resetStarTab(sel);
+            }
+          } catch (_e) {}
+          // Reset navigation must not re-trigger domain routing.
+          try {
+            sel.__aphFresh = false;
+          } catch (_e) {}
+          return { ok: true, reset: true };
+        }
+      } catch (e) {}
+      const next = findParkNeighbor(sel);
+      if (!next) {
+        return { ok: false, reason: "only-tab" };
+      }
+      if (typeof gBrowser.discardBrowser !== "function") {
+        return { ok: false, reason: "no-api" };
+      }
+      try {
+        gBrowser.selectedTab = next;
+      } catch (e) {
+        return { ok: false, reason: "no-select" };
+      }
+      let discarded = false;
+      try {
+        // Stock returns false on refusal, undefined on success.
+        discarded = gBrowser.discardBrowser(sel) !== false;
+      } catch (e) {
+        discarded = false;
+      }
+      if (!discarded) {
+        try {
+          gBrowser.selectedTab = sel;
+        } catch (_e) {}
+        return { ok: false, reason: "discard-refused" };
+      }
+      // Discarded reload must not re-trigger domain routing.
+      try {
+        sel.__aphFresh = false;
+      } catch (e) {}
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: "error" };
+    }
+  }
+
+  function parkSelectedPinnedTab() {
+    try {
+      if (!getCtrlWParksPinned()) {
+        return { ok: false, reason: "disabled" };
+      }
+      let sel = null;
+      try {
+        sel = gBrowser.selectedTab;
+      } catch (e) {}
+      if (!sel) {
+        return { ok: false, reason: "no-tab" };
+      }
+      try {
+        if (sel.closing) {
+          return { ok: false, reason: "closing" };
+        }
+      } catch (e) {}
+      try {
+        if (!sel.pinned) {
+          return { ok: false, reason: "not-pinned" };
+        }
+      } catch (e) {
+        return { ok: false, reason: "not-pinned" };
+      }
+      // Multiselection closes as a unit in stock — never half-park it.
+      try {
+        const multi = gBrowser.selectedTabs || gBrowser.multiselectedTabs || null;
+        if (Array.isArray(multi) && multi.length > 1) {
+          return { ok: false, reason: "multi" };
+        }
+      } catch (e) {}
+      // Already parked: let stock close (second press closes).
+      try {
+        if (typeof sel.hasAttribute === "function" && sel.hasAttribute("pending")) {
+          return { ok: false, reason: "pending" };
+        }
+      } catch (e) {}
+      // Unsaved work: non-force discard would not prompt, so fall through
+      // to stock close, which does.
+      try {
+        if (sel.linkedBrowser?.frameLoader?.tabParent?.hasBeforeUnload) {
+          return { ok: false, reason: "beforeunload" };
+        }
+      } catch (e) {}
+      let spec = null;
+      try {
+        spec = sel.linkedBrowser?.currentURI?.spec;
+      } catch (e) {}
+      if (typeof spec !== "string" || !spec) {
+        return { ok: false, reason: "unknown-url" };
+      }
+      if (
+        spec.startsWith("about:") ||
+        spec.startsWith("chrome:") ||
+        spec.startsWith("resource:")
+      ) {
+        return { ok: false, reason: "internal" };
+      }
+      try {
+        if (isNewTab(sel)) {
+          return { ok: false, reason: "newtab" };
+        }
+      } catch (e) {}
+      // Drifted pin: reset to the pinned base URL in place (stay selected,
+      // no unload) and claim the keystroke — the tab visibly snaps back
+      // instead of closing. Runs after the guards above so unsaved work
+      // still falls through to stock (which prompts) and internal pages
+      // never navigate; runs before the neighbor check so a sole-tab pin
+      // can still reset. Reset-then-discard in one press is deliberately
+      // avoided: the fresh navigation would race the discard (which tears
+      // down the load), so park happens on the next press, once at base.
+      try {
+        const target =
+          typeof effectivePinURL === "function" ? effectivePinURL(sel) : "";
+        if (target && spec && target !== spec) {
+          try {
+            if (typeof resetPinTab === "function") {
+              resetPinTab(sel);
+            }
+          } catch (_e) {}
+          // Reset navigation must not re-trigger domain routing.
+          try {
+            sel.__aphFresh = false;
+          } catch (_e) {}
+          return { ok: true, reset: true };
+        }
+      } catch (e) {}
+      const next = findParkNeighbor(sel);
+      if (!next) {
+        return { ok: false, reason: "only-tab" };
+      }
+      if (typeof gBrowser.discardBrowser !== "function") {
+        return { ok: false, reason: "no-api" };
+      }
+      try {
+        gBrowser.selectedTab = next;
+      } catch (e) {
+        return { ok: false, reason: "no-select" };
+      }
+      let discarded = false;
+      try {
+        // Stock returns false on refusal, undefined on success.
+        discarded = gBrowser.discardBrowser(sel) !== false;
+      } catch (e) {
+        discarded = false;
+      }
+      if (!discarded) {
+        try {
+          gBrowser.selectedTab = sel;
+        } catch (_e) {}
+        return { ok: false, reason: "discard-refused" };
+      }
+      // Discarded reload must not re-trigger domain routing.
+      try {
+        sel.__aphFresh = false;
+      } catch (e) {}
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: "error" };
+    }
+  }
+

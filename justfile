@@ -151,3 +151,18 @@ nuke-local *args:
     : "${HOME:?}"
     rm -rf "$HOME/.config/aph/profile"
     @echo "daily profile deleted"
+
+# Absolute factory reset: repo profile + build/ + daily profile + installed
+# launcher (bin, desktop entry, icon). Requires --yes and refuses while Aph
+# is running on either profile. Tracked sources (config/, branding/src/,
+# scripts/) are untouched. Reinstall after with: just bootstrap
+# (add `just install-local` if you use the daily driver).
+nuke-everything *args:
+    @if [ "{{args}}" != "--yes" ] && [ "{{args}}" != "-y" ]; then echo "This deletes ./profile, build/, ~/.config/aph/profile, and the installed launcher. Re-run with --yes: just nuke-everything --yes"; exit 1; fi
+    @for p in "profile" "$HOME/.config/aph/profile"; do if lock="$p/lock" && [ -L "$lock" ] && pid="$(readlink "$lock")" && pid="${pid##*:}" && pid="${pid#+}" && kill -0 "$pid" 2>/dev/null; then echo "Aph is running on $p - quit it first."; exit 1; fi; done
+    rm -rf profile build
+    : "${HOME:?}"
+    rm -rf "$HOME/.config/aph/profile"
+    rm -f "$HOME/.local/bin/aph" "$HOME/.local/share/applications/aph.desktop" "$HOME/.local/share/icons/hicolor/128x128/apps/aph.png"
+    update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+    @echo "Nuked: ./profile, build/, ~/.config/aph/profile, installed launcher. Reinstall: just bootstrap"

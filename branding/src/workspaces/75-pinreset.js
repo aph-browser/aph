@@ -303,7 +303,9 @@
       }
       const edit = makePinMenuItem("aph-pinreset-set", "Set Pinned Page…", () => {
         try {
-          promptPinURL(tab, stored || pinSpec(tab));
+          // Live-first: Enter alone re-pins the current page (the common
+          // "make this the base" case); stored is the fallback.
+          promptPinURL(tab, pinSpec(tab) || stored);
         } catch (err) {}
       });
       if (edit) {

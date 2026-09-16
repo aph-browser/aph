@@ -3894,6 +3894,368 @@
     return { unloaded, skipped };
   }
 
+  // Ctrl/Cmd+W on a selected pinned tab keeps it open (pref
+  // aph.pins.ctrlWUnloads, default on — same default-true shape as
+  // silenceFirstRun): pins are app anchors. A drifted pin first resets to
+  // its pinned base URL in place (stay selected, no unload — next press,
+  // now at base, parks); a pin already at base parks (unloads) instead of
+  // closing; a second press (now pending) falls through to stock close, as
+  // do middle-click and the context menu. Stock refuses to discard the
+  // SELECTED tab even forced (tabbrowser.js _mayDiscardBrowser), so parking
+  // moves selection to a visible neighbor first — the focus jump mirrors a
+  // close. Anything where a discard would silently lose state or no-op
+  // falls through to stock (which prompts or closes): unsaved work,
+  // already-pending, internal pages, sole-visible-tab windows,
+  // multiselections.
+  const PIN_PARK_PREF = "aph.pins.ctrlWUnloads";
+
+  function getCtrlWParksPinned() {
+    try {
+      if (Services.prefs && typeof Services.prefs.getBoolPref === "function") {
+        return Services.prefs.getBoolPref(PIN_PARK_PREF);
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  // Next visible tab after `tab` in strip order, else the nearest visible
+  // tab before it. Hidden (foreign-workspace / tree-collapsed), closing,
+  // and the tab itself never qualify. Null when nothing else is visible.
+  function findParkNeighbor(tab) {
+    try {
+      let tabs = [];
+      try {
+        tabs = Array.from(gBrowser.tabs || []);
+      } catch (e) {
+        return null;
+      }
+      const at = tabs.indexOf(tab);
+      if (at === -1) {
+        return null;
+      }
+      const visible = (t) => {
+        try {
+          if (!t || t === tab || t.closing) {
+            return false;
+          }
+        } catch (e) {
+          return false;
+        }
+        try {
+          if (t.hidden) {
+            return false;
+          }
+        } catch (e) {}
+        try {
+          if (typeof t.hasAttribute === "function" && t.hasAttribute("hidden")) {
+            return false;
+          }
+        } catch (e) {}
+        return true;
+      };
+      for (let i = at + 1; i < tabs.length; i++) {
+        try {
+          if (visible(tabs[i])) {
+            return tabs[i];
+          }
+        } catch (e) {}
+      }
+      for (let i = at - 1; i >= 0; i--) {
+        try {
+          if (visible(tabs[i])) {
+            return tabs[i];
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  // Ctrl/Cmd+W on a selected STARRED tab mirrors pins (pref
+  // aph.stars.ctrlWUnloads, default on): starred tabs are normal
+  // per-workspace tabs with a base URL owned by 76-starred.js. A drifted
+  // star first resets to its starred base URL in place (stay selected, no
+  // unload — next press, now at base, parks); a star already at base parks
+  // (unloads) instead of closing; a second press (now pending) falls
+  // through to stock close. Same guards as pins: unsaved work,
+  // already-pending, internal pages, sole-visible-tab windows,
+  // multiselections. Pinned tabs never reach here (pin park runs first).
+  const STAR_PARK_PREF = "aph.stars.ctrlWUnloads";
+
+  function getCtrlWParksStarred() {
+    try {
+      if (Services.prefs && typeof Services.prefs.getBoolPref === "function") {
+        return Services.prefs.getBoolPref(STAR_PARK_PREF);
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  // 76-starred.js loads after this file in the bundle; resolve through
+  // typeof guards so a missing star module fails closed to stock close.
+  function isStarredForPark(tab) {
+    try {
+      if (typeof isStarredTab === "function") {
+        return !!isStarredTab(tab);
+      }
+    } catch (e) {}
+    try {
+      if (SessionStore && typeof SessionStore.getCustomTabValue === "function") {
+        if (SessionStore.getCustomTabValue(tab, "aphStarred") === "1") {
+          return true;
+        }
+      }
+    } catch (e) {}
+    try {
+      if (tab && typeof tab.hasAttribute === "function" && tab.hasAttribute("data-aph-starred")) {
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function parkSelectedStarredTab() {
+    try {
+      if (!getCtrlWParksStarred()) {
+        return { ok: false, reason: "disabled" };
+      }
+      let sel = null;
+      try {
+        sel = gBrowser.selectedTab;
+      } catch (e) {}
+      if (!sel) {
+        return { ok: false, reason: "no-tab" };
+      }
+      try {
+        if (sel.closing) {
+          return { ok: false, reason: "closing" };
+        }
+      } catch (e) {}
+      try {
+        if (sel.pinned) {
+          return { ok: false, reason: "pinned" };
+        }
+      } catch (e) {}
+      if (!isStarredForPark(sel)) {
+        return { ok: false, reason: "not-starred" };
+      }
+      // Multiselection closes as a unit in stock — never half-park it.
+      try {
+        const multi = gBrowser.selectedTabs || gBrowser.multiselectedTabs || null;
+        if (Array.isArray(multi) && multi.length > 1) {
+          return { ok: false, reason: "multi" };
+        }
+      } catch (e) {}
+      // Already parked: let stock close (second press closes).
+      try {
+        if (typeof sel.hasAttribute === "function" && sel.hasAttribute("pending")) {
+          return { ok: false, reason: "pending" };
+        }
+      } catch (e) {}
+      // Unsaved work: non-force discard would not prompt, so fall through
+      // to stock close, which does.
+      try {
+        if (sel.linkedBrowser?.frameLoader?.tabParent?.hasBeforeUnload) {
+          return { ok: false, reason: "beforeunload" };
+        }
+      } catch (e) {}
+      let spec = null;
+      try {
+        spec = sel.linkedBrowser?.currentURI?.spec;
+      } catch (e) {}
+      if (typeof spec !== "string" || !spec) {
+        return { ok: false, reason: "unknown-url" };
+      }
+      if (
+        spec.startsWith("about:") ||
+        spec.startsWith("chrome:") ||
+        spec.startsWith("resource:")
+      ) {
+        return { ok: false, reason: "internal" };
+      }
+      try {
+        if (isNewTab(sel)) {
+          return { ok: false, reason: "newtab" };
+        }
+      } catch (e) {}
+      // Drifted star: reset to the starred base URL in place (stay
+      // selected, no unload) and claim the keystroke. Same ordering as
+      // pins: after the guards (unsaved work still prompts via stock,
+      // internal pages never navigate), before the neighbor check so a
+      // sole-tab star can still reset.
+      try {
+        const target =
+          typeof effectiveStarURL === "function" ? effectiveStarURL(sel) : "";
+        if (target && spec && target !== spec) {
+          try {
+            if (typeof resetStarTab === "function") {
+              resetStarTab(sel);
+            }
+          } catch (_e) {}
+          // Reset navigation must not re-trigger domain routing.
+          try {
+            sel.__aphFresh = false;
+          } catch (_e) {}
+          return { ok: true, reset: true };
+        }
+      } catch (e) {}
+      const next = findParkNeighbor(sel);
+      if (!next) {
+        return { ok: false, reason: "only-tab" };
+      }
+      if (typeof gBrowser.discardBrowser !== "function") {
+        return { ok: false, reason: "no-api" };
+      }
+      try {
+        gBrowser.selectedTab = next;
+      } catch (e) {
+        return { ok: false, reason: "no-select" };
+      }
+      let discarded = false;
+      try {
+        // Stock returns false on refusal, undefined on success.
+        discarded = gBrowser.discardBrowser(sel) !== false;
+      } catch (e) {
+        discarded = false;
+      }
+      if (!discarded) {
+        try {
+          gBrowser.selectedTab = sel;
+        } catch (_e) {}
+        return { ok: false, reason: "discard-refused" };
+      }
+      // Discarded reload must not re-trigger domain routing.
+      try {
+        sel.__aphFresh = false;
+      } catch (e) {}
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: "error" };
+    }
+  }
+
+  function parkSelectedPinnedTab() {
+    try {
+      if (!getCtrlWParksPinned()) {
+        return { ok: false, reason: "disabled" };
+      }
+      let sel = null;
+      try {
+        sel = gBrowser.selectedTab;
+      } catch (e) {}
+      if (!sel) {
+        return { ok: false, reason: "no-tab" };
+      }
+      try {
+        if (sel.closing) {
+          return { ok: false, reason: "closing" };
+        }
+      } catch (e) {}
+      try {
+        if (!sel.pinned) {
+          return { ok: false, reason: "not-pinned" };
+        }
+      } catch (e) {
+        return { ok: false, reason: "not-pinned" };
+      }
+      // Multiselection closes as a unit in stock — never half-park it.
+      try {
+        const multi = gBrowser.selectedTabs || gBrowser.multiselectedTabs || null;
+        if (Array.isArray(multi) && multi.length > 1) {
+          return { ok: false, reason: "multi" };
+        }
+      } catch (e) {}
+      // Already parked: let stock close (second press closes).
+      try {
+        if (typeof sel.hasAttribute === "function" && sel.hasAttribute("pending")) {
+          return { ok: false, reason: "pending" };
+        }
+      } catch (e) {}
+      // Unsaved work: non-force discard would not prompt, so fall through
+      // to stock close, which does.
+      try {
+        if (sel.linkedBrowser?.frameLoader?.tabParent?.hasBeforeUnload) {
+          return { ok: false, reason: "beforeunload" };
+        }
+      } catch (e) {}
+      let spec = null;
+      try {
+        spec = sel.linkedBrowser?.currentURI?.spec;
+      } catch (e) {}
+      if (typeof spec !== "string" || !spec) {
+        return { ok: false, reason: "unknown-url" };
+      }
+      if (
+        spec.startsWith("about:") ||
+        spec.startsWith("chrome:") ||
+        spec.startsWith("resource:")
+      ) {
+        return { ok: false, reason: "internal" };
+      }
+      try {
+        if (isNewTab(sel)) {
+          return { ok: false, reason: "newtab" };
+        }
+      } catch (e) {}
+      // Drifted pin: reset to the pinned base URL in place (stay selected,
+      // no unload) and claim the keystroke — the tab visibly snaps back
+      // instead of closing. Runs after the guards above so unsaved work
+      // still falls through to stock (which prompts) and internal pages
+      // never navigate; runs before the neighbor check so a sole-tab pin
+      // can still reset. Reset-then-discard in one press is deliberately
+      // avoided: the fresh navigation would race the discard (which tears
+      // down the load), so park happens on the next press, once at base.
+      try {
+        const target =
+          typeof effectivePinURL === "function" ? effectivePinURL(sel) : "";
+        if (target && spec && target !== spec) {
+          try {
+            if (typeof resetPinTab === "function") {
+              resetPinTab(sel);
+            }
+          } catch (_e) {}
+          // Reset navigation must not re-trigger domain routing.
+          try {
+            sel.__aphFresh = false;
+          } catch (_e) {}
+          return { ok: true, reset: true };
+        }
+      } catch (e) {}
+      const next = findParkNeighbor(sel);
+      if (!next) {
+        return { ok: false, reason: "only-tab" };
+      }
+      if (typeof gBrowser.discardBrowser !== "function") {
+        return { ok: false, reason: "no-api" };
+      }
+      try {
+        gBrowser.selectedTab = next;
+      } catch (e) {
+        return { ok: false, reason: "no-select" };
+      }
+      let discarded = false;
+      try {
+        // Stock returns false on refusal, undefined on success.
+        discarded = gBrowser.discardBrowser(sel) !== false;
+      } catch (e) {
+        discarded = false;
+      }
+      if (!discarded) {
+        try {
+          gBrowser.selectedTab = sel;
+        } catch (_e) {}
+        return { ok: false, reason: "discard-refused" };
+      }
+      // Discarded reload must not re-trigger domain routing.
+      try {
+        sel.__aphFresh = false;
+      } catch (e) {}
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: "error" };
+    }
+  }
+
   // Workspace indicator: number, or "N: name" pill once named. Click
   // renames via the command palette (no popover exists — this is the
   // mouse path). The `data-aph-ws` attribute on tabContainer already
@@ -5012,6 +5374,34 @@
         return;
       }
     } catch (err) {}
+    // Ctrl/Cmd+W on a selected pinned or starred tab keeps it open
+    // instead of closing — a drifted pin/star resets to its base URL in
+    // place, one already at base parks (unload); the second press (now
+    // pending), middle-click, and the context menu still close via stock.
+    // Anything the parkers refuse (unpinned/unstarred, unsafe,
+    // unparkable) falls through to stock close untouched.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyW") {
+      let parked = false;
+      try {
+        parked = parkSelectedPinnedTab().ok === true;
+      } catch (err) {
+        parked = false;
+      }
+      if (!parked) {
+        try {
+          parked =
+            typeof parkSelectedStarredTab === "function" &&
+            parkSelectedStarredTab().ok === true;
+        } catch (err) {
+          parked = false;
+        }
+      }
+      if (parked) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      return;
+    }
     // Plain Ctrl+T opens in the workspace's bound container (if any).
     // Unbound workspaces fall through to stock Firefox behavior.
     if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && e.code === "KeyT") {
@@ -5047,6 +5437,24 @@
           clearWsBinding(isValidId(current) ? current : "1");
         } else {
           bindCurrentWsToSelectedTab();
+        }
+      } catch (err) {}
+      return;
+    }
+    // Ctrl+Alt+S toggles the star on the selected tab (starred tabs keep
+    // a base URL: Ctrl+W resets drifted stars, parks at-base ones).
+    // Skipped in editable text so typing stays safe.
+    if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.code === "KeyS") {
+      if (isEditableTarget(e.target)) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof toggleSelectedStar === "function") {
+          toggleSelectedStar();
+        } else if (window.AphStar && typeof window.AphStar.toggleSelectedStar === "function") {
+          window.AphStar.toggleSelectedStar();
         }
       } catch (err) {}
       return;
@@ -5415,7 +5823,9 @@
       }
       const edit = makePinMenuItem("aph-pinreset-set", "Set Pinned Page…", () => {
         try {
-          promptPinURL(tab, stored || pinSpec(tab));
+          // Live-first: Enter alone re-pins the current page (the common
+          // "make this the base" case); stored is the fallback.
+          promptPinURL(tab, pinSpec(tab) || stored);
         } catch (err) {}
       });
       if (edit) {
@@ -5485,6 +5895,647 @@
     initPinReset();
   } else {
     window.addEventListener("load", initPinReset, { once: true });
+  }
+  // Starred tabs: normal per-workspace tabs with an Essentials-style base
+  // URL (captured at star time, editable). Right-click offers Star/Unstar
+  // + "Reset to Starred Page" + "Set Starred Page…"; Ctrl/Cmd+W mirrors
+  // pins (drifted resets in place, at-base parks via 50-unload.js).
+  // State persists via SessionStore custom tab values (same mechanism as
+  // workspace tags and 75-pinreset.js), so it survives session restore
+  // free; `data-aph-starred="1"` is the CSS-only marker (theme.css).
+  // Mutually exclusive with pins: starring a pinned tab is refused, and
+  // pinning a starred tab unstars it (one base URL owns Ctrl+W).
+  const STAR_FLAG_KEY = "aphStarred";
+  const STAR_URL_KEY = "aphStarURL";
+  const STAR_ATTR = "data-aph-starred";
+  // The tab close button shows a star instead of the X on starred tabs
+  // (theme.css §18 swaps the glyph); activating it unstars (below).
+  const STAR_CLOSE_SELECTOR = ".tab-close-button";
+  const STAR_CLOSE_TIP = "Unstar tab";
+
+  // Last failure code for Browser-Console diagnosis (AphStar.debug()).
+  // House style stays silent in prod; this keeps the silence debuggable.
+  let starLastError = "";
+
+  function starSpec(tab) {
+    try {
+      const uri = tab && tab.linkedBrowser && tab.linkedBrowser.currentURI;
+      const spec = uri && uri.spec;
+      return typeof spec === "string" ? spec : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function isStarrableURL(url) {
+    try {
+      const u = new URL(String(url || ""));
+      if (u.protocol === "javascript:") {
+        return false;
+      }
+      return !!u.host || u.protocol.indexOf("about:") === 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function isStarredTab(tab) {
+    try {
+      if (!tab) {
+        return false;
+      }
+      let v = null;
+      try {
+        v = SessionStore.getCustomTabValue(tab, STAR_FLAG_KEY);
+      } catch (e) {
+        v = null;
+      }
+      if (v === "1") {
+        return true;
+      }
+      // Restored before SSTabRestored re-applies: attribute backstop.
+      try {
+        if (typeof tab.hasAttribute === "function" && tab.hasAttribute(STAR_ATTR)) {
+          return true;
+        }
+      } catch (e) {}
+      try {
+        if (typeof tab.getAttribute === "function" && tab.getAttribute(STAR_ATTR) === "1") {
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function getStarURL(tab) {
+    try {
+      if (!tab) {
+        return "";
+      }
+      let v = null;
+      try {
+        v = SessionStore.getCustomTabValue(tab, STAR_URL_KEY);
+      } catch (e) {
+        v = null;
+      }
+      return typeof v === "string" && v ? v : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Returns true when stored. Invalid URLs are rejected (previous value
+  // kept) so a typo in the edit dialog can never brick the reset target.
+  function setStarURL(tab, url) {
+    try {
+      if (!tab || !isStarrableURL(url)) {
+        return false;
+      }
+      SessionStore.setCustomTabValue(tab, STAR_URL_KEY, String(url));
+      return true;
+    } catch (e) {
+      try {
+        starLastError = "set-threw";
+      } catch (err) {}
+      return false;
+    }
+  }
+
+  function applyStarAttribute(tab) {
+    try {
+      if (!tab) {
+        return;
+      }
+      const on = isStarredTab(tab);
+      try {
+        if (on) {
+          if (typeof tab.setAttribute === "function") {
+            tab.setAttribute(STAR_ATTR, "1");
+          }
+        } else if (typeof tab.removeAttribute === "function") {
+          tab.removeAttribute(STAR_ATTR);
+        }
+      } catch (e) {}
+    } catch (e) {}
+  }
+
+  function clearStar(tab) {
+    try {
+      if (!tab) {
+        return;
+      }
+      try {
+        if (SessionStore && typeof SessionStore.deleteCustomTabValue === "function") {
+          SessionStore.deleteCustomTabValue(tab, STAR_FLAG_KEY);
+          SessionStore.deleteCustomTabValue(tab, STAR_URL_KEY);
+        } else {
+          SessionStore.setCustomTabValue(tab, STAR_FLAG_KEY, "");
+          SessionStore.setCustomTabValue(tab, STAR_URL_KEY, "");
+        }
+      } catch (e) {}
+      try {
+        if (typeof tab.removeAttribute === "function") {
+          tab.removeAttribute(STAR_ATTR);
+        }
+      } catch (e) {}
+      try {
+        syncStarCloseTooltip(tab);
+      } catch (e) {}
+    } catch (e) {}
+  }
+
+  // Starred tabs without a stored value (flag restored, URL lost) fall
+  // back to the live URL so reset/menu never dead-end on them.
+  function effectiveStarURL(tab) {
+    try {
+      return getStarURL(tab) || starSpec(tab);
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function loadStarURL(browser, url) {
+    let principal = null;
+    try {
+      principal = systemPrincipal();
+    } catch (e) {
+      principal = null;
+    }
+    try {
+      if (browser && typeof browser.fixupAndLoadURIString === "function") {
+        browser.fixupAndLoadURIString(url, { triggeringPrincipal: principal });
+        return true;
+      }
+    } catch (e) {
+      try {
+        starLastError = "fixup-threw";
+      } catch (err) {}
+    }
+    // Fallback for browsers without the fixup helper wired up.
+    try {
+      if (browser && typeof browser.loadURI === "function" && Services && Services.io) {
+        browser.loadURI(Services.io.newURI(url), { triggeringPrincipal: principal });
+        return true;
+      }
+    } catch (e) {
+      try {
+        starLastError = "loadURI-threw";
+      } catch (err) {}
+    }
+    try {
+      if (!starLastError) {
+        starLastError = "no-loader";
+      }
+    } catch (err) {}
+    return false;
+  }
+
+  // Returns true when navigation was kicked off.
+  function resetStarTab(tab) {
+    try {
+      if (!tab || !isStarredTab(tab)) {
+        return false;
+      }
+      if (tab.pinned) {
+        return false;
+      }
+      const url = effectiveStarURL(tab);
+      if (!url) {
+        try {
+          starLastError = "no-url";
+        } catch (err) {}
+        return false;
+      }
+      const browser = tab.linkedBrowser;
+      if (!browser) {
+        try {
+          starLastError = "no-browser";
+        } catch (err) {}
+        return false;
+      }
+      return loadStarURL(browser, url);
+    } catch (e) {
+      try {
+        starLastError = "reset-threw";
+      } catch (err) {}
+      return false;
+    }
+  }
+
+  // Star captures the live page as the default base URL (a custom value
+  // wins — re-starring never clobbers an edited URL). Pinned tabs refuse:
+  // pins own their own base URL via 75-pinreset.js.
+  function starTab(tab) {
+    try {
+      if (!tab || tab.pinned) {
+        return false;
+      }
+      try {
+        SessionStore.setCustomTabValue(tab, STAR_FLAG_KEY, "1");
+      } catch (e) {
+        return false;
+      }
+      if (!getStarURL(tab)) {
+        const spec = starSpec(tab);
+        if (spec) {
+          try {
+            SessionStore.setCustomTabValue(tab, STAR_URL_KEY, spec);
+          } catch (e) {}
+        }
+      }
+      applyStarAttribute(tab);
+      try {
+        syncStarCloseTooltip(tab);
+      } catch (e) {}
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function unstarTab(tab) {
+    try {
+      if (!tab || !isStarredTab(tab)) {
+        return false;
+      }
+      clearStar(tab);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function toggleStarTab(tab) {
+    try {
+      if (!tab) {
+        return false;
+      }
+      if (isStarredTab(tab)) {
+        return unstarTab(tab);
+      }
+      return starTab(tab);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function toggleSelectedStar() {
+    try {
+      if (gBrowser && gBrowser.selectedTab) {
+        return toggleStarTab(gBrowser.selectedTab);
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // Pinning wins: a pinned tab keeps the pin base URL only.
+  function onStarTabPinned(e) {
+    let tab = null;
+    try {
+      tab = e && e.target;
+    } catch (err) {}
+    try {
+      if (tab && tab.pinned && isStarredTab(tab)) {
+        clearStar(tab);
+      }
+    } catch (err) {}
+  }
+
+  // Restored tabs keep SessionStore values; re-apply the CSS marker.
+  function onStarTabRestored(e) {
+    let tab = null;
+    try {
+      tab = e && e.target;
+    } catch (err) {}
+    if (!tab) {
+      return;
+    }
+    try {
+      applyStarAttribute(tab);
+    } catch (err) {}
+    try {
+      syncStarCloseTooltip(tab);
+    } catch (err) {}
+  }
+
+  // Resolve the right-clicked tab, mirroring 75-pinreset.js: triggerNode
+  // may carry the tab directly (.tab) or contain it; fall back to selected.
+  function starClickedTab(e) {
+    try {
+      const popup = e && e.target;
+      const node = (popup && popup.triggerNode) || document.popupNode || null;
+      if (node) {
+        const direct =
+          node.tab ||
+          (typeof node.closest === "function" ? node.closest("tab") : null);
+        if (direct) {
+          return direct;
+        }
+      }
+      if (gBrowser && gBrowser.selectedTab) {
+        return gBrowser.selectedTab;
+      }
+    } catch (err) {}
+    return null;
+  }
+
+  function makeStarMenuItem(id, label, action) {
+    let item = null;
+    try {
+      // browser.xhtml is an XHTML document: document.createElement would
+      // build an HTML-namespaced dud inside the XUL menupopup (same
+      // gotcha as archive.js / 75-pinreset.js).
+      item =
+        typeof document.createXULElement === "function"
+          ? document.createXULElement("menuitem")
+          : document.createElement("menuitem");
+      item.id = id;
+      item.setAttribute("label", label);
+      if (typeof item.addEventListener === "function") {
+        item.addEventListener("command", action);
+      }
+    } catch (err) {
+      item = null;
+    }
+    return item;
+  }
+
+  let starMenuItems = [];
+
+  function clearStarMenu() {
+    try {
+      for (const it of starMenuItems) {
+        try {
+          if (it && it.parentNode) {
+            it.parentNode.removeChild(it);
+          } else if (it && typeof it.remove === "function") {
+            it.remove();
+          }
+        } catch (err) {}
+      }
+    } catch (err) {}
+    starMenuItems = [];
+  }
+
+  function promptStarURL(tab, initial) {
+    const commit = (v) => {
+      try {
+        const value = String(v == null ? "" : v).trim();
+        if (value) {
+          setStarURL(tab, value);
+        }
+      } catch (err) {}
+    };
+    try {
+      if (window.AphPalette && typeof window.AphPalette.prompt === "function") {
+        window.AphPalette.prompt({
+          title: "Set Starred Page — Enter saves, Esc cancels",
+          initial: initial || "",
+          onCommit: commit,
+        });
+        return;
+      }
+    } catch (err) {}
+    // Palette unavailable (tests, minimal chrome): stock prompt fallback.
+    try {
+      if (typeof window.prompt === "function") {
+        commit(window.prompt("Set Starred Page URL:", initial || ""));
+      }
+    } catch (err) {}
+  }
+
+  function onStarMenuShowing(e) {
+    try {
+      const menu = (e && (e.currentTarget || e.target)) || null;
+      if (!menu || typeof menu.appendChild !== "function") {
+        return;
+      }
+      clearStarMenu();
+      const tab = starClickedTab(e);
+      if (!tab || tab.pinned) {
+        return;
+      }
+      const starred = isStarredTab(tab);
+      const toggle = makeStarMenuItem(
+        "aph-star-toggle",
+        starred ? "Unstar Tab" : "Star Tab",
+        () => {
+          try {
+            toggleStarTab(tab);
+          } catch (err) {}
+        }
+      );
+      if (toggle) {
+        try {
+          menu.appendChild(toggle);
+          starMenuItems.push(toggle);
+        } catch (err) {}
+      }
+      if (!starred) {
+        return;
+      }
+      const stored = effectiveStarURL(tab);
+      const reset = makeStarMenuItem("aph-star-reset", "Reset to Starred Page", () => {
+        try {
+          resetStarTab(tab);
+        } catch (err) {}
+      });
+      if (reset) {
+        // Grey out when already there — nothing to do.
+        try {
+          if (stored && stored === starSpec(tab)) {
+            reset.setAttribute("disabled", "true");
+          }
+        } catch (err) {}
+        try {
+          menu.appendChild(reset);
+          starMenuItems.push(reset);
+        } catch (err) {}
+      }
+      const edit = makeStarMenuItem("aph-star-set", "Set Starred Page…", () => {
+        try {
+          // Live-first: Enter alone re-stars the current page (the common
+          // "make this the base" case); stored is the fallback.
+          promptStarURL(tab, starSpec(tab) || stored);
+        } catch (err) {}
+      });
+      if (edit) {
+        try {
+          menu.appendChild(edit);
+          starMenuItems.push(edit);
+        } catch (err) {}
+      }
+    } catch (err) {}
+  }
+
+  function closeButtonOf(tab) {
+    try {
+      if (tab && typeof tab.querySelector === "function") {
+        return tab.querySelector(STAR_CLOSE_SELECTOR);
+      }
+    } catch (err) {}
+    return null;
+  }
+
+  // Best-effort tooltip: the star button unstars, so "Close tab" would
+  // lie. Stock may overwrite it on hover; the glyph (theme.css §18)
+  // remains the source of truth.
+  function syncStarCloseTooltip(tab) {
+    let btn = null;
+    try {
+      btn = closeButtonOf(tab);
+    } catch (err) {}
+    if (!btn) {
+      return;
+    }
+    try {
+      if (isStarredTab(tab) && !(tab && tab.pinned)) {
+        if (typeof btn.setAttribute === "function") {
+          btn.setAttribute("tooltiptext", STAR_CLOSE_TIP);
+        }
+      } else if (typeof btn.removeAttribute === "function") {
+        btn.removeAttribute("tooltiptext");
+      }
+    } catch (err) {}
+  }
+
+  // Owner tab when the event targets a starred tab's close (star)
+  // button; null otherwise. Pinned tabs are excluded — pins own X.
+  function starCloseOwner(e) {
+    try {
+      const t = e && e.target;
+      const btn =
+        t && typeof t.closest === "function" ? t.closest(STAR_CLOSE_SELECTOR) : null;
+      if (!btn) {
+        return null;
+      }
+      const tab =
+        typeof btn.closest === "function" ? btn.closest("tab") : null;
+      if (tab && !tab.pinned && isStarredTab(tab)) {
+        return tab;
+      }
+    } catch (err) {}
+    return null;
+  }
+
+  // The star button unstars instead of closing. Capture on the tab
+  // container (ancestor — fires before the button's own stock handler),
+  // so the swallowed activation can never leak through to a close.
+  // Listens to both `click` (mouse/touch) and `command` (keyboard
+  // activation via Space/Enter on a focused button, which bypasses
+  // click). mousedown is deliberately untouched (no stock close acts
+  // on it; selection side effects are harmless).
+  function onStarCloseEvent(e) {
+    let tab = null;
+    try {
+      tab = starCloseOwner(e);
+    } catch (err) {}
+    if (!tab) {
+      return;
+    }
+    try {
+      if (e) {
+        if (typeof e.preventDefault === "function") {
+          e.preventDefault();
+        }
+        if (typeof e.stopPropagation === "function") {
+          e.stopPropagation();
+        }
+      }
+    } catch (err) {}
+    try {
+      unstarTab(tab);
+    } catch (err) {}
+  }
+
+  function syncAllStarAttributes() {
+    try {
+      if (!gBrowser || !gBrowser.tabs) {
+        return;
+      }
+      for (const t of gBrowser.tabs) {
+        try {
+          if (isStarredTab(t)) {
+            applyStarAttribute(t);
+            syncStarCloseTooltip(t);
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
+  function cleanupStar() {
+    try {
+      clearStarMenu();
+    } catch (e) {}
+    try {
+      if (gBrowser && gBrowser.tabContainer) {
+        gBrowser.tabContainer.removeEventListener("TabPinned", onStarTabPinned);
+        gBrowser.tabContainer.removeEventListener("SSTabRestored", onStarTabRestored);
+        gBrowser.tabContainer.removeEventListener("click", onStarCloseEvent, true);
+        gBrowser.tabContainer.removeEventListener("command", onStarCloseEvent, true);
+      }
+    } catch (e) {}
+    try {
+      const menu = document.getElementById("tabContextMenu");
+      if (menu) {
+        menu.removeEventListener("popupshowing", onStarMenuShowing);
+      }
+    } catch (e) {}
+  }
+
+  function initStar() {
+    try {
+      syncAllStarAttributes();
+    } catch (e) {}
+    try {
+      if (gBrowser && gBrowser.tabContainer) {
+        gBrowser.tabContainer.addEventListener("TabPinned", onStarTabPinned);
+        gBrowser.tabContainer.addEventListener("SSTabRestored", onStarTabRestored);
+        gBrowser.tabContainer.addEventListener("click", onStarCloseEvent, true);
+        gBrowser.tabContainer.addEventListener("command", onStarCloseEvent, true);
+      }
+    } catch (e) {}
+    try {
+      const menu = document.getElementById("tabContextMenu");
+      if (menu && typeof menu.addEventListener === "function") {
+        menu.addEventListener("popupshowing", onStarMenuShowing);
+      }
+    } catch (e) {}
+    try {
+      window.addEventListener("unload", cleanupStar, { once: true });
+    } catch (e) {}
+    try {
+      window.AphStar = {
+        isStarred: isStarredTab,
+        getStarURL,
+        setStarURL,
+        starTab,
+        unstarTab,
+        toggleStarTab,
+        toggleSelectedStar,
+        resetStarTab,
+        promptStarURL,
+        STAR_FLAG_KEY,
+        STAR_URL_KEY,
+        debug: () => {
+          try {
+            return { lastError: starLastError || null };
+          } catch (err) {
+            return { lastError: "debug-threw" };
+          }
+        },
+      };
+    } catch (e) {}
+  }
+
+  if (document.readyState === "complete") {
+    initStar();
+  } else {
+    window.addEventListener("load", initStar, { once: true });
   }
   // Stamp fresh tabs (restored keep theirs); inherit a
   // grouped sibling's tag. Tabs armed for container repair are skipped —

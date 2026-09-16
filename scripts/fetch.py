@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = ROOT / "build"
 FIREFOX_DIR = BUILD_DIR / "firefox"
 
-VERSION = "155.0.1"
+VERSION = "156.0"
 
 MOZILLA_CDN = "https://download-installer.cdn.mozilla.net/pub/firefox/releases"
 ARCH_MAP = {

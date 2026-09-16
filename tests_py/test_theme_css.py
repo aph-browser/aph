@@ -104,13 +104,52 @@ def test_tree_rails_are_paint_only() -> None:
     css = _css()
     head = css.find("Indent rails: vertical")
     assert head != -1
-    body = css[head : head + 2500]
+    body = css[head : head + 3200]
     assert "position: absolute" in body
     assert "width: 1px" in body
     assert "pointer-events: none" in body
     assert ".aph-tree-rail--inner" in body
     assert "inset-inline-start" in body
     assert "overflow-clip-margin" in body
+
+
+def test_tree_indent_yields_to_stock_drag_positioning() -> None:
+    """Indented tabs must not fight stock's drag positioning: stock pins
+    the dragged tab with .tabbrowser-tab[dragtarget]
+    { position: absolute !important } and steers it via an inline `top`
+    measured for absolute positioning. Our relative tab positioning is
+    more specific and would win mid-drag, turning that inline `top` into
+    a relative offset that parks the tab ~its strip offset below the
+    cursor. Every rule putting position:relative on an indented tab must
+    therefore exclude the stock drag state."""
+    css = _css()
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    found = False
+    for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", code):
+        selectors, body = m.group(1), m.group(2)
+        if "position: relative" not in body:
+            continue
+        if "data-aph-level" not in selectors:
+            continue
+        for sel in selectors.split(","):
+            sel = sel.strip()
+            if "data-aph-level" in sel:
+                found = True
+                assert ":not([dragtarget])" in sel, f"indent positioning fights stock drag: {sel}"
+    assert found, "indented-tab positioning rule vanished"
+
+
+def test_tree_rails_hidden_while_dragged() -> None:
+    """Rails anchor to the tab via its position:relative; mid-drag that
+    containing block is yielded to stock (see above), so rails must hide
+    for the flight or they re-anchor to a foreign ancestor and streak
+    under the cursor. Hiding is pure CSS on [dragtarget], so nothing can
+    stick hidden after drop."""
+    css = _css()
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    assert re.search(r"\[dragtarget\][^{]*\.aph-tree-rail[^}]*display:\s*none", code, re.S), (
+        "missing mid-drag rail hide rule"
+    )
 
 
 def test_tree_rails_hidden_when_collapsed() -> None:

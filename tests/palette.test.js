@@ -213,3 +213,214 @@ describe("dock-parity bind rows", () => {
     );
   });
 });
+
+describe("bookmarks + history search", () => {
+  function placesSandbox(opts) {
+    const o = opts || {};
+    const opened = [];
+    const sb2 = {
+      window: {
+        addEventListener() {},
+        AphWorkspaces: {
+          getCurrent: () => "1",
+          getWsName: () => "",
+          getWsContainer: () => 0,
+          describeContainer: () => null,
+          getRoutes: () => ({}),
+          setRoute: () => {},
+          deleteRoute: () => {},
+          getWs: () => "1",
+          switchTo: () => {},
+          sendTabTo: () => {},
+          openBoundTab: (u, w) => { opened.push([u, w || ""]); },
+          openTempTab: (u) => { opened.push([u, "temp"]); },
+        },
+      },
+      document: { readyState: "loading" },
+      gBrowser: {
+        tabs: o.tabs || [],
+        addTrustedTab: () => ({}),
+        get selectedTab() {
+          return { linkedBrowser: { currentURI: { spec: "about:newtab" } } };
+        },
+      },
+      SessionStore: {},
+    };
+    if (o.places !== undefined) {
+      sb2.window.AphPlaces = o.places;
+    }
+    if (o.private) {
+      sb2.window.PrivateBrowsingUtils = { isWindowPrivate: () => true };
+    }
+    if (o.historySvc) {
+      const svc = o.historySvc;
+      sb2.Cc = {
+        "@mozilla.org/browser/nav-history-service;1": { getService: () => svc },
+      };
+      sb2.Ci = { nsINavHistoryService: {} };
+    }
+    run(
+      "command-palette.js",
+      sb2,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest = { allItems, aphPlacesRowsForQuery };"
+    );
+    return { api: sb2.window.__aphTest, opened };
+  }
+
+  const demoPlaces = {
+    searchBookmarks: (q) =>
+      String(q).toLowerCase().includes("git")
+        ? [{ title: "GitHub", url: "https://github.com/" }]
+        : [],
+    searchHistory: (q) =>
+      String(q).toLowerCase().includes("git")
+        ? [{ title: "GitHub Docs", url: "https://docs.github.com/" }]
+        : [],
+  };
+
+  it("shows bookmarks first, then history, above the search fallback", () => {
+    const { api } = placesSandbox({ places: demoPlaces });
+    const res2 = api.allItems("git");
+    const bm2 = res2.findIndex((r) => r.hint === "Bookmark");
+    const hist2 = res2.findIndex((r) => r.hint === "History");
+    const search2 = res2.findIndex((r) => r.title.startsWith("Search DuckDuckGo"));
+    assert.ok(bm2 !== -1 && hist2 !== -1, res2.map((r) => `${r.title}[${r.hint}]`).join(" | "));
+    assert.ok(bm2 < hist2, "bookmarks before history");
+    assert.ok(hist2 < search2, "places before search fallback");
+    assert.equal(res2[bm2].sub, "https://github.com/");
+    assert.equal(res2[hist2].sub, "https://docs.github.com/");
+  });
+
+  it("requires 2+ chars and skips place: URIs", () => {
+    const { api } = placesSandbox({
+      places: {
+        searchBookmarks: () => [
+          { title: "Saved search", url: "place:queryType=1&sort=8" },
+          { title: "OK", url: "https://example.com/" },
+        ],
+        searchHistory: () => [{ title: "H", url: "https://h.example/" }],
+      },
+    });
+    assert.equal(api.aphPlacesRowsForQuery("a").length, 0);
+    assert.equal(api.aphPlacesRowsForQuery("").length, 0);
+    const rows = api.aphPlacesRowsForQuery("ex");
+    assert.ok(rows.every((r) => !String(r.sub).startsWith("place:")), JSON.stringify(rows));
+    assert.ok(rows.some((r) => r.sub === "https://example.com/"));
+  });
+
+  it("dedupes bookmark-over-history and skips open-tab URLs", () => {
+    const openTab = {
+      label: "GitHub",
+      linkedBrowser: { currentURI: { spec: "https://github.com/" } },
+    };
+    const { api } = placesSandbox({
+      tabs: [openTab],
+      places: {
+        searchBookmarks: () => [{ title: "GitHub", url: "https://github.com/" }],
+        searchHistory: () => [
+          { title: "GitHub", url: "https://github.com/" },
+          { title: "Docs", url: "https://docs.github.com/" },
+        ],
+      },
+    });
+    const rows = api.aphPlacesRowsForQuery("git");
+    const urls = rows.map((r) => r.sub);
+    // Open-tab URL excluded entirely (switch via the tab row instead).
+    assert.ok(!urls.includes("https://github.com/"), urls.join(","));
+    assert.ok(urls.includes("https://docs.github.com/"));
+  });
+
+  it("dedupes same-URL bookmark/history to the bookmark row", () => {
+    const { api } = placesSandbox({
+      places: {
+        searchBookmarks: () => [{ title: "Same", url: "https://dup.example/" }],
+        searchHistory: () => [{ title: "Same", url: "https://dup.example/" }],
+      },
+    });
+    const rows = api.aphPlacesRowsForQuery("dup");
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].hint, "Bookmark");
+  });
+
+  it("hides history in private windows but keeps bookmarks", () => {
+    const { api } = placesSandbox({ places: demoPlaces, private: true });
+    const rows = api.aphPlacesRowsForQuery("git");
+    assert.ok(rows.some((r) => r.hint === "Bookmark"), JSON.stringify(rows));
+    assert.ok(!rows.some((r) => r.hint === "History"), JSON.stringify(rows));
+  });
+
+  it("opens places via bound container, Alt+Enter via temp", () => {
+    const { api, opened } = placesSandbox({ places: demoPlaces });
+    const res = api.allItems("git");
+    const bm = res.find((r) => r.hint === "Bookmark");
+    bm.run();
+    assert.deepEqual(opened[opened.length - 1], ["https://github.com/", ""]);
+    bm.runInTemp();
+    assert.deepEqual(opened[opened.length - 1], ["https://github.com/", "temp"]);
+  });
+
+  it("keeps Go to first for URL-like input with places after", () => {
+    const { api } = placesSandbox({
+      places: {
+        searchBookmarks: () => [{ title: "GitHub", url: "https://github.com/" }],
+        searchHistory: () => [],
+      },
+    });
+    const res = api.allItems("github.com");
+    assert.ok(res[0] && res[0].title.startsWith("Go to "), res[0] && res[0].title);
+    assert.ok(res.some((r) => r.hint === "Bookmark"), res.map((r) => r.title).join(" | "));
+  });
+
+  it("queries the history service when no seam is present", () => {
+    function fakeSvc() {
+      const calls = [];
+      const data = {
+        1: [{ title: "BM Title", uri: "https://bm.example/" }],
+        0: [
+          { title: "Hist Title", uri: "https://hist.example/" },
+          { title: "Saved", uri: "place:queryType=0" },
+        ],
+      };
+      return {
+        calls,
+        getNewQuery: () => ({ searchTerms: "", setFolders() {} }),
+        getNewQueryOptions: () => ({
+          QUERY_TYPE_BOOKMARKS: 1,
+          QUERY_TYPE_HISTORY: 0,
+          SORT_BY_FRECENCY_DESCENDING: 8,
+          queryType: 0,
+          sortingMode: 0,
+          maxResults: 0,
+        }),
+        executeQuery: (q, opts) => {
+          calls.push([q.searchTerms, opts.queryType]);
+          const rows = data[opts.queryType] || [];
+          const limited = rows.slice(0, opts.maxResults || rows.length);
+          return {
+            root: {
+              containerOpen: false,
+              childCount: limited.length,
+              getChild: (i) => limited[i],
+            },
+          };
+        },
+      };
+    }
+    const svc = fakeSvc();
+    const { api } = placesSandbox({ historySvc: svc });
+    const rows = api.aphPlacesRowsForQuery("he");
+    assert.ok(rows.some((r) => r.sub === "https://bm.example/" && r.hint === "Bookmark"));
+    assert.ok(rows.some((r) => r.sub === "https://hist.example/" && r.hint === "History"));
+    assert.ok(!rows.some((r) => String(r.sub).startsWith("place:")));
+    assert.ok(svc.calls.some((c) => c[1] === 1 && c[0] === "he"));
+    assert.ok(svc.calls.some((c) => c[1] === 0 && c[0] === "he"));
+  });
+
+  it("returns no places without a seam or service", () => {
+    const { api } = placesSandbox({});
+    assert.equal(api.aphPlacesRowsForQuery("github").length, 0);
+    // Commands still work — places absence never breaks the palette.
+    assert.ok(api.allItems("new tab").some((r) => r.title === "New Tab"));
+  });
+});

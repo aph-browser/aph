@@ -120,6 +120,99 @@
     return out;
   }
 
+  // Starred-tab rows (flat — the palette has no nested menus). Fully
+  // guarded: the star controller may be absent (tests, minimal chrome).
+  function starCtl() {
+    try {
+      return window.AphStar || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function starSelectedTab() {
+    try {
+      return (gBrowser && gBrowser.selectedTab) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function starCommands() {
+    const out = [];
+    try {
+      const ctl = starCtl();
+      if (!ctl) {
+        return out;
+      }
+      const tab = starSelectedTab();
+      if (!tab) {
+        return out;
+      }
+      let starred = false;
+      try {
+        starred = !!(ctl.isStarred && ctl.isStarred(tab));
+      } catch (e) {}
+      let pinned = false;
+      try {
+        pinned = !!tab.pinned;
+      } catch (e) {}
+      if (!pinned) {
+        out.push({
+          title: starred ? "Unstar Current Tab" : "Star Current Tab",
+          hint: "Ctrl+Alt+S",
+          sub: starred
+            ? "Removes the starred base URL · Ctrl+W returns to stock close"
+            : "Keeps a base URL · Ctrl+W resets drifted stars, parks at-base ones",
+          run: () => {
+            try {
+              if (ctl.toggleStarTab) {
+                ctl.toggleStarTab(tab);
+              }
+            } catch (e) {}
+          },
+        });
+      }
+      if (starred && !pinned) {
+        out.push({
+          title: "Reset Starred Tab to Base Page",
+          hint: "",
+          sub: "Navigates the current tab back to its starred URL",
+          run: () => {
+            try {
+              if (ctl.resetStarTab) {
+                ctl.resetStarTab(tab);
+              }
+            } catch (e) {}
+          },
+        });
+        out.push({
+          title: "Set Starred Page…",
+          hint: "",
+          sub: "Edits the starred base URL · empty cancels",
+          keepOpen: true,
+          run: () => {
+            try {
+              let initial = "";
+              try {
+                // Live-first: Enter alone re-stars the current page;
+                // stored is the fallback (e.g. unreachable live URL).
+                initial =
+                  tab.linkedBrowser.currentURI.spec ||
+                  (ctl.getStarURL && ctl.getStarURL(tab)) ||
+                  "";
+              } catch (_e) {}
+              if (ctl.promptStarURL) {
+                ctl.promptStarURL(tab, initial);
+              }
+            } catch (e) {}
+          },
+        });
+      }
+    } catch (e) {}
+    return out;
+  }
+
   function commands() {
     const api = ws();
     const cmds = [];
@@ -255,6 +348,7 @@
           } catch (e) {}
         },
       },
+      ...starCommands(),
       {
         title: "Indent Tab (Make Child of Tab Above)",
         hint: "",
@@ -370,6 +464,24 @@
       try {
         if (t.pinned) {
           badge.push("pinned");
+        }
+      } catch (e) {}
+      try {
+        let starred = false;
+        try {
+          if (window.AphStar && typeof window.AphStar.isStarred === "function") {
+            starred = !!window.AphStar.isStarred(t);
+          }
+        } catch (_e) {}
+        if (!starred) {
+          try {
+            starred =
+              (typeof t.hasAttribute === "function" && t.hasAttribute("data-aph-starred")) ||
+              (typeof t.getAttribute === "function" && t.getAttribute("data-aph-starred") === "1");
+          } catch (_e) {}
+        }
+        if (starred) {
+          badge.push("starred");
         }
       } catch (e) {}
       let url = "";
@@ -537,6 +649,19 @@
       s.it._hl = { t: new Set(s.ti), s: new Set(s.si), h: new Set(s.hi) };
       return s.it;
     });
+    // Places bookmarks/history join non-empty queries after fuzzy matches
+    // (already filtered by Places searchTerms, frecency-ordered). They sit
+    // above the search fallback so a known page beats a fresh search.
+    try {
+      if (typeof aphPlacesRowsForQuery === "function") {
+        for (const r of aphPlacesRowsForQuery(raw)) {
+          out.push(r);
+          if (out.length >= 60) {
+            break;
+          }
+        }
+      }
+    } catch (e) {}
     const fb = navFallback(raw);
     if (fb) {
       // Direct URL navigation wins over fuzzy matches: typing "github.com"
