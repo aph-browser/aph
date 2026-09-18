@@ -515,9 +515,29 @@
   }
 
   // TabGroupCreate fires before members are adopted — defer past the settle.
+  // Robust to target shapes: tab-group element (normal), tab inside a
+  // group (some flows dispatch on the tab), or nothing usable (removal —
+  // fall back to a full header sync so a destroyed group's header can't
+  // linger visible).
   function onGroupChange(e) {
-    const group = e.target && e.target.closest ? e.target.closest("tab-group") : null;
+    let group = null;
+    try {
+      const t = e && e.target;
+      if (t && typeof t.closest === "function") {
+        group = t.closest("tab-group");
+      }
+      if (!group && t && t.group) {
+        group = t.group;
+      }
+    } catch (err) {
+      group = null;
+    }
     if (!group) {
+      try {
+        if (isValidId(current) && typeof syncGroupHeaders === "function") {
+          syncGroupHeaders(current);
+        }
+      } catch (err) {}
       return;
     }
     try {

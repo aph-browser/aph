@@ -194,6 +194,14 @@
         applyTreeVisibility();
       }
     } catch (err) {}
+    // Closing can empty or singleton-ize a native group: re-sync headers
+    // (deferred unify would touch a half-removed group; headers are safe
+    // synchronously and removal events get their own listener).
+    try {
+      if (isValidId(current) && typeof syncGroupHeaders === "function") {
+        syncGroupHeaders(current);
+      }
+    } catch (err) {}
     try {
       renderDock();
     } catch (err) {}

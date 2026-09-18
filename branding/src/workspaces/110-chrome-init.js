@@ -372,6 +372,24 @@
     gBrowser.tabContainer.addEventListener("TabUnpinned", onTabPinned);
     gBrowser.tabContainer.addEventListener("TabGroupCreate", onGroupChange);
     gBrowser.tabContainer.addEventListener("TabGroupUpdate", onGroupChange);
+    // Defensive: collapse/expand and destroy flows vary by Firefox
+    // version; unknown names never fire (harmless), known ones route to
+    // the same deferred unify. TabMove/TabClose cover the rest.
+    try {
+      gBrowser.tabContainer.addEventListener("TabGroupRemoved", onGroupChange);
+    } catch (e) {}
+    try {
+      gBrowser.tabContainer.addEventListener("TabGroupCollapse", onGroupChange);
+    } catch (e) {}
+    try {
+      gBrowser.tabContainer.addEventListener("TabGroupExpand", onGroupChange);
+    } catch (e) {}
+    // Whole-group strip moves (verified TabGroupMoved in omni.ja
+    // Tabbrowser.sys.mjs #handleTabMove): membership is unchanged but
+    // headers sync idempotently through the same handler.
+    try {
+      gBrowser.tabContainer.addEventListener("TabGroupMoved", onGroupChange);
+    } catch (e) {}
     try {
       gBrowser.tabContainer.addEventListener("TabSelect", onTreeTabSelect);
     } catch (e) {}

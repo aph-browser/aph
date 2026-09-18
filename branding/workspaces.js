@@ -1250,6 +1250,140 @@
     } catch (e) {}
   }
 
+  // Native-group nesting invariant: trees live inside groups. A tree edge
+  // is only valid between two tabs in the same group state (both
+  // ungrouped, or members of the same <tab-group>). Unnested helpers
+  // below enforce this at every edge-creation point (attach joins,
+  // indent/adopt refuse to cross, reads/heals treat crossings as absent).
+  function treeGroupOf(tab) {
+    try {
+      return (tab && tab.group) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function sameTreeGroup(a, b) {
+    try {
+      const ga = treeGroupOf(a);
+      const gb = treeGroupOf(b);
+      if (!ga && !gb) {
+        return true;
+      }
+      if (!ga || !gb) {
+        return false;
+      }
+      try {
+        if (ga === gb) {
+          return true;
+        }
+      } catch (e) {}
+      // Identity can differ across wrappers/mocks for the same logical
+      // group — fall back to id comparison when both sides carry one.
+      try {
+        return !!(ga.id && gb.id && ga.id === gb.id);
+      } catch (e) {
+        return false;
+      }
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Tabs we are programmatically (un)grouping right now. Stock joins
+  // (moveTabToExistingGroup / group.addTabs) append to the group end and
+  // stock ejects reposition after the old group; both dispatch TabMove
+  // synchronously. Without this guard the nested onTreeTabMove would
+  // re-derive the just-placed tab (group-end can sit past the parent span
+  // when trailing non-family members exist; a just-ejected tab looks like
+  // a fresh drop) and detach or re-parent it mid-operation. Entries live
+  // only for the synchronous stock call, so a missed event can never
+  // swallow a later genuine user drag (unlike a persistent ignore-flag).
+  const aphGroupOpGuard = new Set();
+
+  // Best-effort group join: stock `moveTabToExistingGroup` first (verified
+  // in omni.ja Tabbrowser.sys.mjs — appends to the group, no-ops when
+  // already grouped or pinned), `group.addTabs` fallback (same effect via
+  // tabgroup.js). Returns true when membership is (now) correct.
+  function joinTreeGroup(tab, group) {
+    try {
+      if (!tab || tab.closing || !group) {
+        return false;
+      }
+      try {
+        if (tab.pinned) {
+          return false;
+        }
+      } catch (e) {
+        return false;
+      }
+      try {
+        if (tab.group === group) {
+          return true;
+        }
+        const mine = tab.group && tab.group.id;
+        if (mine && group.id && mine === group.id) {
+          return true;
+        }
+      } catch (e) {}
+      aphGroupOpGuard.add(tab);
+      try {
+        try {
+          if (gBrowser && typeof gBrowser.moveTabToExistingGroup === "function") {
+            gBrowser.moveTabToExistingGroup(tab, group);
+            return true;
+          }
+        } catch (e) {}
+        try {
+          if (typeof group.addTabs === "function") {
+            group.addTabs([tab]);
+            return true;
+          }
+        } catch (e) {}
+      } finally {
+        try {
+          aphGroupOpGuard.delete(tab);
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // Best-effort group eject (symmetric counterpart to joinTreeGroup):
+  // guarded so the synchronous TabMove from stock ungroupTab doesn't
+  // re-derive the tab mid-operation. Pinned tabs never reach here (stock
+  // forbids grouping them); already-ungrouped is success.
+  function ejectTreeTabFromGroup(tab) {
+    try {
+      if (!tab || tab.closing) {
+        return false;
+      }
+      try {
+        if (!treeGroupOf(tab)) {
+          return true;
+        }
+      } catch (e) {}
+      aphGroupOpGuard.add(tab);
+      try {
+        try {
+          if (gBrowser && typeof gBrowser.ungroupTab === "function") {
+            gBrowser.ungroupTab(tab);
+          }
+        } catch (e) {}
+      } finally {
+        try {
+          aphGroupOpGuard.delete(tab);
+        } catch (e) {}
+      }
+      try {
+        return !treeGroupOf(tab);
+      } catch (e) {
+        return false;
+      }
+    } catch (e) {}
+    return false;
+  }
+
   function findTabByTreeId(id) {
     try {
       if (!id) {
@@ -1271,8 +1405,8 @@
   }
 
   // Resolve the stored parent to a live tab. Invalid edges (missing tab,
-  // self-parent, pinned child, cross-workspace) read as "no parent" so
-  // the tab renders Level 0; healTreeLinks clears them lazily.
+  // self-parent, pinned child, cross-workspace, cross-group) read as "no
+  // parent" so the tab renders Level 0; healTreeLinks clears them lazily.
   function getTreeParentTab(tab) {
     try {
       if (!tab) {
@@ -1303,6 +1437,15 @@
       } catch (e) {}
       try {
         if (getWs(found) !== getWs(tab)) {
+          return null;
+        }
+      } catch (e) {
+        return null;
+      }
+      // Trees live inside groups: a parent in another group state reads
+      // as absent (healTreeLinks clears the stored edge lazily).
+      try {
+        if (!sameTreeGroup(found, tab)) {
           return null;
         }
       } catch (e) {
@@ -1402,6 +1545,14 @@
           } catch (e) {
             continue;
           }
+          // Same group state only (cross-group edges read as detached).
+          try {
+            if (!sameTreeGroup(t, parentTab)) {
+              continue;
+            }
+          } catch (e) {
+            continue;
+          }
           out.push(t);
         } catch (e) {}
       }
@@ -1446,6 +1597,83 @@
     } catch (e) {
       return 0;
     }
+  }
+
+  // Group-agnostic children walk: same stored-link + workspace rules as
+  // getTreeChildren, but IGNORING group state. Used only by strip-drag
+  // family alignment, which must see the whole stored family (including
+  // members stranded across group edges by the very drop being handled)
+  // in order to regroup them. Everywhere else the filtered view applies.
+  function getTreeChildrenAnyGroup(parentTab) {
+    const out = [];
+    try {
+      if (!parentTab || parentTab.closing) {
+        return out;
+      }
+      let pid = null;
+      try {
+        pid = rawTreeId(parentTab);
+      } catch (e) {}
+      if (!pid) {
+        return out;
+      }
+      const tabs = Array.from(gBrowser.tabs || []);
+      for (const t of tabs) {
+        try {
+          if (!t || t === parentTab || t.closing) {
+            continue;
+          }
+          try {
+            if (t.pinned) {
+              continue;
+            }
+          } catch (e) {}
+          if (rawTreeParentId(t) !== pid) {
+            continue;
+          }
+          try {
+            if (getWs(t) !== getWs(parentTab)) {
+              continue;
+            }
+          } catch (e) {
+            continue;
+          }
+          out.push(t);
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  function getTreeDescendantsAnyGroup(parentTab) {
+    const out = [];
+    try {
+      if (!parentTab) {
+        return out;
+      }
+      const queue = getTreeChildrenAnyGroup(parentTab).slice();
+      const seen = new Set();
+      try {
+        seen.add(parentTab);
+      } catch (e) {}
+      let guard = 0;
+      while (queue.length && guard++ < 500) {
+        const cur = queue.shift();
+        try {
+          if (!cur || seen.has(cur)) {
+            continue;
+          }
+          seen.add(cur);
+          out.push(cur);
+          for (const kid of getTreeChildrenAnyGroup(cur)) {
+            if (!seen.has(kid)) {
+              queue.push(kid);
+            }
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return out;
   }
 
   function isTreeCollapsed(parentTab) {
@@ -1716,9 +1944,11 @@
   }
 
   // Core attach: link `child` under `opener`, retag to the opener's
-  // workspace, cap depth at 2 (children of L2 become siblings under the
-  // same L1), and place after the parent's last descendant. Returns the
-  // child's level (0 when it stays a root).
+  // workspace, match the parent's group state (grouped parents adopt the
+  // child via the stock join; ungrouped parents eject it — trees live
+  // inside groups), cap depth at 2 (children of L2 become siblings under
+  // the same L1), and place after the parent's last descendant. Returns
+  // the child's level (0 when it stays a root).
   function attachTreeChild(child, opener) {
     try {
       if (!child || child.closing) {
@@ -1789,7 +2019,16 @@
       }
       try {
         if (rawTreeId(child) === pid) {
-          return getTreeLevel(child);
+          // Already linked: still enforce the nesting invariant (a
+          // legacy cross-group edge keeps its link here but reads as
+          // Level 0 until healTreeLinks clears it).
+          try {
+            if (sameTreeGroup(child, parentTab)) {
+              return getTreeLevel(child);
+            }
+          } catch (e) {
+            return getTreeLevel(child);
+          }
         }
       } catch (e) {}
       // Cycle guard: the child must not already contain the parent.
@@ -1811,8 +2050,19 @@
           }
         }
       } catch (e) {}
+      // Nesting invariant, parent-ungrouped side: a grouped child joining
+      // an ungrouped parent leaves its group first (eject, never retag).
+      // The reverse direction (join) happens after placement below, since
+      // stock joins append to the group end (position-then-join, mirroring
+      // stock drag-and-drop.js: move to the drop index, then addTabs).
       try {
-        setTreeParent(child, pid);
+        if (!treeGroupOf(parentTab) && treeGroupOf(child)) {
+          try {
+            if (gBrowser && typeof gBrowser.ungroupTab === "function") {
+              gBrowser.ungroupTab(child);
+            }
+          } catch (e) {}
+        }
       } catch (e) {}
       try {
         let best = tabs.indexOf(parentTab);
@@ -1828,6 +2078,18 @@
           } catch (e) {}
         }
         moveTreeTabTo(child, best + 1);
+      } catch (e) {}
+      try {
+        setTreeParent(child, pid);
+      } catch (e) {}
+      // Nesting invariant, parent-grouped side: opener children inherit
+      // the parent's group (birth path). Guarded: the synchronous TabMove
+      // from the stock append must not re-derive (and detach) the tab.
+      try {
+        const pg = treeGroupOf(parentTab);
+        if (pg && !sameTreeGroup(child, parentTab)) {
+          joinTreeGroup(child, pg);
+        }
       } catch (e) {}
       try {
         renderTree();
@@ -1884,9 +2146,10 @@
   // external app opens a related tab that lands as an L0 root. Indent makes
   // the tab a child of the tab above it in strip order: the preceding
   // non-closing tab, then attachTreeChild(tab, prevTab). Same-workspace
-  // only (indent never retags across workspaces); pinned tabs and the
-  // first tab in the strip cannot indent. The tab's own subtree block is
-  // carried along so children are never stranded. Returns true on change.
+  // and same-group-state only (indent never retags across workspaces and
+  // never crosses native-group edges); pinned tabs and the first tab in
+  // the strip cannot indent. The tab's own subtree block is carried along
+  // so children are never stranded. Returns true on change.
   // Live multiselection (Ctrl+click), strip-order agnostic. Falls back to
   // [selectedTab] so palette/no-arg callers work with or without multi.
   function getTreeSelectedTabs() {
@@ -1969,9 +2232,12 @@
     return false;
   }
 
-  // Preceding non-closing same-workspace candidate for `target`. When
-  // `skipSet` is given, members are skipped so a contiguous block indents
-  // as siblings under the same unselected parent instead of staircasing.
+  // Preceding non-closing same-workspace, same-group-state candidate for
+  // `target`. Indent never crosses native-group edges (trees live inside
+  // groups — use drag or regroup first); it never retags workspaces
+  // either. When `skipSet` is given, members are skipped so a contiguous
+  // block indents as siblings under the same unselected parent instead of
+  // staircasing.
   function findIndentPrev(target, ws, skipSet) {
     try {
       let tabs = [];
@@ -2002,6 +2268,13 @@
           } catch (e) {}
           try {
             if (getWs(cand) !== ws) {
+              continue;
+            }
+          } catch (e) {
+            continue;
+          }
+          try {
+            if (!sameTreeGroup(cand, target)) {
               continue;
             }
           } catch (e) {
@@ -2605,7 +2878,8 @@
   }
 
   // Clear dangling edges (missing parent, self-parent, pinned child,
-  // cross-workspace, duplicate IDs). Cheap full pass on init/restore.
+  // cross-workspace, cross-group, duplicate IDs). Cheap full pass on
+  // init/restore.
   function healTreeLinks() {
     try {
       let tabs = [];
@@ -2668,6 +2942,13 @@
               } catch (e) {}
               try {
                 if (!bad && getWs(parent) !== getWs(t)) {
+                  bad = true;
+                }
+              } catch (e) {}
+              // Trees live inside groups: edges spanning group states
+              // heal to Level 0 like cross-workspace edges.
+              try {
+                if (!bad && !sameTreeGroup(parent, t)) {
                   bad = true;
                 }
               } catch (e) {}
@@ -2763,6 +3044,15 @@
               aphHideTab(t, "tree");
             }
           } else if (t.hidden) {
+            // Never fight a collapsed native group: Firefox owns hiding
+            // there (selected member stays visible via the early-continue
+            // above). Unhiding here would pop collapsed-group tabs open
+            // on every tree render/switch.
+            try {
+              if (t.group && t.group.collapsed) {
+                continue;
+              }
+            } catch (e) {}
             aphShowTab(t);
             try {
               let hb = null;
@@ -2912,7 +3202,11 @@
   // spans resolve to the innermost (latest-starting) parent, depth-capped
   // like attachTreeChild. Returns the parent to adopt (link only — the tab
   // keeps its drop position), or null when the spot belongs to no family.
-  function findEnclosingTreeParent(tab) {
+  // Fellow dragged tabs (multiselect strip drag) travel with `tab`, so
+  // they are neither candidate parents nor settled block members when
+  // computing spans. Without this, dragging [c1,c2] together lets each
+  // sibling masquerade as the other's host block and detach/adopt wrong.
+  function findEnclosingTreeParent(tab, skipSet) {
     try {
       if (!tab || tab.closing) {
         return null;
@@ -2947,7 +3241,22 @@
             continue;
           }
           try {
+            if (skipSet && skipSet.has(cand)) {
+              continue;
+            }
+          } catch (e) {}
+          try {
             if (cand.pinned || getWs(cand) !== ws) {
+              continue;
+            }
+          } catch (e) {
+            continue;
+          }
+          // Drops never cross native-group edges (trees live inside
+          // groups): a tab landing in another group state flattens to
+          // Level 0 instead of adopting.
+          try {
+            if (!sameTreeGroup(cand, tab)) {
               continue;
             }
           } catch (e) {
@@ -2966,6 +3275,11 @@
               if (d === tab) {
                 continue;
               }
+              try {
+                if (skipSet && skipSet.has(d)) {
+                  continue;
+                }
+              } catch (e) {}
               const i = tabs.indexOf(d);
               if (i > end) {
                 end = i;
@@ -2997,11 +3311,99 @@
     }
   }
 
-  // Manual drags: a moved parent carries its whole subtree block with it;
+  // Fellow dragged tabs for a strip move: the live multiselection, but
+  // only when the moved tab belongs to it (stock drags a selected tab as
+  // a block; dragging an unselected tab moves just it). Returns null for
+  // single-tab moves so callers keep the fast path. Pinned tabs are kept
+  // in the set for span-skipping even though tree logic ignores them.
+  function getTreeDragSet(movedTab, liveTabs) {
+    try {
+      if (!movedTab) {
+        return null;
+      }
+      const multi =
+        (gBrowser && (gBrowser.selectedTabs || gBrowser.multiselectedTabs)) || null;
+      if (!Array.isArray(multi) || multi.length < 2) {
+        return null;
+      }
+      let includes = false;
+      try {
+        includes = multi.includes(movedTab);
+      } catch (e) {
+        includes = false;
+      }
+      if (!includes) {
+        return null;
+      }
+      const liveSet = new Set(liveTabs || []);
+      const out = new Set();
+      for (const t of multi) {
+        try {
+          if (t && !t.closing && liveSet.has(t)) {
+            out.add(t);
+          }
+        } catch (e) {}
+      }
+      return out.size > 1 ? out : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Strip moves can split or join native groups (tree carry pulls a tab
+  // out of its group; a drop lands inside another). Tree code never
+  // retags workspaces, so anchoring is a no-op for intact groups — but
+  // headers go stale (empty/singleton groups, moved spans). Defer past
+  // the settle like onGroupChange; idempotent so double-unify with a
+  // TabGroupUpdate is harmless.
+  function scheduleGroupSyncAfterStripMove(involved) {
+    try {
+      const groups = new Set();
+      try {
+        for (const t of involved || []) {
+          try {
+            if (t && t.group) {
+              groups.add(t.group);
+            }
+          } catch (e) {}
+        }
+      } catch (e) {}
+      const run = () => {
+        try {
+          for (const g of groups) {
+            try {
+              if (typeof unifyGroup === "function") {
+                unifyGroup(g);
+              }
+            } catch (e) {}
+          }
+        } catch (e) {}
+        try {
+          if (typeof syncGroupHeaders === "function" && isValidId(current)) {
+            syncGroupHeaders(current);
+          }
+        } catch (e) {}
+      };
+      try {
+        setTimeout(run, 0);
+      } catch (e) {
+        run();
+      }
+    } catch (e) {}
+  }
+
+  // Manual drags: a moved parent carries its whole subtree block with it
+  // (positions and group state — the family follows the parent across
+  // native-group edges in both directions, so trees stay nested);
   // a child dropped outside its parent's block detaches to Level 0;
   // a child moved inside keeps its link (sibling reorder, level kept).
+  // Multiselect: fellow selected tabs move as a block (ride-along
+  // descendants skip independent handling; unselected descendants are
+  // still carried; stock owns the drag set's own group joins).
   // Re-entrant: stock movers dispatch TabMove for our own carry moves, so
-  // nested runs must be (and are) idempotent no-ops once placed.
+  // nested runs must be (and are) idempotent no-ops once placed. Depth
+  // accounting is finally-guaranteed: early returns must never leak the
+  // counter past the cap, or the top guard wedges the handler for good.
   function onTreeTabMove(e) {
     if (treeMoveDepth > 8) {
       return;
@@ -3017,6 +3419,15 @@
           return;
         }
       } catch (err) {}
+      // Programmatic group joins (attachTreeChild) dispatch TabMove
+      // synchronously: the link is already exactly as desired, so never
+      // re-derive it here (the group-end slot can sit past the parent
+      // span when trailing non-family members exist).
+      try {
+        if (aphGroupOpGuard.has(tab)) {
+          return;
+        }
+      } catch (err) {}
       let tabs = [];
       try {
         tabs = Array.from(gBrowser.tabs || []);
@@ -3026,12 +3437,76 @@
       if (!tabs.includes(tab)) {
         return;
       }
-      const descendants = getTreeDescendants(tab);
+      // Multiselect block: fellow selected tabs travel with the moved tab
+      // (stock moves them together). Descendants inside the set ride along
+      // via the strip move itself — they must not be carried again or
+      // re-parented independently.
+      let dragSet = null;
+      try {
+        dragSet = getTreeDragSet(tab, tabs);
+      } catch (err) {
+        dragSet = null;
+      }
+      try {
+        if (dragSet && hasSelectedTreeAncestor(tab, dragSet)) {
+          return;
+        }
+      } catch (err) {}
+      // Whole stored family, group-agnostic: members stranded across a
+      // group edge by this very drop must be visible here to be regrouped
+      // (the filtered getTreeDescendants would hide them). Selected
+      // descendants ride stock's own move (and stock joins the drag set
+      // itself), so they are excluded from both carrying and alignment.
+      let descendants = [];
+      try {
+        descendants = getTreeDescendantsAnyGroup(tab);
+      } catch (err) {
+        descendants = [];
+      }
+      if (dragSet) {
+        try {
+          descendants = descendants.filter((d) => d && !dragSet.has(d));
+        } catch (err) {}
+      }
+      // Align the family's group state to the parent's post-drop state
+      // (symmetric: joins on the way in, ejects on the way out). Guarded:
+      // stock (un)grouping dispatches TabMove synchronously. Runs before
+      // carrying so the block is positioned after membership settles.
+      const alignFamilyGroups = () => {
+        let pg = null;
+        try {
+          pg = treeGroupOf(tab);
+        } catch (err) {
+          pg = null;
+        }
+        for (const d of descendants) {
+          try {
+            if (!d || d.closing) {
+              continue;
+            }
+            if (pg) {
+              if (!sameTreeGroup(d, tab)) {
+                joinTreeGroup(d, pg);
+              }
+            } else if (treeGroupOf(d)) {
+              ejectTreeTabFromGroup(d);
+            }
+          } catch (err) {}
+        }
+      };
       if (descendants.length) {
+        try {
+          alignFamilyGroups();
+        } catch (err) {}
         // Carry the whole block after the parent, preserving sibling
         // order. Sequential moves recompute the parent base each time so
         // end-of-strip drags stay exact.
         try {
+          // Re-snapshot: alignment joins/ejects repositioned tabs, so the
+          // branch-start order is stale for sibling sorting.
+          try {
+            tabs = Array.from(gBrowser.tabs || []);
+          } catch (err) {}
           descendants.sort((a, b) => tabs.indexOf(a) - tabs.indexOf(b));
           for (let i = 0; i < descendants.length; i++) {
             const d = descendants[i];
@@ -3051,11 +3526,20 @@
             } catch (err) {}
           }
         } catch (err) {}
+        // Verify pass: carry moves shouldn't disturb membership (stock
+        // in-group reorder proves the path), but converge anyway — a
+        // mismatch here means the block scattered, and membership wins.
+        try {
+          alignFamilyGroups();
+        } catch (err) {}
         try {
           renderTree();
         } catch (err) {}
         try {
           applyTreeVisibility();
+        } catch (err) {}
+        try {
+          scheduleGroupSyncAfterStripMove(dragSet ? [tab, ...dragSet] : [tab, ...descendants]);
         } catch (err) {}
         return;
       }
@@ -3064,7 +3548,7 @@
       // dragged children included — and keeps its exact drop spot;
       // anywhere else it flattens to Level 0.
       try {
-        const host = findEnclosingTreeParent(tab);
+        const host = findEnclosingTreeParent(tab, dragSet);
         if (host) {
           let pid = null;
           try {
@@ -3090,11 +3574,22 @@
         try {
           applyTreeVisibility();
         } catch (err) {}
+        try {
+          scheduleGroupSyncAfterStripMove(dragSet ? [tab, ...dragSet] : [tab]);
+        } catch (err) {}
       } catch (err) {}
-    } catch (e) {}
-    try {
-      treeMoveDepth = Math.max(0, treeMoveDepth - 1);
-    } catch (err) {}
+    } catch (e) {
+    } finally {
+      // Guaranteed accounting: every early return above (unresolvable or
+      // pinned tab, guarded programmatic move, ride-along descendant,
+      // finished carry) must still balance the increment. A missed
+      // decrement strands the counter above the re-entrancy cap and the
+      // top guard then disables ALL drag handling permanently (it returns
+      // before incrementing, so it can never count back down).
+      try {
+        treeMoveDepth = Math.max(0, treeMoveDepth - 1);
+      } catch (err) {}
+    }
   }
 
   // Chevron + count badge + indent rails injection (vertical strip only
@@ -3508,6 +4003,15 @@
           } catch (e) {}
           try {
             if (getWs(cand) !== ws) {
+              continue;
+            }
+          } catch (e) {
+            continue;
+          }
+          // Trees live inside groups: indent needs a same-group
+          // predecessor (mirrors findIndentPrev).
+          try {
+            if (!sameTreeGroup(cand, tab)) {
               continue;
             }
           } catch (e) {
@@ -4457,15 +4961,37 @@
   // state applied on eventual unpin. Sent tabs keep their containers
   // (containers are immutable per tab), and position; bindings only affect
   // newly opened tabs.
-  function sendTabTo(target) {
+  function sendTabTo(target, explicit) {
     if (!isValidId(target) || target === current) {
       return;
     }
     let tabs = [];
+    // Explicit drag set wins (dock DnD): dragging an unselected tab must
+    // move that tab, not whatever happens to be selected. Keyboard/palette
+    // callers pass nothing and keep the live-selection behavior below.
     try {
-      const multi = gBrowser.selectedTabs || gBrowser.multiselectedTabs || [];
-      tabs = Array.from(multi).filter((t) => t && !t.closing);
+      if (Array.isArray(explicit)) {
+        try {
+          const live = new Set(Array.from(gBrowser.tabs || []));
+          tabs = explicit.filter((t) => t && !t.closing && live.has(t));
+        } catch (e) {
+          tabs = explicit.filter((t) => t && !t.closing);
+        }
+      } else if (explicit && !explicit.closing) {
+        try {
+          const live = Array.from(gBrowser.tabs || []);
+          tabs = live.includes(explicit) ? [explicit] : [explicit];
+        } catch (e) {
+          tabs = [explicit];
+        }
+      }
     } catch (e) {}
+    if (!tabs.length) {
+      try {
+        const multi = gBrowser.selectedTabs || gBrowser.multiselectedTabs || [];
+        tabs = Array.from(multi).filter((t) => t && !t.closing);
+      } catch (e) {}
+    }
     if (!tabs.length) {
       try {
         const sel = gBrowser.selectedTab;
@@ -4792,8 +5318,9 @@
           try {
             e.preventDefault();
             pill.classList.remove("drop-target");
-            if (dockDragTab) {
-              sendTabTo(id);
+            const dragTabs = resolveDockDragTabs();
+            if (dragTabs.length) {
+              sendTabTo(id, dragTabs);
             }
           } catch (err) {}
         });
@@ -5170,6 +5697,45 @@
       }
     } catch (err) {
       dockDragTab = null;
+    }
+  }
+
+  // Resolve what a dock drop should move: the dragged tab itself, expanded
+  // to the live multiselection only when the dragged tab belongs to it
+  // (stock strip-drag semantics). Reading selection alone is wrong — the
+  // user can drag an unselected tab while something else is selected.
+  function resolveDockDragTabs() {
+    try {
+      if (!dockDragTab || dockDragTab.closing) {
+        return [];
+      }
+      let live = [];
+      try {
+        live = Array.from(gBrowser.tabs || []);
+      } catch (e) {
+        return [];
+      }
+      if (!live.includes(dockDragTab)) {
+        return [];
+      }
+      try {
+        const multi =
+          (gBrowser && (gBrowser.selectedTabs || gBrowser.multiselectedTabs)) || null;
+        if (Array.isArray(multi) && multi.length > 1) {
+          try {
+            if (multi.includes(dockDragTab)) {
+              const liveSet = new Set(live);
+              const filtered = multi.filter((t) => t && !t.closing && liveSet.has(t));
+              if (filtered.length) {
+                return filtered;
+              }
+            }
+          } catch (e) {}
+        }
+      } catch (e) {}
+      return [dockDragTab];
+    } catch (e) {
+      return [];
     }
   }
 
@@ -6733,6 +7299,14 @@
         applyTreeVisibility();
       }
     } catch (err) {}
+    // Closing can empty or singleton-ize a native group: re-sync headers
+    // (deferred unify would touch a half-removed group; headers are safe
+    // synchronously and removal events get their own listener).
+    try {
+      if (isValidId(current) && typeof syncGroupHeaders === "function") {
+        syncGroupHeaders(current);
+      }
+    } catch (err) {}
     try {
       renderDock();
     } catch (err) {}
@@ -7333,9 +7907,29 @@
   }
 
   // TabGroupCreate fires before members are adopted — defer past the settle.
+  // Robust to target shapes: tab-group element (normal), tab inside a
+  // group (some flows dispatch on the tab), or nothing usable (removal —
+  // fall back to a full header sync so a destroyed group's header can't
+  // linger visible).
   function onGroupChange(e) {
-    const group = e.target && e.target.closest ? e.target.closest("tab-group") : null;
+    let group = null;
+    try {
+      const t = e && e.target;
+      if (t && typeof t.closest === "function") {
+        group = t.closest("tab-group");
+      }
+      if (!group && t && t.group) {
+        group = t.group;
+      }
+    } catch (err) {
+      group = null;
+    }
     if (!group) {
+      try {
+        if (isValidId(current) && typeof syncGroupHeaders === "function") {
+          syncGroupHeaders(current);
+        }
+      } catch (err) {}
       return;
     }
     try {
@@ -7846,6 +8440,24 @@
     gBrowser.tabContainer.addEventListener("TabUnpinned", onTabPinned);
     gBrowser.tabContainer.addEventListener("TabGroupCreate", onGroupChange);
     gBrowser.tabContainer.addEventListener("TabGroupUpdate", onGroupChange);
+    // Defensive: collapse/expand and destroy flows vary by Firefox
+    // version; unknown names never fire (harmless), known ones route to
+    // the same deferred unify. TabMove/TabClose cover the rest.
+    try {
+      gBrowser.tabContainer.addEventListener("TabGroupRemoved", onGroupChange);
+    } catch (e) {}
+    try {
+      gBrowser.tabContainer.addEventListener("TabGroupCollapse", onGroupChange);
+    } catch (e) {}
+    try {
+      gBrowser.tabContainer.addEventListener("TabGroupExpand", onGroupChange);
+    } catch (e) {}
+    // Whole-group strip moves (verified TabGroupMoved in omni.ja
+    // Tabbrowser.sys.mjs #handleTabMove): membership is unchanged but
+    // headers sync idempotently through the same handler.
+    try {
+      gBrowser.tabContainer.addEventListener("TabGroupMoved", onGroupChange);
+    } catch (e) {}
     try {
       gBrowser.tabContainer.addEventListener("TabSelect", onTreeTabSelect);
     } catch (e) {}

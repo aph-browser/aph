@@ -199,15 +199,37 @@
   // state applied on eventual unpin. Sent tabs keep their containers
   // (containers are immutable per tab), and position; bindings only affect
   // newly opened tabs.
-  function sendTabTo(target) {
+  function sendTabTo(target, explicit) {
     if (!isValidId(target) || target === current) {
       return;
     }
     let tabs = [];
+    // Explicit drag set wins (dock DnD): dragging an unselected tab must
+    // move that tab, not whatever happens to be selected. Keyboard/palette
+    // callers pass nothing and keep the live-selection behavior below.
     try {
-      const multi = gBrowser.selectedTabs || gBrowser.multiselectedTabs || [];
-      tabs = Array.from(multi).filter((t) => t && !t.closing);
+      if (Array.isArray(explicit)) {
+        try {
+          const live = new Set(Array.from(gBrowser.tabs || []));
+          tabs = explicit.filter((t) => t && !t.closing && live.has(t));
+        } catch (e) {
+          tabs = explicit.filter((t) => t && !t.closing);
+        }
+      } else if (explicit && !explicit.closing) {
+        try {
+          const live = Array.from(gBrowser.tabs || []);
+          tabs = live.includes(explicit) ? [explicit] : [explicit];
+        } catch (e) {
+          tabs = [explicit];
+        }
+      }
     } catch (e) {}
+    if (!tabs.length) {
+      try {
+        const multi = gBrowser.selectedTabs || gBrowser.multiselectedTabs || [];
+        tabs = Array.from(multi).filter((t) => t && !t.closing);
+      } catch (e) {}
+    }
     if (!tabs.length) {
       try {
         const sel = gBrowser.selectedTab;

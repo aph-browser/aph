@@ -286,8 +286,9 @@
           try {
             e.preventDefault();
             pill.classList.remove("drop-target");
-            if (dockDragTab) {
-              sendTabTo(id);
+            const dragTabs = resolveDockDragTabs();
+            if (dragTabs.length) {
+              sendTabTo(id, dragTabs);
             }
           } catch (err) {}
         });
@@ -664,6 +665,45 @@
       }
     } catch (err) {
       dockDragTab = null;
+    }
+  }
+
+  // Resolve what a dock drop should move: the dragged tab itself, expanded
+  // to the live multiselection only when the dragged tab belongs to it
+  // (stock strip-drag semantics). Reading selection alone is wrong — the
+  // user can drag an unselected tab while something else is selected.
+  function resolveDockDragTabs() {
+    try {
+      if (!dockDragTab || dockDragTab.closing) {
+        return [];
+      }
+      let live = [];
+      try {
+        live = Array.from(gBrowser.tabs || []);
+      } catch (e) {
+        return [];
+      }
+      if (!live.includes(dockDragTab)) {
+        return [];
+      }
+      try {
+        const multi =
+          (gBrowser && (gBrowser.selectedTabs || gBrowser.multiselectedTabs)) || null;
+        if (Array.isArray(multi) && multi.length > 1) {
+          try {
+            if (multi.includes(dockDragTab)) {
+              const liveSet = new Set(live);
+              const filtered = multi.filter((t) => t && !t.closing && liveSet.has(t));
+              if (filtered.length) {
+                return filtered;
+              }
+            }
+          } catch (e) {}
+        }
+      } catch (e) {}
+      return [dockDragTab];
+    } catch (e) {
+      return [];
     }
   }
 
