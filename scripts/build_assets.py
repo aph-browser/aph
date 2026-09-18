@@ -56,6 +56,7 @@ BUNDLES: dict[str, list[str]] = {
         "palette/20-nav.js",
         "palette/30-fuzzy.js",
         "palette/35-places.js",
+        "palette/36-archive.js",
         "palette/40-items.js",
         "palette/50-ui.js",
         "palette/60-control.js",

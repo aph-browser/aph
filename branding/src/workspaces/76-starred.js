@@ -316,10 +316,7 @@
       return;
     }
     try {
-      applyStarAttribute(tab);
-    } catch (err) {}
-    try {
-      syncStarCloseTooltip(tab);
+      syncStarTabChrome(tab);
     } catch (err) {}
   }
 
@@ -504,6 +501,18 @@
     } catch (err) {}
   }
 
+  // Central per-tab star sync (the visual half of syncTabChrome in
+  // 30-names-tags.js): marker + close tooltip always reflect state,
+  // setting or removing as needed.
+  function syncStarTabChrome(tab) {
+    try {
+      applyStarAttribute(tab);
+    } catch (err) {}
+    try {
+      syncStarCloseTooltip(tab);
+    } catch (err) {}
+  }
+
   // Owner tab when the event targets a starred tab's close (star)
   // button; null otherwise. Pinned tabs are excluded — pins own X.
   function starCloseOwner(e) {
@@ -560,10 +569,10 @@
       }
       for (const t of gBrowser.tabs) {
         try {
-          if (isStarredTab(t)) {
-            applyStarAttribute(t);
-            syncStarCloseTooltip(t);
-          }
+          // Single spelling for the per-tab sync (same outcome as the
+          // inline version: the attribute backstop in isStarredTab keeps
+          // a marker that SessionStore hasn't contradicted yet).
+          syncStarTabChrome(t);
         } catch (e) {}
       }
     } catch (e) {}

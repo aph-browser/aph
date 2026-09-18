@@ -14,6 +14,10 @@
  * Bound-match dimming: a tab whose container equals its workspace's binding
  * gets `data-aph-bound-match="1"` (theme.css hides the native
  * `.tab-context-line`); mismatches and unbound workspaces keep the line.
+ * Global pinned tabs match the viewed workspace, not their dormant tag.
+ * All per-tab markers sync through syncTabChrome (bound match + star);
+ * every lifecycle entry (birth, retag, restore, pin, switch, startup)
+ * funnels through it or the bulk syncAllTabChrome.
  * Domain routes: a host may be bound to a workspace ("github.com" -> "2",
  * managed from the command palette). Fresh top-level navigations matching
  * a rule are retagged pre-paint and reopened in the target workspace's
@@ -206,13 +210,17 @@
     return out;
   }
 
-  // Per-tab container-line dimming: when a tab's container equals its own
+  // Per-tab container-line dimming: when a tab's container equals its
   // workspace's bound container, the native `.tab-context-line` is redundant
   // (the WS badge in updateIndicator already shows the binding). Matching
   // tabs get `data-aph-bound-match="1"`; theme.css hides the line for those.
   // Mismatches, unbound workspaces, and default (cid 0) tabs never match,
   // so their lines stay visible. Temp containers can never be bound, so they
   // always show.
+  // Pins are global (visible in every workspace) with only a dormant tag:
+  // they match against the viewed (current) workspace, not that tag — a
+  // pinned Work-container tab hides its line exactly in Work-bound
+  // workspaces. Unpinned tabs match against their own tag.
   function isTabMatchingBinding(tab) {
     try {
       if (!tab || tab.closing) {
@@ -229,7 +237,11 @@
       }
       let ws = null;
       try {
-        ws = getWs(tab);
+        let pinned = false;
+        try {
+          pinned = !!tab.pinned;
+        } catch (e) {}
+        ws = pinned && isValidId(current) ? current : getWs(tab);
       } catch (e) {
         return false;
       }
@@ -803,9 +815,60 @@
     } catch (e) {}
     // Containers are immutable per tab, so the only thing that changes a
     // tab's match state is its workspace tag (binding changes go through
-    // syncAllTabBindingMatches). Sync here to cover every retag path:
+    // syncAllTabChrome). Sync here to cover every retag path:
     // stamp, send, route, adopt, anchor, openBoundTab.
-    syncTabBindingMatch(tab);
+    syncTabChrome(tab);
+  }
+
+  // Last-viewed stamp for auto-archive staleness: SessionStore custom tab
+  // value LAST_VIEWED_KEY, ms epoch as a string (same persistence as
+  // workspace tags, so stamps survive restarts and restored tabs keep
+  // their pre-restart viewed time). Stamped on TabSelect (45) and TabOpen
+  // (80); never on SSTabRestored (restore must not look like viewing).
+  // archive.js reads it at sweep time (key duplicated there by design —
+  // same pattern as "aphStarred" in 50/76).
+  const LAST_VIEWED_KEY = "aphLastViewed";
+
+  function stampLastViewed(tab) {
+    try {
+      if (!tab) {
+        return;
+      }
+      SessionStore.setCustomTabValue(tab, LAST_VIEWED_KEY, String(Date.now()));
+    } catch (e) {}
+  }
+
+  // Central per-tab chrome sync (the choke point): every lifecycle entry
+  // that births, retags, restores, pins, or reveals a tab funnels marker
+  // state through here, so no marker depends on remembering every path.
+  // Covers the bound-container match (10) and the star marker + close
+  // tooltip (76). Tree levels and visibility stay bulk (renderTree /
+  // reconcile) and are called alongside at the same entries.
+  function syncTabChrome(tab) {
+    try {
+      if (typeof syncTabBindingMatch === "function") {
+        syncTabBindingMatch(tab);
+      }
+    } catch (e) {}
+    try {
+      if (typeof syncStarTabChrome === "function") {
+        syncStarTabChrome(tab);
+      }
+    } catch (e) {}
+  }
+
+  function syncAllTabChrome() {
+    try {
+      const tabs = gBrowser ? gBrowser.tabs : null;
+      if (!tabs) {
+        return;
+      }
+      for (const t of Array.from(tabs)) {
+        try {
+          syncTabChrome(t);
+        } catch (e) {}
+      }
+    } catch (e) {}
   }
 
   // Per-workspace pinned tabs: stock gBrowser.hideTab() refuses pinned tabs
@@ -3188,6 +3251,12 @@
       if (!tab) {
         return;
       }
+      // Last-viewed stamp first: nothing below may skip it.
+      try {
+        if (typeof stampLastViewed === "function") {
+          stampLastViewed(tab);
+        }
+      } catch (err) {}
       expandTreeAncestors(tab);
       try {
         renderTree();
@@ -4901,6 +4970,14 @@
     anchorAllGroups();
     reconcile(target, tabs);
     pruneExtraNewTabs(target);
+    // Pinned tabs match the viewed workspace (not their dormant tag), so
+    // every switch re-syncs markers; unpinned matches are tag-stable and
+    // the pass is a cheap no-op for them.
+    try {
+      if (typeof syncAllTabChrome === "function") {
+        syncAllTabChrome();
+      }
+    } catch (e) {}
     // Deferred so the switch stays snappy; guards re-check at fire time.
     try {
       if (getUnloadOnSwitch()) {
@@ -4909,6 +4986,16 @@
             unloadEligibleTabs({ scope: "foreign" });
           } catch (e) {}
         }, 0);
+      }
+    } catch (e) {}
+    // Auto-archive (opt-in pref, default off — archive.js owns the pref
+    // read, eligibility and timing): each switch (re-)arms a 15 s settle
+    // timer there, so the sweep fires only once you've sat still; V1 has
+    // no staleness threshold and every eligible hidden-workspace tab goes.
+    try {
+      const arc = window.AphArchive;
+      if (arc && typeof arc.scheduleAutoSweep === "function") {
+        arc.scheduleAutoSweep();
       }
     } catch (e) {}
   }
@@ -6780,10 +6867,7 @@
       return;
     }
     try {
-      applyStarAttribute(tab);
-    } catch (err) {}
-    try {
-      syncStarCloseTooltip(tab);
+      syncStarTabChrome(tab);
     } catch (err) {}
   }
 
@@ -6968,6 +7052,18 @@
     } catch (err) {}
   }
 
+  // Central per-tab star sync (the visual half of syncTabChrome in
+  // 30-names-tags.js): marker + close tooltip always reflect state,
+  // setting or removing as needed.
+  function syncStarTabChrome(tab) {
+    try {
+      applyStarAttribute(tab);
+    } catch (err) {}
+    try {
+      syncStarCloseTooltip(tab);
+    } catch (err) {}
+  }
+
   // Owner tab when the event targets a starred tab's close (star)
   // button; null otherwise. Pinned tabs are excluded — pins own X.
   function starCloseOwner(e) {
@@ -7024,10 +7120,10 @@
       }
       for (const t of gBrowser.tabs) {
         try {
-          if (isStarredTab(t)) {
-            applyStarAttribute(t);
-            syncStarCloseTooltip(t);
-          }
+          // Single spelling for the per-tab sync (same outcome as the
+          // inline version: the attribute backstop in isStarredTab keeps
+          // a marker that SessionStore hasn't contradicted yet).
+          syncStarTabChrome(t);
         } catch (e) {}
       }
     } catch (e) {}
@@ -7147,6 +7243,12 @@
         tab.__aphBirth = Date.now();
       }
     } catch (err) {}
+    // Birth counts as viewed for auto-archive staleness.
+    try {
+      if (typeof stampLastViewed === "function") {
+        stampLastViewed(tab);
+      }
+    } catch (err) {}
     // Cross-window drag (TabOpen detail.adoptedTab, Bug 1244496): join the
     // destination's visible workspace. SessionStore preserves the source tag
     // across adopt, so without this a WS2 group dropped on a WS1 window
@@ -7232,6 +7334,25 @@
       tab.__aphFresh = false;
     } catch (err) {}
     stampTab(tab);
+    // Restored tabs keep their tag, so stampTab above is a no-op for them
+    // (no setWs, hence no per-tab sync) — sync markers explicitly or
+    // restored tabs keep stale chrome until the next binding change.
+    // Sync twice: now (attributes are usually ready) and one tick later
+    // (bulk restore can still be applying the tag/container when
+    // SSTabRestored fires — the tick re-checks once it settles; guards
+    // re-verify the tab is still alive).
+    try {
+      if (typeof syncTabChrome === "function") {
+        syncTabChrome(tab);
+        setTimeout(() => {
+          try {
+            if (!tab.closing) {
+              syncTabChrome(tab);
+            }
+          } catch (err) {}
+        }, 0);
+      }
+    } catch (err) {}
     // Restored tabs keep their persisted tree links; heal dangling edges
     // (missing/cross-WS parents) and ensure every tab owns a tree id.
     try {
@@ -7322,6 +7443,14 @@
     if (!tab) {
       return;
     }
+    // Pin/unpin flips the viewed workspace a global tab is matched
+    // against (pins match the current workspace, not their dormant tag),
+    // so re-sync markers here, not just on retag.
+    try {
+      if (typeof syncTabChrome === "function") {
+        syncTabChrome(tab);
+      }
+    } catch (err) {}
     try {
       if (!rawWs(tab) && isValidId(current)) {
         setWs(tab, current);
@@ -8040,6 +8169,14 @@
     try {
       startupRestore();
     } catch (e) {}
+    // Bulk-restored tabs can arrive with tag/container still settling when
+    // their SSTabRestored fires — one full chrome pass once session
+    // restore completes, so no tab waits on a binding change for markers.
+    try {
+      if (typeof syncAllTabChrome === "function") {
+        syncAllTabChrome();
+      }
+    } catch (e) {}
   }
 
   function scheduleStartupRestore() {
@@ -8354,9 +8491,12 @@
         setWsName,
         getCurrent: () => current,
         getWs,
+        stampLastViewed,
         isTabMatchingBinding,
         syncTabBindingMatch,
         syncAllTabBindingMatches,
+        syncTabChrome,
+        syncAllTabChrome,
         canUnloadTab,
         unloadEligibleTabs,
         getUnloadOnSwitch,
@@ -8412,8 +8552,8 @@
           }
         } catch (e) {}
       }
-      // Restored tabs keep their tags (no setWs above) — sync matches anyway.
-      syncAllTabBindingMatches();
+      // Restored tabs keep their tags (no setWs above) — sync markers anyway.
+      syncAllTabChrome();
       // Restored tree links survive via SessionStore; collapsed state
       // always starts expanded. Prune dangling/cross-WS edges.
       try {
@@ -8480,7 +8620,7 @@
           try {
             wsBindings = null;
             updateIndicator();
-            syncAllTabBindingMatches();
+            syncAllTabChrome();
           } catch (e) {}
         },
       };

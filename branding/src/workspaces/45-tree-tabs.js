@@ -2037,6 +2037,12 @@
       if (!tab) {
         return;
       }
+      // Last-viewed stamp first: nothing below may skip it.
+      try {
+        if (typeof stampLastViewed === "function") {
+          stampLastViewed(tab);
+        }
+      } catch (err) {}
       expandTreeAncestors(tab);
       try {
         renderTree();

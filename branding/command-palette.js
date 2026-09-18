@@ -2,8 +2,9 @@
 /* Aph command palette: Ctrl+K / Cmd+K toggles a filterable overlay.
  * Commands + open tabs in one list, scored fuzzy matching with match
  * highlighting. Typed queries also search Places bookmarks and history
- * (frecency-ordered, history hidden in private windows). Doubles as
- * navigation: URL-like input offers "Go to …"
+ * (frecency-ordered, history hidden in private windows) and saved
+ * archive entries (restoring re-opens with workspace + container).
+ * Doubles as navigation: URL-like input offers "Go to …"
  * (opened in the current workspace's bound container), anything else falls
  * back to a DuckDuckGo search. Enter opens, Alt+Enter opens in a new
  * disposable temp container. Up/Down + Enter to run, Esc to close.
@@ -23,7 +24,7 @@
   // Rename prompt mode: {title, initial, onCommit} — the input becomes a
   // text field and Enter commits instead of running a row.
   let prompt = null;
-  const PLACEHOLDER = "Type a command, tab, bookmark, history, URL, or search…";
+  const PLACEHOLDER = "Type a command, tab, bookmark, history, archive, URL, or search…";
 
   function ws() {
     return window.AphWorkspaces || null;
@@ -718,6 +719,112 @@
     }
     return out;
   }
+  // --- Saved archive search ---------------------------------------------
+  // Archived tabs join non-empty queries as fuzzy-pool items (newest-first,
+  // capped), so they rank alongside commands and open tabs with match
+  // highlighting handled by the normal scoring path. Restoring re-opens
+  // with the saved workspace + container (restoreEntry owns the workspace
+  // switch); Alt+Enter restores without consuming the entry (keep).
+  // Hidden in private windows (bind parity): entries are non-private
+  // pages whose restore retags into normal workspaces.
+  // Test seam: window.AphArchive = { getEntries() → [{id, title, url,
+  // ws, cname}], restoreEntry(id, opts?) } — the real controller shape.
+  var APH_ARCHIVE_MIN_QUERY = 2;
+  var APH_ARCHIVE_POOL_LIMIT = 50;
+
+  function aphArchiveIsPrivate() {
+    try {
+      if (typeof isPrivatePaletteWindow === "function") {
+        return !!isPrivatePaletteWindow();
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function aphArchiveEntries() {
+    try {
+      const a = typeof arc === "function" ? arc() : null;
+      if (a && typeof a.getEntries === "function") {
+        const r = a.getEntries();
+        if (Array.isArray(r)) {
+          return r;
+        }
+      }
+    } catch (e) {}
+    return [];
+  }
+
+  function aphArchivePoolItems(raw) {
+    const out = [];
+    try {
+      const q = (raw || "").trim();
+      if (q.length < APH_ARCHIVE_MIN_QUERY) {
+        return out;
+      }
+      if (aphArchiveIsPrivate()) {
+        return out;
+      }
+      let openUrls = null;
+      try {
+        openUrls =
+          typeof aphPlacesOpenTabUrls === "function" ? aphPlacesOpenTabUrls() : new Set();
+      } catch (e) {
+        openUrls = new Set();
+      }
+      let n = 0;
+      for (const e of aphArchiveEntries()) {
+        if (n >= APH_ARCHIVE_POOL_LIMIT) {
+          break;
+        }
+        let url = "";
+        let title = "";
+        let id = "";
+        let ws = "";
+        let cname = "";
+        try {
+          url = (e && e.url) || "";
+          title = (e && e.title) || url;
+          id = (e && e.id) || "";
+          ws = (e && e.ws) || "";
+          cname = (e && e.cname) || "";
+        } catch (err) {}
+        if (!url || !id || !/^https?:\/\//i.test(url)) {
+          continue;
+        }
+        // Restoring an already-open URL opens a duplicate — the open-tab
+        // row already switches there (same rule as places rows).
+        try {
+          if (openUrls.has(url)) {
+            continue;
+          }
+        } catch (err) {}
+        const sub = `${url}${ws ? ` · WS ${ws}` : ""}${cname ? ` · ${cname}` : ""}`;
+        out.push({
+          title: String(title),
+          sub,
+          hint: "Archive",
+          run: () => {
+            try {
+              const a = typeof arc === "function" ? arc() : null;
+              if (a && typeof a.restoreEntry === "function") {
+                a.restoreEntry(id);
+              }
+            } catch (err) {}
+          },
+          runInTemp: () => {
+            try {
+              const a = typeof arc === "function" ? arc() : null;
+              if (a && typeof a.restoreEntry === "function") {
+                a.restoreEntry(id, { keep: true });
+              }
+            } catch (err) {}
+          },
+        });
+        n++;
+      }
+    } catch (e) {}
+    return out;
+  }
   // Dock-parity bind rows (flat — the palette has no nested menus).
   // Titles start with "Bind" so typing `bind` lists them all inline
   // (same pattern as routeCommands below). Private windows hide all
@@ -1352,6 +1459,15 @@
               pool.push(c);
             }
           }
+        }
+      }
+    } catch (e) {}
+    // Saved archive entries join the pool the same way (newest-first,
+    // capped); fuzzy scoring ranks and highlights them with the rest.
+    try {
+      if (typeof aphArchivePoolItems === "function") {
+        for (const r of aphArchivePoolItems(raw)) {
+          pool.push(r);
         }
       }
     } catch (e) {}

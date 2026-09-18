@@ -194,7 +194,9 @@ function makeSandbox() {
       },
       ungroupTab() {},
     },
-    SessionStore: {},
+    SessionStore: {
+      getCustomTabValue: (t, k) => (tabVals.get(t) || {})[k],
+    },
     Services: {
       prefs: {
         getStringPref: (k, d) => (k in prefStore ? prefStore[k] : d),
@@ -291,6 +293,237 @@ describe("archive store", () => {
     assert.equal(api.archiveTab(a), 2);
     assert.equal(JSON.parse(prefStore["aph.archive.tabs"]).length, 2);
     assert.equal(env.tabs.length, 0);
+  });
+});
+
+describe("auto archive sweep", () => {
+  function autoEnv(enabled) {
+    const env = makeSandbox();
+    env.sb.Services.prefs.getBoolPref = (k) =>
+      k === "aph.archive.autoEnabled" ? enabled : false;
+    return env;
+  }
+
+  function hiddenTab(env, o) {
+    const t = makeTab(tabVals, Object.assign(
+      { label: "bg", ws: "2", spec: "https://bg.example/" }, o || {}
+    ));
+    env.tabs.push(t);
+    env.wsOf.set(t, "2");
+    return t;
+  }
+
+  it("is off by default: closes nothing without the pref", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = makeSandbox(); // no getBoolPref backend at all
+    const api = loadArchive(env);
+    hiddenTab(env);
+    assert.equal(api.autoSweep(), 0);
+    assert.equal(env.tabs.length, 1);
+    assert.ok(!("aph.archive.tabs" in prefStore));
+  });
+
+  it("is off when the pref is false", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = autoEnv(false);
+    const api = loadArchive(env);
+    hiddenTab(env);
+    assert.equal(api.autoSweep(), 0);
+    assert.equal(env.tabs.length, 1);
+  });
+
+  it("archives eligible hidden tabs with context, keeps the rest", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = autoEnv(true);
+    const api = loadArchive(env);
+    const good = hiddenTab(env, { label: "good", spec: "https://good.example/page" });
+    const cur = makeTab(tabVals, { label: "cur", ws: "1", spec: "https://cur.example/" });
+    env.tabs.push(cur); // wsOf defaults to "1" = current
+    env.setSel(cur);
+    assert.equal(api.autoSweep(), 1);
+    assert.ok(!env.tabs.includes(good), "eligible hidden tab closed");
+    assert.ok(env.tabs.includes(cur), "current-workspace tab kept");
+    const saved = JSON.parse(prefStore["aph.archive.tabs"]);
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0].url, "https://good.example/page");
+    assert.equal(saved[0].ws, "2");
+  });
+
+  it("never auto-closes guarded tabs", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = autoEnv(true);
+    const api = loadArchive(env);
+    const sel = hiddenTab(env, { label: "sel" });
+    env.setSel(sel);
+    const pin = hiddenTab(env, { label: "pin", pinned: true });
+    const star = hiddenTab(env, { label: "star" });
+    star.setAttribute("data-aph-starred", "1");
+    const snd = hiddenTab(env, { label: "snd", soundPlaying: true });
+    const aud = hiddenTab(env, { label: "aud", audible: true });
+    const busy = hiddenTab(env, { label: "busy", busy: true });
+    const dirty = hiddenTab(env, { label: "dirty", beforeUnload: true });
+    const internal = hiddenTab(env, { label: "internal", spec: "about:newtab" });
+    assert.equal(api.autoSweep(), 0);
+    for (const t of [sel, pin, star, snd, aud, busy, dirty, internal]) {
+      assert.ok(env.tabs.includes(t), `${t.label} survives`);
+    }
+    assert.ok(!("aph.archive.tabs" in prefStore));
+  });
+
+  it("fails closed without the workspaces API", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = autoEnv(true);
+    delete env.sb.window.AphWorkspaces;
+    const api = loadArchive(env);
+    hiddenTab(env);
+    assert.equal(api.autoSweep(), 0);
+    assert.equal(env.tabs.length, 1);
+  });
+
+  // ---- settle timer (the time-based foundation) ----
+  // Installed AFTER loadArchive: run() stamps default timer mocks at load.
+  function armTimers(env) {
+    const armed = [];
+    const cleared = [];
+    let nextId = 1;
+    env.sb.setTimeout = (fn, ms) => {
+      const id = nextId++;
+      armed.push({ id, fn, ms });
+      return id;
+    };
+    env.sb.clearTimeout = (id) => { cleared.push(id); };
+    return { armed, cleared };
+  }
+
+  it("arms a 15s settle timer; firing it sweeps", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = autoEnv(true);
+    const api = loadArchive(env);
+    const { armed } = armTimers(env);
+    const good = hiddenTab(env, { label: "good", spec: "https://good.example/page" });
+    const cur = makeTab(tabVals, { label: "cur", ws: "1", spec: "https://cur.example/" });
+    env.tabs.push(cur);
+    env.setSel(cur);
+    assert.equal(api.scheduleAutoSweep(), true);
+    assert.equal(armed.length, 1);
+    assert.equal(armed[0].ms, 15000);
+    assert.ok(env.tabs.includes(good), "nothing archived before the timer fires");
+    armed[0].fn();
+    assert.ok(!env.tabs.includes(good), "timer fire sweeps");
+    assert.equal(JSON.parse(prefStore["aph.archive.tabs"]).length, 1);
+  });
+
+  it("re-arming clears the previous timer so only one sweep is pending", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = autoEnv(true);
+    const api = loadArchive(env);
+    const { armed, cleared } = armTimers(env);
+    hiddenTab(env);
+    assert.equal(api.scheduleAutoSweep(), true);
+    assert.equal(api.scheduleAutoSweep(), true);
+    assert.equal(armed.length, 2);
+    assertJsonEqual(cleared, [armed[0].id]);
+    armed[1].fn();
+    assert.equal(JSON.parse(prefStore["aph.archive.tabs"]).length, 1);
+  });
+
+  it("scheduling while disabled arms nothing and disarms pending", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = autoEnv(true);
+    const api = loadArchive(env);
+    const { armed, cleared } = armTimers(env);
+    hiddenTab(env);
+    assert.equal(api.scheduleAutoSweep(), true);
+    // Flip the pref off, then schedule again: pending timer dies, none armed.
+    env.sb.Services.prefs.getBoolPref = () => false;
+    assert.equal(api.scheduleAutoSweep(), false);
+    assertJsonEqual(cleared, [armed[0].id]);
+    assert.equal(armed.length, 1);
+  });
+
+  it("a stale timer never closes a tab you came back to", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = autoEnv(true);
+    const api = loadArchive(env);
+    const { armed } = armTimers(env);
+    const t = hiddenTab(env, { label: "back" });
+    assert.equal(api.scheduleAutoSweep(), true);
+    env.setCur("2"); // came back before the timer fired
+    env.setSel(t);
+    armed[0].fn();
+    assert.ok(env.tabs.includes(t), "returned-to tab survives");
+    assert.ok(!("aph.archive.tabs" in prefStore));
+  });
+
+  it("unload disarms a pending sweep", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = autoEnv(true);
+    const api = loadArchive(env);
+    const { armed, cleared } = armTimers(env);
+    hiddenTab(env);
+    assert.equal(api.scheduleAutoSweep(), true);
+    assert.ok(typeof unloadFn === "function");
+    unloadFn();
+    assertJsonEqual(cleared, [armed[0].id]);
+  });
+
+  // ---- staleness (last-viewed threshold) ----
+  const MIN = 60000;
+
+  function stampViewed(t, ageMs) {
+    tabVals.get(t).aphLastViewed = String(Date.now() - ageMs);
+  }
+
+  function staleEnv(staleMin) {
+    const env = autoEnv(true);
+    if (staleMin !== undefined) {
+      env.sb.Services.prefs.getIntPref = (k) =>
+        k === "aph.archive.autoStaleMin" ? staleMin : 5;
+    }
+    return env;
+  }
+
+  it("spares tabs viewed within the threshold", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = staleEnv();
+    const api = loadArchive(env);
+    const fresh = hiddenTab(env, { label: "fresh" });
+    stampViewed(fresh, 1 * MIN);
+    assert.equal(api.autoSweep(), 0);
+    assert.ok(env.tabs.includes(fresh));
+    assert.ok(!("aph.archive.tabs" in prefStore));
+  });
+
+  it("archives tabs viewed beyond the threshold", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = staleEnv();
+    const api = loadArchive(env);
+    const old = hiddenTab(env, { label: "old", spec: "https://old.example/" });
+    stampViewed(old, 10 * MIN);
+    assert.equal(api.autoSweep(), 1);
+    assert.ok(!env.tabs.includes(old));
+  });
+
+  it("treats missing and malformed stamps as stale", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = staleEnv();
+    const api = loadArchive(env);
+    const missing = hiddenTab(env, { label: "missing", spec: "https://m.example/" });
+    const junk = hiddenTab(env, { label: "junk", spec: "https://j.example/" });
+    tabVals.get(junk).aphLastViewed = "not-a-time";
+    assert.equal(api.autoSweep(), 2);
+    assert.ok(!env.tabs.includes(missing) && !env.tabs.includes(junk));
+  });
+
+  it("honors a custom threshold read live", () => {
+    delete prefStore["aph.archive.tabs"];
+    const env = staleEnv(60);
+    const api = loadArchive(env);
+    const t = hiddenTab(env, { label: "hour", spec: "https://hour.example/" });
+    stampViewed(t, 10 * MIN);
+    assert.equal(api.autoSweep(), 0, "10 min < 60 min threshold");
+    stampViewed(t, 70 * MIN);
+    assert.equal(api.autoSweep(), 1, "70 min > 60 min threshold");
   });
 });
 

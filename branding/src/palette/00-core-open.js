@@ -1,8 +1,9 @@
 /* Aph command palette: Ctrl+K / Cmd+K toggles a filterable overlay.
  * Commands + open tabs in one list, scored fuzzy matching with match
  * highlighting. Typed queries also search Places bookmarks and history
- * (frecency-ordered, history hidden in private windows). Doubles as
- * navigation: URL-like input offers "Go to …"
+ * (frecency-ordered, history hidden in private windows) and saved
+ * archive entries (restoring re-opens with workspace + container).
+ * Doubles as navigation: URL-like input offers "Go to …"
  * (opened in the current workspace's bound container), anything else falls
  * back to a DuckDuckGo search. Enter opens, Alt+Enter opens in a new
  * disposable temp container. Up/Down + Enter to run, Esc to close.
@@ -22,5 +23,5 @@
   // Rename prompt mode: {title, initial, onCommit} — the input becomes a
   // text field and Enter commits instead of running a row.
   let prompt = null;
-  const PLACEHOLDER = "Type a command, tab, bookmark, history, URL, or search…";
+  const PLACEHOLDER = "Type a command, tab, bookmark, history, archive, URL, or search…";
 

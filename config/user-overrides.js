@@ -53,6 +53,18 @@ user_pref("extensions.activeThemeID", "nova-sun@mozilla.org");
 // Set true to also discard eligible hidden-workspace tabs after each switch.
 user_pref("aph.workspaces.unloadOnSwitch", false);
 
+// 12b. Automatic tab archiving: set true to archive (close + store in the
+// tab archive) every eligible hidden-workspace tab — 15 s after you stop
+// switching (each switch re-arms the settle timer; sitting still fires it).
+// Selected, pinned, starred, audible, loading and unsaved-form tabs never
+// auto-close.
+user_pref("aph.archive.autoEnabled", false);
+
+// 12c. Auto-archive staleness: tabs viewed within this many minutes are
+// spared when the sweep fires (default 5). Read live — about:config flips
+// apply to the next sweep. Tabs with no recorded view time count as stale.
+user_pref("aph.archive.autoStaleMin", 5);
+
 // 14. Silence extension first-run/welcome tabs (e.g. SponsorBlock help page).
 // Managed extensions can't take 3rdparty policy, so noisy install tabs are
 // closed pre-paint instead. Set false to keep them.

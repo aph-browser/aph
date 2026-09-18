@@ -7,8 +7,12 @@
  * full context (workspace + container).
  *
  * Entry points: tab context menu ("Archive Tab(s)") and the command
- * palette ("Archive Current Tab" / "Open Archive"). Restore removes the
- * entry (Shift+click keeps it); delete drops it without opening.
+ * palette ("Archive Current Tab" / "Open Archive"). Automatic archiving
+ * (opt-in via aph.archive.autoEnabled, default off) sweeps eligible
+ * hidden-workspace tabs 15 s after each workspace switch — each switch
+ * re-arms the settle timer, so the sweep only fires once you've sat still
+ * (see scheduleAutoSweep). Restore removes the entry (Shift+click keeps
+ * it); delete drops it without opening.
  *
  * Page bridge: the archive page runs in a content process, so it reads the
  * pref directly (Services is available to system-principal chrome pages)
@@ -244,6 +248,187 @@
   function pendingCount() {
     try {
       return resolveTargets(null).filter(isArchivable).length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  // Automatic archiving (V1): opt-in via aph.archive.autoEnabled (default
+  // off). Fires once the settle timer (≈15 s of sitting still) goes off:
+  // archives every eligible tab in HIDDEN workspaces — "everything I'm not
+  // looking at gets put away" — except tabs viewed within the staleness
+  // threshold (below). Guards mirror canUnloadTab's fail-closed shape
+  // (selected/pinned/audible/loading/unsaved never auto-close) plus the
+  // archivable check; starred tabs are user-marked keepers and stay too.
+  // Closes via archiveTabs, so entries land newest-first under the shared
+  // cap and the toast is the feedback.
+  const AUTO_PREF = "aph.archive.autoEnabled";
+
+  function getAutoEnabled() {
+    try {
+      if (Services.prefs && typeof Services.prefs.getBoolPref === "function") {
+        return !!Services.prefs.getBoolPref(AUTO_PREF);
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // Staleness threshold: minutes (pref aph.archive.autoStaleMin, default
+  // 5), read live so about:config flips apply to the next sweep. Any
+  // failure reads as the default; compared in ms at the filter below.
+  const AUTO_STALE_PREF = "aph.archive.autoStaleMin";
+  const AUTO_STALE_DEFAULT_MIN = 5;
+
+  function getStaleThresholdMs() {
+    try {
+      if (Services.prefs && typeof Services.prefs.getIntPref === "function") {
+        const m = Services.prefs.getIntPref(AUTO_STALE_PREF);
+        if (Number.isFinite(m)) {
+          return m * 60000;
+        }
+      }
+    } catch (e) {}
+    return AUTO_STALE_DEFAULT_MIN * 60000;
+  }
+
+  // Last-viewed read for staleness: SessionStore custom tab value
+  // "aphLastViewed" (ms epoch, written by the workspaces bundle on
+  // TabSelect/TabOpen — key duplicated here by design, same pattern as
+  // "aphStarred"). Missing/unreadable/malformed reads as 0 (epoch):
+  // untracked tabs count as stale.
+  const LAST_VIEWED_KEY = "aphLastViewed";
+
+  function readLastViewed(tab) {
+    try {
+      if (SessionStore && typeof SessionStore.getCustomTabValue === "function") {
+        const v = SessionStore.getCustomTabValue(tab, LAST_VIEWED_KEY);
+        const n = typeof v === "string" || typeof v === "number" ? Number(v) : NaN;
+        if (Number.isFinite(n) && n > 0) {
+          return n;
+        }
+      }
+    } catch (e) {}
+    return 0;
+  }
+
+  function isAutoEligible(tab) {
+    try {
+      if (!tab || tab.closing) {
+        return false;
+      }
+      try {
+        if (tab.selected) {
+          return false;
+        }
+      } catch (e) {}
+      try {
+        if (gBrowser.selectedTab === tab) {
+          return false;
+        }
+      } catch (e) {}
+      try {
+        if (tab.pinned) {
+          return false;
+        }
+      } catch (e) {}
+      try {
+        if (typeof tab.hasAttribute === "function" && tab.hasAttribute("data-aph-starred")) {
+          return false;
+        }
+      } catch (e) {}
+      try {
+        if (tab.soundPlaying || tab.audible) {
+          return false;
+        }
+      } catch (e) {}
+      try {
+        if (tab.busy) {
+          return false;
+        }
+      } catch (e) {}
+      try {
+        if (tab.linkedBrowser?.frameLoader?.tabParent?.hasBeforeUnload) {
+          return false;
+        }
+      } catch (e) {}
+      // Staleness: viewed within the threshold → spared.
+      try {
+        if (Date.now() - readLastViewed(tab) < getStaleThresholdMs()) {
+          return false;
+        }
+      } catch (e) {}
+      return isArchivable(tab);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Settle delay (the time-based foundation): the switch hook does not
+  // sweep instantly — it arms this, and every further switch re-arms it,
+  // so the sweep only fires once you've sat on one workspace for the full
+  // delay. Guards + the hidden set re-check at fire time, so a stale timer
+  // can never close a tab you came back to.
+  const AUTO_DELAY_MS = 15000;
+  let autoTimer = null;
+
+  // (Re-)arm the settle timer. Disabling the pref disarms a pending sweep.
+  // True when a sweep is now pending, false otherwise.
+  function scheduleAutoSweep() {
+    try {
+      if (autoTimer !== null && autoTimer !== undefined) {
+        try {
+          clearTimeout(autoTimer);
+        } catch (e) {}
+        autoTimer = null;
+      }
+      if (!getAutoEnabled()) {
+        return false;
+      }
+      autoTimer = setTimeout(() => {
+        autoTimer = null;
+        try {
+          autoSweep();
+        } catch (e) {}
+      }, AUTO_DELAY_MS);
+      return autoTimer !== null && autoTimer !== undefined;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function autoSweep() {
+    try {
+      if (!getAutoEnabled()) {
+        return 0;
+      }
+      // Without the workspaces API the current workspace is unknowable —
+      // fail closed rather than risk closing visible tabs.
+      const w = ws();
+      let cur = null;
+      try {
+        cur = w && w.getCurrent ? w.getCurrent() : null;
+      } catch (e) {}
+      if (!w || !cur) {
+        return 0;
+      }
+      let tabs = [];
+      try {
+        tabs = Array.from(gBrowser.tabs || []);
+      } catch (e) {
+        return 0;
+      }
+      const list = tabs.filter((t) => {
+        try {
+          if (w.getWs(t) === cur) {
+            return false;
+          }
+        } catch (e) {}
+        return isAutoEligible(t);
+      });
+      if (!list.length) {
+        return 0;
+      }
+      return archiveTabs(list);
     } catch (e) {
       return 0;
     }
@@ -507,6 +692,12 @@
 
   function cleanup() {
     try {
+      if (autoTimer !== null && autoTimer !== undefined) {
+        clearTimeout(autoTimer);
+      }
+    } catch (e) {}
+    autoTimer = null;
+    try {
       if (prefsObserver) {
         Services.prefs.removeObserver(PREF, prefsObserver);
       }
@@ -542,6 +733,8 @@
         archiveTab,
         archiveCurrent,
         pendingCount,
+        autoSweep,
+        scheduleAutoSweep,
         getEntries,
         restoreEntry,
         deleteEntry,

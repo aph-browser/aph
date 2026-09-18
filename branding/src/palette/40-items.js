@@ -635,6 +635,15 @@
         }
       }
     } catch (e) {}
+    // Saved archive entries join the pool the same way (newest-first,
+    // capped); fuzzy scoring ranks and highlights them with the rest.
+    try {
+      if (typeof aphArchivePoolItems === "function") {
+        for (const r of aphArchivePoolItems(raw)) {
+          pool.push(r);
+        }
+      }
+    } catch (e) {}
     const q = raw.toLowerCase();
     const scored = [];
     pool.forEach((it, i) => {

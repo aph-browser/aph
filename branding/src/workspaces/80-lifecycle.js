@@ -42,6 +42,12 @@
         tab.__aphBirth = Date.now();
       }
     } catch (err) {}
+    // Birth counts as viewed for auto-archive staleness.
+    try {
+      if (typeof stampLastViewed === "function") {
+        stampLastViewed(tab);
+      }
+    } catch (err) {}
     // Cross-window drag (TabOpen detail.adoptedTab, Bug 1244496): join the
     // destination's visible workspace. SessionStore preserves the source tag
     // across adopt, so without this a WS2 group dropped on a WS1 window
@@ -127,6 +133,25 @@
       tab.__aphFresh = false;
     } catch (err) {}
     stampTab(tab);
+    // Restored tabs keep their tag, so stampTab above is a no-op for them
+    // (no setWs, hence no per-tab sync) — sync markers explicitly or
+    // restored tabs keep stale chrome until the next binding change.
+    // Sync twice: now (attributes are usually ready) and one tick later
+    // (bulk restore can still be applying the tag/container when
+    // SSTabRestored fires — the tick re-checks once it settles; guards
+    // re-verify the tab is still alive).
+    try {
+      if (typeof syncTabChrome === "function") {
+        syncTabChrome(tab);
+        setTimeout(() => {
+          try {
+            if (!tab.closing) {
+              syncTabChrome(tab);
+            }
+          } catch (err) {}
+        }, 0);
+      }
+    } catch (err) {}
     // Restored tabs keep their persisted tree links; heal dangling edges
     // (missing/cross-WS parents) and ensure every tab owns a tree id.
     try {
@@ -217,6 +242,14 @@
     if (!tab) {
       return;
     }
+    // Pin/unpin flips the viewed workspace a global tab is matched
+    // against (pins match the current workspace, not their dormant tag),
+    // so re-sync markers here, not just on retag.
+    try {
+      if (typeof syncTabChrome === "function") {
+        syncTabChrome(tab);
+      }
+    } catch (err) {}
     try {
       if (!rawWs(tab) && isValidId(current)) {
         setWs(tab, current);

@@ -13,6 +13,10 @@
  * Bound-match dimming: a tab whose container equals its workspace's binding
  * gets `data-aph-bound-match="1"` (theme.css hides the native
  * `.tab-context-line`); mismatches and unbound workspaces keep the line.
+ * Global pinned tabs match the viewed workspace, not their dormant tag.
+ * All per-tab markers sync through syncTabChrome (bound match + star);
+ * every lifecycle entry (birth, retag, restore, pin, switch, startup)
+ * funnels through it or the bulk syncAllTabChrome.
  * Domain routes: a host may be bound to a workspace ("github.com" -> "2",
  * managed from the command palette). Fresh top-level navigations matching
  * a rule are retagged pre-paint and reopened in the target workspace's

@@ -286,9 +286,12 @@
         setWsName,
         getCurrent: () => current,
         getWs,
+        stampLastViewed,
         isTabMatchingBinding,
         syncTabBindingMatch,
         syncAllTabBindingMatches,
+        syncTabChrome,
+        syncAllTabChrome,
         canUnloadTab,
         unloadEligibleTabs,
         getUnloadOnSwitch,
@@ -344,8 +347,8 @@
           }
         } catch (e) {}
       }
-      // Restored tabs keep their tags (no setWs above) — sync matches anyway.
-      syncAllTabBindingMatches();
+      // Restored tabs keep their tags (no setWs above) — sync markers anyway.
+      syncAllTabChrome();
       // Restored tree links survive via SessionStore; collapsed state
       // always starts expanded. Prune dangling/cross-WS edges.
       try {
@@ -412,7 +415,7 @@
           try {
             wsBindings = null;
             updateIndicator();
-            syncAllTabBindingMatches();
+            syncAllTabChrome();
           } catch (e) {}
         },
       };

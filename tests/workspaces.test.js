@@ -393,8 +393,173 @@ describe("bound container match", () => {
     } finally {
       const i = sb.gBrowser.tabs.indexOf(t);
       if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
-      // Restore binding for other tests / isolation.
-      prefStore["aph.workspaces.containerBindings"] = JSON.stringify({ 2: 7 });
+      // Restore binding for other tests / isolation — through the API so
+      // the in-memory cache matches the pref (a raw prefStore write would
+      // leave later tests reading a stale cache).
+      api.setWsBinding("2", 7);
+    }
+  });
+
+  it("marks restored bound tabs on SSTabRestored", () => {
+    // Session restore arrives after init: tabs keep their tag, so stampTab
+    // is a no-op for them — the handler must still sync the marker or
+    // restored tabs keep the native container line (fresh tabs don't).
+    const restoreVals = new WeakMap();
+    const restorePrefs = {
+      "aph.workspaces.containerBindings": JSON.stringify({ 2: 7 }),
+    };
+    const containerHandlers = {};
+    const sel = makeTab(restoreVals, {
+      label: "sel", ws: "1", selected: true, spec: "https://start.example.com/",
+    });
+    let wsel = sel;
+    const rsb = {
+      window: { addEventListener() {}, opener: null },
+      navigator: { onLine: true },
+      document: {
+        readyState: "complete",
+        getElementById: () => null,
+        createElement: () => ({ setAttribute() {}, removeAttribute() {}, style: {} }),
+        createEvent: () => ({ initEvent() {} }),
+      },
+      gBrowser: {
+        tabs: [sel],
+        tabGroups: [],
+        get selectedTab() { return wsel; },
+        set selectedTab(t) { wsel = t; },
+        showTab(t) { t.removeAttribute("hidden"); },
+        addTrustedTab() { throw new Error("unused"); },
+        removeTab() {},
+        ungroupTab() {},
+        replaceInSuccession() {},
+        setSuccessor() {},
+        _updateMultiselectedTabCloseButtonTooltip() {},
+        getTabForBrowser: (b) => (b && b.__tab) || null,
+        addTabsProgressListener() {},
+        tabContainer: {
+          setAttribute() {},
+          addEventListener(type, fn) {
+            (containerHandlers[type] ||= []).push(fn);
+          },
+          removeEventListener() {},
+          _invalidateCachedVisibleTabs() {},
+          _updateCloseButtons() {},
+        },
+      },
+      SessionStore: {
+        getCustomTabValue: (t, k) => (restoreVals.get(t) || {})[k],
+        setCustomTabValue: (t, k, v) => {
+          const o = restoreVals.get(t) || {};
+          o[k] = v;
+          restoreVals.set(t, o);
+        },
+        deleteCustomTabValue: () => {},
+        getCustomWindowValue: () => undefined,
+        setCustomWindowValue: () => {},
+      },
+      Services: {
+        prefs: {
+          getStringPref: (k, d) => (k in restorePrefs ? restorePrefs[k] : d),
+          setStringPref: (k, v) => { restorePrefs[k] = v; },
+          addObserver() {},
+        },
+        console: { logStringMessage() {} },
+        wm: {
+          getMostRecentWindow: () => null,
+          getEnumerator: () => ({ hasMoreElements: () => false }),
+        },
+        obs: { addObserver() {}, removeObserver() {} },
+      },
+      ChromeUtils: {
+        generateQI: () => () => {},
+        importESModule: () => ({
+          ContextualIdentityService: {
+            getPublicIdentityFromId: (id) =>
+              id === 7 ? { name: "Work", color: "blue", icon: "briefcase" } : null,
+            create: () => { throw new Error("unused"); },
+            remove: () => {},
+          },
+        }),
+      },
+      Ci: {
+        nsIWebProgressListener: { LOCATION_CHANGE_SAME_DOCUMENT: 2 },
+        nsIWebProgress: { NOTIFY_LOCATION: 1 },
+      },
+    };
+    rsb.window.window = rsb.window;
+    run("workspaces.js", rsb);
+    const fireRestored = (t) => {
+      for (const fn of containerHandlers.SSTabRestored || []) fn({ target: t });
+    };
+    // Already tagged (as SessionStore restores them) with no marker yet.
+    const match = makeTab(restoreVals, {
+      label: "restored", ws: "2", cid: 7, spec: "https://work.example/",
+    });
+    const mismatch = makeTab(restoreVals, {
+      label: "restored-x", ws: "2", cid: 99, spec: "https://other.example/",
+    });
+    assert.equal(match.getAttribute("data-aph-bound-match"), null);
+    rsb.gBrowser.tabs.push(match, mismatch);
+    fireRestored(match);
+    fireRestored(mismatch);
+    assert.equal(match.getAttribute("data-aph-bound-match"), "1");
+    assert.equal(mismatch.getAttribute("data-aph-bound-match"), null);
+  });
+
+  it("exposes one central chrome sync covering bound match + star", () => {
+    assert.equal(typeof api.syncTabChrome, "function");
+    assert.equal(typeof api.syncAllTabChrome, "function");
+    // Starred (SessionStore flag) + bound (cid 7 in WS 2): one call marks both.
+    const t = makeTab(tabVals, { label: "s", ws: "2", cid: 7, spec: "https://s.example/" });
+    tabVals.get(t).aphStarred = "1";
+    sb.gBrowser.tabs.push(t);
+    try {
+      api.syncTabChrome(t);
+      assert.equal(t.getAttribute("data-aph-bound-match"), "1");
+      assert.equal(t.getAttribute("data-aph-starred"), "1");
+      // Never-starred: stays unmarked while the bound half still applies.
+      const u = makeTab(tabVals, { label: "u", ws: "2", cid: 7, spec: "https://u.example/" });
+      sb.gBrowser.tabs.push(u);
+      try {
+        api.syncAllTabChrome();
+        assert.equal(u.getAttribute("data-aph-starred"), null);
+        assert.equal(u.getAttribute("data-aph-bound-match"), "1");
+      } finally {
+        const i = sb.gBrowser.tabs.indexOf(u);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(t);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    }
+  });
+
+  it("matches pinned tabs against the viewed workspace, re-synced on switch", () => {
+    const start = api.getCurrent();
+    if (start !== "1") api.switchTo("1");
+    // Dormant tag WS 1 (unbound) but Work container: dark on WS 1 …
+    const pin = makeTab(tabVals, {
+      label: "pin-work", ws: "1", cid: 7, pinned: true, spec: "https://pin.example/",
+    });
+    const base = sb.gBrowser.tabs.length;
+    sb.gBrowser.tabs.push(pin);
+    try {
+      assert.equal(api.isTabMatchingBinding(pin), false);
+      api.switchTo("2");
+      // … lit on WS 2 (bound to 7): the switch itself re-marks pins.
+      assert.equal(api.isTabMatchingBinding(pin), true);
+      assert.equal(pin.getAttribute("data-aph-bound-match"), "1");
+      api.switchTo("1");
+      assert.equal(api.isTabMatchingBinding(pin), false);
+      assert.equal(pin.getAttribute("data-aph-bound-match"), null);
+    } finally {
+      // Drop the pin plus any tabs the switches birthed (bound newtab),
+      // then put selection + workspace back.
+      let pi = sb.gBrowser.tabs.indexOf(pin);
+      if (pi !== -1) sb.gBrowser.tabs.splice(pi, 1);
+      while (sb.gBrowser.tabs.length > base) sb.gBrowser.tabs.pop();
+      sb.gBrowser.selectedTab = home;
+      if (api.getCurrent() !== start) api.switchTo(start);
       api.syncAllTabBindingMatches();
     }
   });
@@ -539,6 +704,151 @@ describe("tab unloading", () => {
     } finally {
       sb.gBrowser.discardBrowser = d;
     }
+  });
+});
+
+describe("auto archive hook", () => {
+  it("notifies the archive controller on workspace switch", () => {
+    const start = api.getCurrent();
+    if (start !== "1") api.switchTo("1");
+    const base = sb.gBrowser.tabs.length;
+    const prevSelected = sb.gBrowser.selectedTab;
+    let scheduled = 0;
+    sb.window.AphArchive = { scheduleAutoSweep() { scheduled++; return true; } };
+    try {
+      api.switchTo("2");
+      assert.equal(scheduled, 1, "switch arms the settle timer once");
+    } finally {
+      while (sb.gBrowser.tabs.length > base) sb.gBrowser.tabs.pop();
+      sb.gBrowser.selectedTab = prevSelected;
+      delete sb.window.AphArchive;
+      if (api.getCurrent() !== start) api.switchTo(start);
+    }
+  });
+
+  it("switches fine with no archive controller present", () => {
+    const start = api.getCurrent();
+    if (start !== "1") api.switchTo("1");
+    const base = sb.gBrowser.tabs.length;
+    const prevSelected = sb.gBrowser.selectedTab;
+    try {
+      assert.equal(sb.window.AphArchive, undefined);
+      api.switchTo("2");
+      api.switchTo("1");
+    } finally {
+      while (sb.gBrowser.tabs.length > base) sb.gBrowser.tabs.pop();
+      sb.gBrowser.selectedTab = prevSelected;
+      if (api.getCurrent() !== start) api.switchTo(start);
+    }
+  });
+});
+
+describe("last-viewed stamp", () => {
+  it("writes a parseable epoch-ms stamp", () => {
+    assert.equal(typeof api.stampLastViewed, "function");
+    const t = makeTab(tabVals, { label: "v", ws: "1", spec: "https://v.example/" });
+    api.stampLastViewed(t);
+    const n = Number((tabVals.get(t) || {}).aphLastViewed);
+    assert.ok(Number.isFinite(n) && n > 0);
+    assert.ok(Math.abs(Date.now() - n) < 5000);
+  });
+
+  it("stamps through the real TabSelect and TabOpen listeners", () => {
+    // Dedicated sandbox (mirrors the SSTabRestored one): capture the
+    // tabContainer listeners and fire genuine events at them, so the
+    // viewed signal is proven wired, not just the stamp function.
+    const vtabVals = new WeakMap();
+    const tabHandlers = {};
+    let vsel = null;
+    const vsb = {
+      window: { addEventListener() {}, opener: null },
+      navigator: { onLine: true },
+      document: {
+        readyState: "complete",
+        getElementById: () => null,
+        createElement: () => ({ setAttribute() {}, removeAttribute() {}, style: {} }),
+        createEvent: () => ({ initEvent() {} }),
+      },
+      gBrowser: {
+        tabs: [],
+        tabGroups: [],
+        get selectedTab() { return vsel; },
+        set selectedTab(t) { vsel = t; },
+        showTab(t) { t.removeAttribute("hidden"); },
+        addTrustedTab() { throw new Error("unused"); },
+        removeTab() {},
+        ungroupTab() {},
+        replaceInSuccession() {},
+        setSuccessor() {},
+        _updateMultiselectedTabCloseButtonTooltip() {},
+        getTabForBrowser: (b) => (b && b.__tab) || null,
+        addTabsProgressListener() {},
+        tabContainer: {
+          setAttribute() {},
+          addEventListener(type, fn) {
+            (tabHandlers[type] ||= []).push(fn);
+          },
+          removeEventListener() {},
+          _invalidateCachedVisibleTabs() {},
+          _updateCloseButtons() {},
+        },
+      },
+      SessionStore: {
+        getCustomTabValue: (t, k) => (vtabVals.get(t) || {})[k],
+        setCustomTabValue: (t, k, v) => {
+          const o = vtabVals.get(t) || {};
+          o[k] = v;
+          vtabVals.set(t, o);
+        },
+        deleteCustomTabValue: () => {},
+        getCustomWindowValue: () => undefined,
+        setCustomWindowValue: () => {},
+      },
+      Services: {
+        prefs: {
+          getStringPref: (k, d) => d,
+          setStringPref: () => {},
+          addObserver() {},
+          removeObserver() {},
+        },
+        console: { logStringMessage() {} },
+        wm: {
+          getMostRecentWindow: () => null,
+          getEnumerator: () => ({ hasMoreElements: () => false }),
+        },
+        obs: { addObserver() {}, removeObserver() {} },
+      },
+      ChromeUtils: {
+        generateQI: () => () => {},
+        importESModule: () => ({
+          ContextualIdentityService: {
+            getPublicIdentityFromId: (id) =>
+              id === 7 ? { name: "Work", color: "blue", icon: "briefcase" } : null,
+            create: () => { throw new Error("unused"); },
+            remove: () => {},
+          },
+        }),
+      },
+      Ci: {
+        nsIWebProgressListener: { LOCATION_CHANGE_SAME_DOCUMENT: 2 },
+        nsIWebProgress: { NOTIFY_LOCATION: 1 },
+      },
+    };
+    vsb.window.window = vsb.window;
+    run("workspaces.js", vsb);
+    const fire = (type, target) => {
+      for (const fn of tabHandlers[type] || []) fn({ target });
+    };
+    const stamped = (t) => Number((vtabVals.get(t) || {}).aphLastViewed);
+    const sel = makeTab(vtabVals, { label: "sel", ws: "1", spec: "https://sel.example/" });
+    vsb.gBrowser.tabs.push(sel);
+    assert.ok(!(vtabVals.get(sel) || {}).aphLastViewed, "unstamped before select");
+    fire("TabSelect", sel);
+    assert.ok(Math.abs(Date.now() - stamped(sel)) < 5000, "TabSelect stamps last-viewed");
+    const born = makeTab(vtabVals, { label: "born", ws: "1", spec: "https://born.example/" });
+    vsb.gBrowser.tabs.push(born);
+    fire("TabOpen", born);
+    assert.ok(Math.abs(Date.now() - stamped(born)) < 5000, "TabOpen stamps last-viewed");
   });
 });
 

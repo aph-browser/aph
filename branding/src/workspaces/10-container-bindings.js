@@ -142,13 +142,17 @@
     return out;
   }
 
-  // Per-tab container-line dimming: when a tab's container equals its own
+  // Per-tab container-line dimming: when a tab's container equals its
   // workspace's bound container, the native `.tab-context-line` is redundant
   // (the WS badge in updateIndicator already shows the binding). Matching
   // tabs get `data-aph-bound-match="1"`; theme.css hides the line for those.
   // Mismatches, unbound workspaces, and default (cid 0) tabs never match,
   // so their lines stay visible. Temp containers can never be bound, so they
   // always show.
+  // Pins are global (visible in every workspace) with only a dormant tag:
+  // they match against the viewed (current) workspace, not that tag — a
+  // pinned Work-container tab hides its line exactly in Work-bound
+  // workspaces. Unpinned tabs match against their own tag.
   function isTabMatchingBinding(tab) {
     try {
       if (!tab || tab.closing) {
@@ -165,7 +169,11 @@
       }
       let ws = null;
       try {
-        ws = getWs(tab);
+        let pinned = false;
+        try {
+          pinned = !!tab.pinned;
+        } catch (e) {}
+        ws = pinned && isValidId(current) ? current : getWs(tab);
       } catch (e) {
         return false;
       }

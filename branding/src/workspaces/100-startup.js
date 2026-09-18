@@ -99,6 +99,14 @@
     try {
       startupRestore();
     } catch (e) {}
+    // Bulk-restored tabs can arrive with tag/container still settling when
+    // their SSTabRestored fires — one full chrome pass once session
+    // restore completes, so no tab waits on a binding change for markers.
+    try {
+      if (typeof syncAllTabChrome === "function") {
+        syncAllTabChrome();
+      }
+    } catch (e) {}
   }
 
   function scheduleStartupRestore() {

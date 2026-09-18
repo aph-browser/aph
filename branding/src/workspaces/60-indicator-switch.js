@@ -139,6 +139,14 @@
     anchorAllGroups();
     reconcile(target, tabs);
     pruneExtraNewTabs(target);
+    // Pinned tabs match the viewed workspace (not their dormant tag), so
+    // every switch re-syncs markers; unpinned matches are tag-stable and
+    // the pass is a cheap no-op for them.
+    try {
+      if (typeof syncAllTabChrome === "function") {
+        syncAllTabChrome();
+      }
+    } catch (e) {}
     // Deferred so the switch stays snappy; guards re-check at fire time.
     try {
       if (getUnloadOnSwitch()) {
@@ -147,6 +155,16 @@
             unloadEligibleTabs({ scope: "foreign" });
           } catch (e) {}
         }, 0);
+      }
+    } catch (e) {}
+    // Auto-archive (opt-in pref, default off — archive.js owns the pref
+    // read, eligibility and timing): each switch (re-)arms a 15 s settle
+    // timer there, so the sweep fires only once you've sat still; V1 has
+    // no staleness threshold and every eligible hidden-workspace tab goes.
+    try {
+      const arc = window.AphArchive;
+      if (arc && typeof arc.scheduleAutoSweep === "function") {
+        arc.scheduleAutoSweep();
       }
     } catch (e) {}
   }

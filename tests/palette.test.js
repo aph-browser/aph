@@ -424,3 +424,127 @@ describe("bookmarks + history search", () => {
     assert.ok(api.allItems("new tab").some((r) => r.title === "New Tab"));
   });
 });
+
+describe("archive search", () => {
+  function archiveSandbox(opts) {
+    const o = opts || {};
+    const restored = [];
+    const sb2 = {
+      window: {
+        addEventListener() {},
+        AphWorkspaces: {
+          getCurrent: () => "1",
+          getWsName: () => "",
+          getWsContainer: () => 0,
+          describeContainer: () => null,
+          getRoutes: () => ({}),
+          setRoute: () => {},
+          deleteRoute: () => {},
+          getWs: () => "1",
+          switchTo: () => {},
+          sendTabTo: () => {},
+          openBoundTab: () => ({}),
+          openTempTab: () => ({}),
+        },
+      },
+      document: { readyState: "loading" },
+      gBrowser: {
+        tabs: o.tabs || [],
+        addTrustedTab: () => ({}),
+        get selectedTab() {
+          return { linkedBrowser: { currentURI: { spec: "about:newtab" } } };
+        },
+      },
+      SessionStore: {},
+    };
+    if (o.archive !== undefined) {
+      sb2.window.AphArchive = o.archive;
+    }
+    if (o.private) {
+      sb2.window.PrivateBrowsingUtils = { isWindowPrivate: () => true };
+    }
+    run(
+      "command-palette.js",
+      sb2,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest = { allItems, aphArchivePoolItems };"
+    );
+    return { api: sb2.window.__aphTest, restored };
+  }
+
+  function demoArchive(restored) {
+    return {
+      getEntries: () => [
+        { id: "a1", title: "Quarterly Report", url: "https://docs.example.com/q3", ws: "2", cname: "Work" },
+        { id: "a2", title: "Dentist booking", url: "https://dentist.example.net/", ws: "1", cname: "" },
+      ],
+      restoreEntry: (id, opts) => {
+        restored.push([id, !!(opts && opts.keep)]);
+        return { ok: true };
+      },
+    };
+  }
+
+  it("shows matching archive rows above the search fallback", () => {
+    const restored = [];
+    const { api } = archiveSandbox({ archive: demoArchive(restored) });
+    const res = api.allItems("quarterly");
+    const row = res.find((r) => r.hint === "Archive");
+    assert.ok(row, res.map((r) => `${r.title}[${r.hint}]`).join(" | "));
+    assert.equal(row.title, "Quarterly Report");
+    assert.ok(row.sub.includes("https://docs.example.com/q3"), row.sub);
+    assert.ok(row.sub.includes("WS 2") && row.sub.includes("Work"), row.sub);
+    const search = res.findIndex((r) => r.title.startsWith("Search DuckDuckGo"));
+    assert.ok(res.indexOf(row) < search, "archive before search fallback");
+  });
+
+  it("restores by id, Alt+Enter restores without consuming", () => {
+    const restored = [];
+    const { api } = archiveSandbox({ archive: demoArchive(restored) });
+    const row = api.allItems("quarterly").find((r) => r.hint === "Archive");
+    row.run();
+    assert.deepEqual(restored[restored.length - 1], ["a1", false]);
+    row.runInTemp();
+    assert.deepEqual(restored[restored.length - 1], ["a1", true]);
+  });
+
+  it("stays out of the empty view and needs 2+ chars, skips junk", () => {
+    const restored = [];
+    const { api } = archiveSandbox({
+      archive: {
+        getEntries: () => [
+          { id: "x1", title: "No URL", url: "", ws: "1", cname: "" },
+          { id: "", title: "No id", url: "https://noid.example/", ws: "1", cname: "" },
+          { id: "x3", title: "About page", url: "about:newtab", ws: "1", cname: "" },
+          { id: "x4", title: "Good", url: "https://good.example/", ws: "1", cname: "" },
+        ],
+        restoreEntry: () => ({ ok: true }),
+      },
+    });
+    assert.ok(!api.allItems("").some((r) => r.hint === "Archive"));
+    assert.equal(api.aphArchivePoolItems("g").length, 0);
+    assert.equal(api.aphArchivePoolItems("").length, 0);
+    const rows = api.aphArchivePoolItems("go");
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].sub.split(" ")[0], "https://good.example/");
+  });
+
+  it("hides in private windows and skips open-tab URLs", () => {
+    const openTab = {
+      label: "Quarterly Report",
+      linkedBrowser: { currentURI: { spec: "https://docs.example.com/q3" } },
+    };
+    const restored = [];
+    const priv = archiveSandbox({ archive: demoArchive(restored), private: true });
+    assert.equal(priv.api.aphArchivePoolItems("qu").length, 0);
+    assert.ok(!priv.api.allItems("quarterly").some((r) => r.hint === "Archive"));
+    const { api } = archiveSandbox({ archive: demoArchive(restored), tabs: [openTab] });
+    assert.ok(!api.allItems("quarterly").some((r) => r.hint === "Archive"));
+  });
+
+  it("returns no archive rows without the controller", () => {
+    const { api } = archiveSandbox({});
+    assert.equal(api.aphArchivePoolItems("quarterly").length, 0);
+    assert.ok(api.allItems("new tab").some((r) => r.title === "New Tab"));
+  });
+});
