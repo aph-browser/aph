@@ -152,6 +152,83 @@ def test_tree_rails_hidden_while_dragged() -> None:
     )
 
 
+def test_tree_group_indent_stacks_on_stock_group_margin() -> None:
+    """Stock indents every <tab-group> member by --space-medium (≈12px) in
+    the expanded vertical strip — exactly our L1 step. Our !important L1
+    margin would merely replace stock's and render grouped L0/L1
+    pixel-identical (first child looks un-indented). Grouped L1/L2 must
+    therefore add their step ON TOP of the stock token, with a pinned
+    fallback so a missing token degrades to the same ladder, never 0."""
+    css = _css()
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    l1 = re.search(
+        r"tab-group\s*>\s*[^{]*\[data-aph-level=\"1\"\][^{]*\{([^}]*)\}",
+        code,
+    )
+    assert l1, "missing grouped-L1 stacking rule"
+    assert re.search(
+        r"margin-inline-start:\s*calc\(\s*var\(--space-medium,\s*12px\)\s*\+\s*12px\s*\)",
+        l1.group(1),
+    ), f"grouped L1 must stack 12px on the stock token, got: {l1.group(1).strip()}"
+    l2 = re.search(
+        r"tab-group\s*>\s*[^{]*\[data-aph-level=\"2\"\][^{]*\{([^}]*)\}",
+        code,
+    )
+    assert l2, "missing grouped-L2 stacking rule"
+    assert re.search(
+        r"margin-inline-start:\s*calc\(\s*var\(--space-medium,\s*12px\)\s*\+\s*24px\s*\)",
+        l2.group(1),
+    ), f"grouped L2 must stack 24px on the stock token, got: {l2.group(1).strip()}"
+
+
+def test_tree_group_line_stays_straight_under_indents() -> None:
+    """Stock draws the group line as one .tab-group-line piece per member
+    tab anchored at the tab's own inline-start edge. Our stacked grouped
+    margins would carry each indented tab's piece right by the tree step,
+    kinking the line into a zigzag. Grouped L1/L2 must counter-shift their
+    piece by exactly their tree step (-12px/-24px) so every piece stays on
+    the group offset. Scoped to the expanded strip (sidebar-main[expanded])
+    so collapsed dots keep the stock piece offset, and to #vertical-tabs
+    so the horizontal strip is untouched."""
+    css = _css()
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    for level, shift in (("1", "-12px"), ("2", "-24px")):
+        m = re.search(
+            r"([^{}]*tab-group\s*>[^{}]*\[data-aph-level=\""
+            + level
+            + r"\"\][^{}]*\.tab-group-line[^{}]*)\{([^}]*)\}",
+            code,
+        )
+        assert m, f"missing grouped-L{level} group-line straightening rule"
+        selectors, body = m.group(1), m.group(2)
+        assert "#vertical-tabs" in selectors, f"unscoped line rule: {selectors}"
+        assert "sidebar-main[expanded]" in selectors, (
+            f"line rule must be expanded-only (collapsed keeps stock offset): {selectors}"
+        )
+        assert re.search(
+            r"inset-inline-start:\s*" + re.escape(shift) + r"\s*!important",
+            body,
+        ), f"grouped L{level} line must counter-shift {shift}, got: {body.strip()}"
+
+
+def test_tree_group_indent_zeroed_when_collapsed() -> None:
+    """The stacking rules out-specify the base collapsed zeroing (extra
+    tab-group type), so grouped L1/L2 need their own dots-only zeroing,
+    scoped tighter and placed later."""
+    css = _css()
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    stacking = code.find("tab-group > tab[data-aph-level")
+    assert stacking != -1
+    m = re.search(
+        r"#sidebar-container\s+sidebar-main:not\(\[expanded\]\)[^{]*"
+        r"tab-group\s*>[^{]*\[data-aph-level=\"[12]\"\][^{]*\{([^}]*)\}",
+        code,
+    )
+    assert m, "missing collapsed grouped-level zeroing rule"
+    assert "margin-inline-start: 0" in m.group(1)
+    assert code.find(m.group(0)) > stacking, "collapsed zeroing must come after stacking"
+
+
 def test_tree_rails_hidden_when_collapsed() -> None:
     """Collapsed sidebar-main shows dots with zero indent: rails would clip
     like the twisty/counts, so they must hide there too."""

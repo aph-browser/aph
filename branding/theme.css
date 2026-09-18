@@ -649,6 +649,46 @@ tab > .aph-tree-rail,
   margin-inline-start: 24px !important;
 }
 
+/* Grouped tabs stack the tree step on top of the stock group indent.
+   Stock indents every member of a <tab-group> by --space-medium
+   (0.75rem ≈ 12px, tabs.css) in the expanded vertical strip — exactly
+   our L1 step. Without this, our !important 12px merely replaces
+   stock's 12px and grouped L0/L1 render pixel-identical, so the first
+   child looks un-indented. Unnested L0 members keep the stock margin
+   untouched (no rule here matches them); L1/L2 add their step on top:
+   label+roots 12 / L1 24 / L2 36. The var() fallback pins the stock
+   value so a missing token degrades to the same ladder, never to 0. */
+#sidebar-container:not([hidden]) #vertical-tabs tab-group > tab[data-aph-level="1"],
+#sidebar-container:not([hidden]) #vertical-tabs tab-group > .tabbrowser-tab[data-aph-level="1"] {
+  margin-inline-start: calc(var(--space-medium, 12px) + 12px) !important;
+}
+
+#sidebar-container:not([hidden]) #vertical-tabs tab-group > tab[data-aph-level="2"],
+#sidebar-container:not([hidden]) #vertical-tabs tab-group > .tabbrowser-tab[data-aph-level="2"] {
+  margin-inline-start: calc(var(--space-medium, 12px) + 24px) !important;
+}
+
+/* Keep the native group line straight under tree indents. Stock draws
+   the group line as one .tab-group-line piece per member tab, anchored
+   at each tab's own inline-start edge (inset-inline-start: 0, expanded
+   vertical) so the pieces form a continuous line at the member margin.
+   Our stacked margins above shift indented tabs (and their pieces) right
+   by exactly the tree step, kinking the line into a zigzag. Counter-shift
+   each piece by the same step so every piece stays on the group offset;
+   fixed px (not the stock token) because the tree steps are fixed and the
+   group base cancels out. Logical inset keeps LTR/RTL mirrored.
+   Expanded strip only (sidebar-main[expanded]): collapsed dots zero the
+   margins above, so the stock piece offset applies there untouched. */
+#sidebar-container:not([hidden]) sidebar-main[expanded] #vertical-tabs tab-group > tab[data-aph-level="1"] .tab-group-line,
+#sidebar-container:not([hidden]) sidebar-main[expanded] #vertical-tabs tab-group > .tabbrowser-tab[data-aph-level="1"] .tab-group-line {
+  inset-inline-start: -12px !important;
+}
+
+#sidebar-container:not([hidden]) sidebar-main[expanded] #vertical-tabs tab-group > tab[data-aph-level="2"] .tab-group-line,
+#sidebar-container:not([hidden]) sidebar-main[expanded] #vertical-tabs tab-group > .tabbrowser-tab[data-aph-level="2"] .tab-group-line {
+  inset-inline-start: -24px !important;
+}
+
 /* Indent rails: vertical Tree Style Tab guides in the margin gutter.
    Real JS-injected elements (syncTreeRails): L1 tabs get one inner
    rail, L2 tabs get inner + outer ancestor continuation. 12px rail
@@ -776,6 +816,16 @@ sidebar-main:not([expanded]) #vertical-tabs tab[data-aph-level="1"],
 sidebar-main:not([expanded]) #vertical-tabs .tabbrowser-tab[data-aph-level="1"],
 sidebar-main:not([expanded]) #vertical-tabs tab[data-aph-level="2"],
 sidebar-main:not([expanded]) #vertical-tabs .tabbrowser-tab[data-aph-level="2"] {
+  margin-inline-start: 0 !important;
+}
+
+/* Collapsed dots for grouped levels too: the stacking rules above are
+   more specific than the base zeroing (extra tab-group type), so grouped
+   L1/L2 need their own zeroing — scoped even tighter so it wins. */
+#sidebar-container sidebar-main:not([expanded]) #vertical-tabs tab-group > tab[data-aph-level="1"],
+#sidebar-container sidebar-main:not([expanded]) #vertical-tabs tab-group > .tabbrowser-tab[data-aph-level="1"],
+#sidebar-container sidebar-main:not([expanded]) #vertical-tabs tab-group > tab[data-aph-level="2"],
+#sidebar-container sidebar-main:not([expanded]) #vertical-tabs tab-group > .tabbrowser-tab[data-aph-level="2"] {
   margin-inline-start: 0 !important;
 }
 
