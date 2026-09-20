@@ -12,8 +12,213 @@
   const DOCK_ID = "aph-ws-dock";
   const DOCK_MENU_ID = "aph-ws-dock-menu";
   // Tab being dragged over the dock (stock tab dataTransfer carries no tab
-  // ref, so track dragstart on the shared tab container instead).
+  // ref, so track dragstart on the shared tab container instead). Group
+  // headers drag the whole native group: stock strip lets a <tab-group>
+  // label move all its tabs, so the dock tracks that separately.
   let dockDragTab = null;
+  let dockDragGroup = null;
+  // Drag-mode: while a tab/group drag is in flight the dock expands to all
+  // 9 workspaces so any workspace (including empty ones) is a drop target.
+  // renderDock() checks this flag; enter/exit helpers re-render. The "+" pill
+  // also accepts drops (moves to the lowest inactive workspace).
+  let dockDragActive = false;
+
+  function dockTabDragType(e) {
+    try {
+      const dt = e && e.dataTransfer;
+      if (!dt) {
+        return false;
+      }
+      // Chrome-privileged tab-drag identity (browser.xhtml runs as chrome,
+      // so moz* APIs are visible here — unlike content, where bug 1345591
+      // hides them). This is the same check the strip's own
+      // getDropEffectForTabDrag uses: first type must be TAB_DROP_TYPE.
+      try {
+        if (typeof dt.mozItemCount === "number" && dt.mozItemCount > 0 &&
+            typeof dt.mozTypesAt === "function") {
+          const types = dt.mozTypesAt(0) || [];
+          if (types[0] === "application/x-moz-tabbrowser-tab") {
+            return true;
+          }
+        }
+      } catch (err) {}
+      // Firefox tab DnD carries application/x-moz-tabbrowser-tab (nsDragService).
+      // types may be a DOMStringList (contains()) or a plain array (includes()).
+      try {
+        if (typeof dt.contains === "function" && dt.contains("application/x-moz-tabbrowser-tab")) {
+          return true;
+        }
+      } catch (err) {}
+      try {
+        const types = dt.types || [];
+        for (const t of Array.from(types)) {
+          if (t === "application/x-moz-tabbrowser-tab") {
+            return true;
+          }
+        }
+      } catch (err) {}
+    } catch (e) {}
+    return false;
+  }
+
+  function isDockDropArmed(e) {
+    try {
+      if (dockDragTab || dockDragGroup || dockDragActive) {
+        return true;
+      }
+    } catch (err) {}
+    try {
+      return dockTabDragType(e);
+    } catch (err) {
+      return false;
+    }
+  }
+
+  // What will a drop move? Base tabs from resolveDockDragTabs plus linked
+  // tree descendants (sendTabTo auto-carry). Used for drop tooltips.
+  function dockDropPreview() {
+    try {
+      const base = resolveDockDragTabs();
+      if (!base.length) {
+        return { count: 0, kind: "tab" };
+      }
+      const wasGroup = !!dockDragGroup;
+      const seen = new Set();
+      for (const t of base) {
+        if (t && !t.closing) {
+          seen.add(t);
+        }
+      }
+      try {
+        for (const t of Array.from(seen)) {
+          let kids = [];
+          try {
+            kids =
+              typeof getTreeDescendants === "function"
+                ? getTreeDescendants(t)
+                : [];
+          } catch (e) {
+            kids = [];
+          }
+          for (const k of kids || []) {
+            if (k && !k.closing) {
+              seen.add(k);
+            }
+          }
+        }
+      } catch (e) {}
+      const count = seen.size;
+      let kind = base.length > 1 ? `${base.length} tabs` : "tab";
+      if (wasGroup) {
+        kind = `group (${count} tab${count === 1 ? "" : "s"})`;
+      } else if (count > base.length) {
+        kind = `tree (${count} tabs)`;
+      } else if (base.length > 1) {
+        kind = `${count} tabs`;
+      } else {
+        kind = "tab";
+      }
+      return { count, kind };
+    } catch (e) {
+      return { count: 0, kind: "tab" };
+    }
+  }
+
+  function enterDockDragMode() {
+    try {
+      if (!dockDragActive) {
+        dockDragActive = true;
+        renderDock();
+      }
+    } catch (e) {}
+  }
+
+  function exitDockDragMode() {
+    try {
+      if (dockDragActive) {
+        dockDragActive = false;
+        renderDock();
+      }
+    } catch (e) {
+      try {
+        dockDragActive = false;
+      } catch (_e) {}
+    }
+  }
+
+  // Drop-then-hide ordering: hiding the dragged tab while Firefox's own tab
+  // drag session is still active leaves its strip animation (translateY
+  // shoves, drop-indicator margins) stranded mid-flight — visible as
+  // overlapping tabs, gaps, and tabs pushed past the new-tab button. The
+  // strip's own cleanup runs on dragend (finishAnimateTabMove /
+  // _resetTabsAfterDrop clear inline styles), so a drop during a live tab
+  // drag is recorded here and only executed once dragend has unwound the
+  // session. Non-drag callers (tests, palette, context menu) and payloads
+  // without a live session keep the synchronous path.
+  let dockPendingDrop = null;
+
+  // A live Firefox tab drag parks its state on the dragged tab (_dragData,
+  // set by startTabDrag, deleted on dragend). Mocks and non-tab drags never
+  // carry it, so they stay synchronous (and existing tests keep passing).
+  function isLiveTabDragSession(tabs) {
+    try {
+      for (const t of tabs || []) {
+        try {
+          if (t && t._dragData) {
+            return true;
+          }
+        } catch (e) {}
+      }
+      for (const t of [dockDragTab]) {
+        try {
+          if (t && t._dragData) {
+            return true;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function executeDockDrop(dest, dragTabs, wasGroup) {
+    try {
+      if (!dragTabs || !dragTabs.length || !isValidId(dest)) {
+        return false;
+      }
+      if (dest === current) {
+        try {
+          pulseWorkspaceIndicator();
+        } catch (e) {}
+        return false;
+      }
+      if (wasGroup && typeof sendGroupTo === "function") {
+        sendGroupTo(dest, dragTabs);
+      } else {
+        sendTabTo(dest, dragTabs);
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function flushDockPendingDrop() {
+    let pending = null;
+    try {
+      pending = dockPendingDrop;
+      dockPendingDrop = null;
+    } catch (e) {
+      pending = null;
+    }
+    if (!pending) {
+      return false;
+    }
+    try {
+      return executeDockDrop(pending.dest, pending.tabs, pending.wasGroup);
+    } catch (e) {
+      return false;
+    }
+  }
 
   function dockAnchor() {
     try {
@@ -181,7 +386,7 @@
     }
   }
 
-  function makeDockPill(id, isCurrent, count) {
+  function makeDockPill(id, isCurrent, count, isEmpty) {
     let pill = null;
     try {
       pill = document.createElement("div");
@@ -190,6 +395,11 @@
       pill.setAttribute("role", "button");
       if (isCurrent) {
         pill.setAttribute("data-current", "1");
+      }
+      if (isEmpty) {
+        try {
+          pill.setAttribute("data-empty", "1");
+        } catch (e) {}
       }
       const glyph = dockGlyph(id);
       pill.textContent = glyph;
@@ -210,6 +420,8 @@
       } catch (e) {}
       if (count > 0) {
         title += ` · ${count} tab${count === 1 ? "" : "s"}`;
+      } else if (isEmpty) {
+        title += " · empty";
       }
       try {
         const bid = getWsContainerId(id);
@@ -223,7 +435,28 @@
           }
         }
       } catch (e) {}
-      pill.title = `${title} — click to switch, right-click for actions`;
+      // During a tab drag the tooltip previews the move (tree/group aware).
+      try {
+        if (dockDragActive) {
+          if (id === current) {
+            pill.title = `${title} — current workspace (drop does nothing)`;
+          } else {
+            let preview = null;
+            try {
+              preview = dockDropPreview();
+            } catch (e) {}
+            const what =
+              preview && preview.count > 0
+                ? `Drop to move ${preview.kind} here`
+                : "Drop to move tab(s) here";
+            pill.title = `${title} — ${what}`;
+          }
+        } else {
+          pill.title = `${title} — click to switch, drag tabs here to move, right-click for actions`;
+        }
+      } catch (e) {
+        pill.title = `${title} — click to switch, right-click for actions`;
+      }
       try {
         pill.addEventListener("click", () => {
           try {
@@ -265,18 +498,36 @@
         }
       } catch (e) {}
       try {
-        pill.addEventListener("dragover", (e) => {
+        const armDrop = (e) => {
           try {
-            if (!dockDragTab) {
-              return;
+            // Current workspace is never a drop target (send would no-op).
+            if (id === current) {
+              return false;
+            }
+            if (!isDockDropArmed(e)) {
+              return false;
             }
             e.preventDefault();
+            // The dock lives inside #vertical-tabs: without this the strip's
+            // own tab-drag handler (handle_dragover, bubble phase) also sees
+            // the event and starts its tab-shove animation underneath the
+            // dock hover. Shield it so pills are the only drop UI in play.
+            try {
+              if (typeof e.stopPropagation === "function") {
+                e.stopPropagation();
+              }
+            } catch (err) {}
             try {
               e.dataTransfer.dropEffect = "move";
             } catch (err) {}
             pill.classList.add("drop-target");
-          } catch (err) {}
-        });
+            return true;
+          } catch (err) {
+            return false;
+          }
+        };
+        pill.addEventListener("dragenter", armDrop);
+        pill.addEventListener("dragover", armDrop);
         pill.addEventListener("dragleave", () => {
           try {
             pill.classList.remove("drop-target");
@@ -285,11 +536,47 @@
         pill.addEventListener("drop", (e) => {
           try {
             e.preventDefault();
+            try {
+              if (typeof e.stopPropagation === "function") {
+                e.stopPropagation();
+              }
+            } catch (err) {}
             pill.classList.remove("drop-target");
-            const dragTabs = resolveDockDragTabs();
-            if (dragTabs.length) {
-              sendTabTo(id, dragTabs);
+            if (id === current) {
+              try {
+                pulseWorkspaceIndicator();
+              } catch (err) {}
+              return;
             }
+            const wasGroup = !!dockDragGroup;
+            let dragTabs = [];
+            try {
+              dragTabs = resolveDockDragTabs();
+            } catch (err) {
+              dragTabs = [];
+            }
+            // Tracker missed (e.g. dragstart outside our listener) but the
+            // payload is a tab drag: fall back to the live selection so the
+            // drop still moves something sensible instead of nothing.
+            if (!dragTabs.length && dockTabDragType(e)) {
+              try {
+                dragTabs = resolveSendBase(null).slice();
+              } catch (err) {
+                dragTabs = [];
+              }
+            }
+            if (!dragTabs.length) {
+              return;
+            }
+            // Live tab drag: defer until dragend so the strip's session
+            // cleanup runs first (see dockPendingDrop note above).
+            if (isLiveTabDragSession(dragTabs)) {
+              try {
+                dockPendingDrop = { dest: id, tabs: dragTabs.slice(), wasGroup };
+              } catch (err) {}
+              return;
+            }
+            executeDockDrop(id, dragTabs, wasGroup);
           } catch (err) {}
         });
       } catch (e) {}
@@ -306,13 +593,89 @@
       pill.className = "aph-ws-pill aph-ws-add";
       pill.textContent = "+";
       pill.title = free
-        ? `New workspace ${free} (switches here, opens a tab)`
+        ? `New workspace ${free} (click: switches here, opens a tab · drop: moves tab(s) here)`
         : "All 9 workspaces active";
       try {
         pill.addEventListener("click", () => {
           try {
             plusToWorkspace();
           } catch (e) {}
+        });
+      } catch (e) {}
+      // The "+" pill is a drop target for a fresh workspace: dropping moves
+      // to the lowest inactive ID (same destination a click would open).
+      try {
+        const armPlus = (e) => {
+          try {
+            if (!isDockDropArmed(e)) {
+              return false;
+            }
+            if (!free) {
+              return false;
+            }
+            e.preventDefault();
+            try {
+              if (typeof e.stopPropagation === "function") {
+                e.stopPropagation();
+              }
+            } catch (err) {}
+            try {
+              e.dataTransfer.dropEffect = "move";
+            } catch (err) {}
+            pill.classList.add("drop-target");
+            return true;
+          } catch (err) {
+            return false;
+          }
+        };
+        pill.addEventListener("dragenter", armPlus);
+        pill.addEventListener("dragover", armPlus);
+        pill.addEventListener("dragleave", () => {
+          try {
+            pill.classList.remove("drop-target");
+          } catch (err) {}
+        });
+        pill.addEventListener("drop", (e) => {
+          try {
+            e.preventDefault();
+            try {
+              if (typeof e.stopPropagation === "function") {
+                e.stopPropagation();
+              }
+            } catch (err) {}
+            pill.classList.remove("drop-target");
+            const dest = lowestInactiveId(getActiveIds());
+            if (!dest) {
+              try {
+                pulseWorkspaceIndicator();
+              } catch (err) {}
+              return;
+            }
+            const wasGroup = !!dockDragGroup;
+            let dragTabs = [];
+            try {
+              dragTabs = resolveDockDragTabs();
+            } catch (err) {
+              dragTabs = [];
+            }
+            if (!dragTabs.length && dockTabDragType(e)) {
+              try {
+                dragTabs = resolveSendBase(null).slice();
+              } catch (err) {
+                dragTabs = [];
+              }
+            }
+            if (!dragTabs.length) {
+              return;
+            }
+            if (isLiveTabDragSession(dragTabs)) {
+              try {
+                dockPendingDrop = { dest, tabs: dragTabs.slice(), wasGroup };
+              } catch (err) {}
+              return;
+            }
+            executeDockDrop(dest, dragTabs, wasGroup);
+          } catch (err) {}
         });
       } catch (e) {}
     } catch (e) {
@@ -350,19 +713,49 @@
           dock.removeChild(dock.firstChild);
         }
       } catch (e) {}
-      const ids = getActiveIds();
+      // Drag-mode expands to all 9 workspaces so empty ones accept drops.
+      // Normal mode shows active workspaces only (plus current).
+      let ids = [];
+      try {
+        ids = getActiveIds();
+      } catch (e) {
+        ids = [];
+      }
       const cur = isValidId(current) ? current : "1";
       const counts = dockCounts();
-      for (const id of ids) {
+      if (dockDragActive) {
         try {
-          const pill = makeDockPill(id, id === cur, counts[id] || 0);
-          if (pill) {
-            dock.appendChild(pill);
-          }
+          dock.setAttribute("data-aph-dragging", "1");
         } catch (e) {}
+        for (let i = 1; i <= 9; i++) {
+          const id = String(i);
+          try {
+            const pill = makeDockPill(
+              id,
+              id === cur,
+              counts[id] || 0,
+              !ids.includes(id)
+            );
+            if (pill) {
+              dock.appendChild(pill);
+            }
+          } catch (e) {}
+        }
+      } else {
+        try {
+          dock.removeAttribute("data-aph-dragging");
+        } catch (e) {}
+        for (const id of ids) {
+          try {
+            const pill = makeDockPill(id, id === cur, counts[id] || 0, false);
+            if (pill) {
+              dock.appendChild(pill);
+            }
+          } catch (e) {}
+        }
       }
       try {
-        const plus = makeDockPlus(lowestInactiveId(ids));
+        const plus = makeDockPlus(lowestInactiveId(getActiveIds()));
         if (plus) {
           dock.appendChild(plus);
         }
@@ -643,6 +1036,26 @@
       }
       dock = document.createElement("div");
       dock.id = DOCK_ID;
+      // Dock gaps (padding between pills) sit inside #vertical-tabs: a tab
+      // drag hovering the gap would otherwise bubble to the strip's own
+      // dragover and animate tab shoves with no pill in play. Swallow it.
+      try {
+        const shield = (e) => {
+          try {
+            if (!isDockDropArmed(e)) {
+              return;
+            }
+            e.preventDefault();
+            try {
+              if (typeof e.stopPropagation === "function") {
+                e.stopPropagation();
+              }
+            } catch (err) {}
+          } catch (err) {}
+        };
+        dock.addEventListener("dragenter", shield);
+        dock.addEventListener("dragover", shield);
+      } catch (e) {}
       anchor.appendChild(dock);
       // Shared right-click menu must exist before pills reference it.
       try {
@@ -657,23 +1070,76 @@
   function onDockDragStart(e) {
     try {
       dockDragTab = null;
+      dockDragGroup = null;
       const t = e && e.target;
-      const tab =
-        t && typeof t.closest === "function" ? t.closest("tab") : null;
-      if (tab && !tab.closing) {
-        dockDragTab = tab;
+      try {
+        const tab =
+          t && typeof t.closest === "function" ? t.closest("tab") : null;
+        if (tab && !tab.closing) {
+          dockDragTab = tab;
+          enterDockDragMode();
+          return;
+        }
+      } catch (err) {}
+      // No tab under the cursor: a group-header drag carries the whole
+      // native group (stock strip behavior). Resolve members at drop time
+      // so mid-drag closes don't strand stale refs.
+      try {
+        const grp =
+          t && typeof t.closest === "function" ? t.closest("tab-group") : null;
+        if (grp && !grp.closing) {
+          dockDragGroup = grp;
+          enterDockDragMode();
+          return;
+        }
+      } catch (err) {
+        dockDragGroup = null;
       }
+      // Drag started but hit neither tab nor group (e.g. empty strip gap):
+      // still enter drag-mode if the payload looks like tabs so empty
+      // workspaces become visible drop targets.
+      try {
+        if (dockTabDragType(e)) {
+          enterDockDragMode();
+        }
+      } catch (err) {}
     } catch (err) {
       dockDragTab = null;
+      dockDragGroup = null;
     }
   }
 
-  // Resolve what a dock drop should move: the dragged tab itself, expanded
-  // to the live multiselection only when the dragged tab belongs to it
-  // (stock strip-drag semantics). Reading selection alone is wrong — the
-  // user can drag an unselected tab while something else is selected.
+  // Resolve what a dock drop should move. Group-header drags return the
+  // group's live members (sendGroupTo keeps membership); tab drags return
+  // the dragged tab itself, expanded to the live multiselection only when
+  // the dragged tab belongs to it (stock strip-drag semantics). Reading
+  // selection alone is wrong — the user can drag an unselected tab while
+  // something else is selected. Trees ride along via sendTabTo's
+  // auto-carry; whole groups stay joined via preservation.
   function resolveDockDragTabs() {
     try {
+      if (dockDragGroup) {
+        let members = [];
+        try {
+          if (typeof groupMembers === "function") {
+            members = groupMembers(dockDragGroup);
+          } else {
+            members = Array.from(dockDragGroup.tabs || []);
+          }
+        } catch (e) {
+          members = [];
+        }
+        try {
+          const live = new Set(Array.from(gBrowser.tabs || []));
+          members = (members || []).filter(
+            (t) => t && !t.closing && live.has(t)
+          );
+        } catch (e) {}
+        if (members.length) {
+          return members;
+        }
+        // Stale group ref (closed mid-drag): fall through to tab logic.
+      }
       if (!dockDragTab || dockDragTab.closing) {
         return [];
       }
@@ -707,9 +1173,19 @@
     }
   }
 
-  function onDockDragEnd() {
+  function onDockDragEnd(e) {
+    // A drop during a live tab drag only records dockPendingDrop (strip
+    // session still active). Now the session has unwound — execute the move
+    // against a settled strip, then collapse the drag UI.
+    try {
+      flushDockPendingDrop();
+    } catch (err) {}
+    try {
+      dockPendingDrop = null;
+    } catch (err) {}
     try {
       dockDragTab = null;
+      dockDragGroup = null;
       const dock = document.getElementById(DOCK_ID);
       if (dock && typeof dock.querySelectorAll === "function") {
         for (const p of Array.from(dock.querySelectorAll(".drop-target"))) {
@@ -719,11 +1195,19 @@
         }
       }
     } catch (e) {}
+    // Collapse back to active-only pills after the drag (drop handlers run
+    // before dragend; deferred sends complete in flush above).
+    try {
+      exitDockDragMode();
+    } catch (e) {}
   }
 
   function cleanupDock() {
     try {
       dockDragTab = null;
+      dockDragGroup = null;
+      dockDragActive = false;
+      dockPendingDrop = null;
     } catch (e) {}
     try {
       const menu = dockMenu();
@@ -740,8 +1224,12 @@
     } catch (e) {}
     try {
       if (gBrowser && gBrowser.tabContainer) {
+        gBrowser.tabContainer.removeEventListener("dragstart", onDockDragStart, true);
         gBrowser.tabContainer.removeEventListener("dragstart", onDockDragStart);
       }
+    } catch (e) {}
+    try {
+      window.removeEventListener("dragstart", onDockDragStart, true);
     } catch (e) {}
     try {
       window.removeEventListener("dragend", onDockDragEnd);
@@ -752,10 +1240,17 @@
     try {
       renderDock();
     } catch (e) {}
+    // Capture phase: the strip's own tab element handles dragstart with
+    // capture=true and may stop propagation, which would starve a bubble
+    // listener on the container (no tracking → no expansion, no indicator).
+    // Ancestor capture fires first, so we always see the drag.
     try {
       if (gBrowser && gBrowser.tabContainer) {
-        gBrowser.tabContainer.addEventListener("dragstart", onDockDragStart);
+        gBrowser.tabContainer.addEventListener("dragstart", onDockDragStart, true);
       }
+    } catch (e) {}
+    try {
+      window.addEventListener("dragstart", onDockDragStart, true);
     } catch (e) {}
     try {
       window.addEventListener("dragend", onDockDragEnd);

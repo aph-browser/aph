@@ -264,6 +264,8 @@
       window.AphWorkspaces = {
         switchTo,
         sendTabTo,
+        sendTreeTo,
+        sendGroupTo,
         cycleWorkspace,
         toggleLastWorkspace,
         getActiveWorkspaces: getActiveIds,

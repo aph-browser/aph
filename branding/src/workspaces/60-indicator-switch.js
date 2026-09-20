@@ -208,19 +208,303 @@
     }
   }
 
-  // Send the multiselection (Ctrl+click) to WS N and stay; with no
-  // multiselection this is just the active tab: eject from group (groups are
-  // single-WS; pinned tabs are never grouped, so the ungroup is a no-op for
-  // them), retag, reconcile to focus next + hide sent tabs (hiding refuses
-  // the selected tab, so selection must move first — reconcile does).
-  // Pinned tabs are global so sent pins stay visible; their tags are dormant
-  // state applied on eventual unpin. Sent tabs keep their containers
-  // (containers are immutable per tab), and position; bindings only affect
-  // newly opened tabs.
-  function sendTabTo(target, explicit) {
-    if (!isValidId(target) || target === current) {
-      return;
+  // Send family helpers: trees and native groups move as units, single
+  // tabs extract. `collectTreeFamily` carries linked descendants (same-WS,
+  // same-group filtered — stranded cross-edge tabs read detached and stay).
+  // `preservedSendGroups` keeps membership when the move covers a whole
+  // group (no ungroup); partial moves eject as before. `executeWorkspaceSend`
+  // is the shared core: eject non-preserved members, keep links whose
+  // parent travels, detach roots whose parent stays, promote stragglers
+  // left behind, then retag the whole set.
+  function collectTreeFamily(baseTabs) {
+    const out = [];
+    const seen = new Set();
+    try {
+      for (const t of baseTabs || []) {
+        try {
+          if (!t || t.closing || seen.has(t)) {
+            continue;
+          }
+          seen.add(t);
+          out.push(t);
+        } catch (e) {}
+      }
+      // Descendants of each root join (recursive already); newly added
+      // members can themselves own deeper levels, but getTreeDescendants
+      // is transitive so one pass suffices.
+      const roots = out.slice();
+      for (const r of roots) {
+        let kids = [];
+        try {
+          kids =
+            typeof getTreeDescendants === "function" ? getTreeDescendants(r) : [];
+        } catch (e) {
+          kids = [];
+        }
+        for (const k of kids || []) {
+          try {
+            if (!k || k.closing || seen.has(k)) {
+              continue;
+            }
+            seen.add(k);
+            out.push(k);
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  function collectGroupFamily(baseTabs) {
+    const out = [];
+    const seen = new Set();
+    try {
+      const groups = new Set();
+      for (const t of baseTabs || []) {
+        try {
+          if (t && !t.closing && t.group) {
+            groups.add(t.group);
+          }
+        } catch (e) {}
+      }
+      if (!groups.size) {
+        return collectTreeFamily(baseTabs);
+      }
+      const members = [];
+      for (const g of groups) {
+        let ms = [];
+        try {
+          ms = typeof groupMembers === "function" ? groupMembers(g) : [];
+        } catch (e) {
+          ms = [];
+        }
+        for (const m of ms || []) {
+          try {
+            if (m && !m.closing && !seen.has(m)) {
+              seen.add(m);
+              members.push(m);
+            }
+          } catch (e) {}
+        }
+      }
+      // Carry grouped trees along (same filtered walk as single moves).
+      return collectTreeFamily(members.length ? members : baseTabs);
+    } catch (e) {}
+    return collectTreeFamily(baseTabs);
+  }
+
+  function preservedSendGroups(moveSet) {
+    const preserved = new Set();
+    try {
+      let groups = [];
+      try {
+        groups = gBrowser.tabGroups || [];
+      } catch (e) {
+        return preserved;
+      }
+      const moving = new Set(moveSet || []);
+      for (const g of groups || []) {
+        let members = [];
+        try {
+          members =
+            typeof groupMembers === "function"
+              ? groupMembers(g).filter((t) => !t.pinned)
+              : [];
+        } catch (e) {
+          members = [];
+        }
+        if (!members.length) {
+          continue;
+        }
+        let allMoving = true;
+        for (const m of members) {
+          try {
+            if (!moving.has(m)) {
+              allMoving = false;
+              break;
+            }
+          } catch (e) {
+            allMoving = false;
+            break;
+          }
+        }
+        if (allMoving) {
+          preserved.add(g);
+        }
+      }
+    } catch (e) {}
+    return preserved;
+  }
+
+  function executeWorkspaceSend(target, moveSet) {
+    if (!isValidId(target) || !moveSet || !moveSet.length) {
+      return false;
     }
+    const moving = new Set();
+    try {
+      for (const t of moveSet) {
+        if (t && !t.closing) {
+          moving.add(t);
+        }
+      }
+    } catch (e) {}
+    if (!moving.size) {
+      return false;
+    }
+    const list = Array.from(moving);
+    let preserved = null;
+    try {
+      preserved = preservedSendGroups(list);
+    } catch (e) {
+      preserved = new Set();
+    }
+    // Snapshot parent links before any retag (getWs-gated reads go stale
+    // after the first setWs).
+    const parentOf = new Map();
+    try {
+      for (const t of list) {
+        let p = null;
+        try {
+          p =
+            typeof getTreeParentTab === "function" ? getTreeParentTab(t) : null;
+        } catch (e) {
+          p = null;
+        }
+        parentOf.set(t, p || null);
+      }
+    } catch (e) {}
+    // Eject partial-group members; whole groups stay joined so membership
+    // (and the tree nesting invariant) survives the retag.
+    for (const tab of list) {
+      try {
+        if (!tab.group) {
+          continue;
+        }
+        let keep = false;
+        try {
+          keep = preserved && preserved.has(tab.group);
+        } catch (e) {}
+        if (!keep) {
+          gBrowser.ungroupTab(tab);
+        }
+      } catch (e) {}
+    }
+    // Detach roots whose parent stays behind; keep edges whose parent
+    // travels. Stragglers (non-moving children of movers) promote to the
+    // grandparent or to roots — the detachTreeForWorkspaceSend rule.
+    try {
+      const hasTreeFns =
+        typeof clearTreeParent === "function" &&
+        typeof ensureTreeId === "function";
+      if (hasTreeFns) {
+        for (const tab of list) {
+          try {
+            const parent = parentOf.get(tab) || null;
+            if (parent && !moving.has(parent)) {
+              clearTreeParent(tab);
+            }
+            try {
+              ensureTreeId(tab);
+            } catch (e) {}
+          } catch (e) {}
+        }
+        // Promote non-moving children left behind by each mover.
+        let allTabs = [];
+        try {
+          allTabs = Array.from(gBrowser.tabs || []);
+        } catch (e) {}
+        for (const mover of list) {
+          let moverId = null;
+          try {
+            moverId =
+              typeof rawTreeId === "function" ? rawTreeId(mover) : null;
+          } catch (e) {}
+          if (!moverId) {
+            continue;
+          }
+          for (const t of allTabs) {
+            try {
+              if (!t || t === mover || moving.has(t) || t.closing) {
+                continue;
+              }
+              let pid = null;
+              try {
+                pid =
+                  typeof rawTreeParentId === "function"
+                    ? rawTreeParentId(t)
+                    : null;
+              } catch (e) {}
+              if (pid !== moverId) {
+                continue;
+              }
+              // Child stays: re-hang to the mover's parent when that
+              // parent stays too, else to a root.
+              const gpTab = parentOf.get(mover) || null;
+              if (gpTab && !moving.has(gpTab) && !gpTab.closing) {
+                let gid = null;
+                try {
+                  gid =
+                    typeof rawTreeId === "function" ? rawTreeId(gpTab) : null;
+                } catch (e) {}
+                if (gid) {
+                  try {
+                    if (typeof setTreeParent === "function") {
+                      setTreeParent(t, gid);
+                    }
+                  } catch (e) {}
+                  continue;
+                }
+              }
+              try {
+                clearTreeParent(t);
+              } catch (e) {}
+            } catch (e) {}
+          }
+          // Collapse flag travels with the family; drop it when nothing
+          // was carried (mirrors detachTreeForWorkspaceSend).
+          try {
+            let carried = false;
+            for (const t of list) {
+              if (parentOf.get(t) === mover) {
+                carried = true;
+                break;
+              }
+            }
+            if (!carried && typeof collapsedTreeParents !== "undefined") {
+              try {
+                collapsedTreeParents.delete(moverId);
+              } catch (e) {}
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    for (const tab of list) {
+      try {
+        setWs(tab, target);
+      } catch (e) {}
+    }
+    anchorAllGroups();
+    try {
+      if (typeof renderTree === "function") {
+        renderTree();
+      }
+    } catch (e) {}
+    try {
+      reconcile(current, Array.from(gBrowser.tabs));
+      pruneExtraNewTabs(current);
+    } catch (e) {}
+    // Dock counts are tag-based: repaint so pill counts follow the move
+    // immediately (drag-mode expansion collapses on dragend).
+    try {
+      if (typeof renderDock === "function") {
+        renderDock();
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  function resolveSendBase(explicit) {
     let tabs = [];
     // Explicit drag set wins (dock DnD): dragging an unselected tab must
     // move that tab, not whatever happens to be selected. Keyboard/palette
@@ -256,33 +540,61 @@
         }
       } catch (e) {}
     }
-    if (!tabs.length) {
+    return tabs;
+  }
+
+  // Send the multiselection (Ctrl+click) to WS N and stay; with no
+  // multiselection this is just the active tab. Trees travel: linked
+  // descendants join automatically so a parent move keeps its hierarchy in
+  // the target workspace. Native groups stay joined when the move covers
+  // the whole group; partial moves eject as before (groups are single-WS).
+  // Pinned tabs are global so sent pins stay visible; their tags are dormant
+  // state applied on eventual unpin. Sent tabs keep their containers
+  // (containers are immutable per tab), and position; bindings only affect
+  // newly opened tabs.
+  function sendTabTo(target, explicit, opts) {
+    if (!isValidId(target) || target === current) {
       return;
     }
-    for (const tab of tabs) {
-      try {
-        if (tab.group) {
-          gBrowser.ungroupTab(tab);
-        }
-      } catch (e) {}
-      // Workspace-scoped trees: sending detaches to a Level 0 root in the
-      // target workspace (children left behind are promoted in place).
-      try {
-        if (typeof detachTreeForWorkspaceSend === "function") {
-          detachTreeForWorkspaceSend(tab);
-        }
-      } catch (e) {}
-      setWs(tab, target);
+    const base = resolveSendBase(explicit);
+    if (!base.length) {
+      return;
     }
-    anchorAllGroups();
+    let moveSet = base;
     try {
-      if (typeof renderTree === "function") {
-        renderTree();
-      }
-    } catch (e) {}
-    try {
-      reconcile(current, Array.from(gBrowser.tabs));
-      pruneExtraNewTabs(current);
-    } catch (e) {}
+      const withTree = !opts || opts.withTree !== false;
+      moveSet = withTree ? collectTreeFamily(base) : base.slice();
+    } catch (e) {
+      moveSet = base;
+    }
+    executeWorkspaceSend(target, moveSet);
+  }
+
+  // Explicit tree move: the tab(s) plus all linked descendants travel
+  // together, preserving parent links in the target workspace. Falls back
+  // to the live selection like sendTabTo when given nothing.
+  function sendTreeTo(target, explicit) {
+    if (!isValidId(target) || target === current) {
+      return;
+    }
+    const base = resolveSendBase(explicit);
+    if (!base.length) {
+      return;
+    }
+    executeWorkspaceSend(target, collectTreeFamily(base));
+  }
+
+  // Explicit native-group move: every tab in the containing group(s)
+  // travels together with membership intact (plus linked tree descendants).
+  // Ungrouped tabs fall back to a tree move.
+  function sendGroupTo(target, explicit) {
+    if (!isValidId(target) || target === current) {
+      return;
+    }
+    const base = resolveSendBase(explicit);
+    if (!base.length) {
+      return;
+    }
+    executeWorkspaceSend(target, collectGroupFamily(base));
   }
 

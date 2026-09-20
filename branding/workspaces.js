@@ -2,7 +2,13 @@
 /* Aph workspaces: IDs "1"-"9", zero UI. Alt+Shift+1..9 jumps to a workspace,
  * Alt+Shift+]/Right cycles next active, Alt+Shift+[/Left cycles previous,
  * Alt+Shift+Tab toggles the last two used (MRU),
- * Ctrl+Alt+1..9 sends the active tab there (stay here, focus next).
+ * Ctrl+Alt+1..9 sends the selection there (stay here, focus next —
+ * linked tree children ride along, whole native groups stay joined),
+ * Ctrl+Alt+Shift+1..9 sends the whole tree explicitly.
+ * Tab context menu offers Move Tab(s) / Move Tree / Move Group to Workspace
+ * submenus; the dock accepts tab and group-header drops the same way.
+ * Tree repair: Ctrl+Alt+Right indents the selected tab(s) under the tab
+ * above, Ctrl+Alt+Left outdents (palette + tab context menu do the same).
  * Tags persist via SessionStore; pinned tabs are global (never hidden —
  * stock Firefox assumes hidden pinned tabs never exist and vertical-tab
  * drag/drop breaks when they do); native tab groups
@@ -5039,19 +5045,303 @@
     }
   }
 
-  // Send the multiselection (Ctrl+click) to WS N and stay; with no
-  // multiselection this is just the active tab: eject from group (groups are
-  // single-WS; pinned tabs are never grouped, so the ungroup is a no-op for
-  // them), retag, reconcile to focus next + hide sent tabs (hiding refuses
-  // the selected tab, so selection must move first — reconcile does).
-  // Pinned tabs are global so sent pins stay visible; their tags are dormant
-  // state applied on eventual unpin. Sent tabs keep their containers
-  // (containers are immutable per tab), and position; bindings only affect
-  // newly opened tabs.
-  function sendTabTo(target, explicit) {
-    if (!isValidId(target) || target === current) {
-      return;
+  // Send family helpers: trees and native groups move as units, single
+  // tabs extract. `collectTreeFamily` carries linked descendants (same-WS,
+  // same-group filtered — stranded cross-edge tabs read detached and stay).
+  // `preservedSendGroups` keeps membership when the move covers a whole
+  // group (no ungroup); partial moves eject as before. `executeWorkspaceSend`
+  // is the shared core: eject non-preserved members, keep links whose
+  // parent travels, detach roots whose parent stays, promote stragglers
+  // left behind, then retag the whole set.
+  function collectTreeFamily(baseTabs) {
+    const out = [];
+    const seen = new Set();
+    try {
+      for (const t of baseTabs || []) {
+        try {
+          if (!t || t.closing || seen.has(t)) {
+            continue;
+          }
+          seen.add(t);
+          out.push(t);
+        } catch (e) {}
+      }
+      // Descendants of each root join (recursive already); newly added
+      // members can themselves own deeper levels, but getTreeDescendants
+      // is transitive so one pass suffices.
+      const roots = out.slice();
+      for (const r of roots) {
+        let kids = [];
+        try {
+          kids =
+            typeof getTreeDescendants === "function" ? getTreeDescendants(r) : [];
+        } catch (e) {
+          kids = [];
+        }
+        for (const k of kids || []) {
+          try {
+            if (!k || k.closing || seen.has(k)) {
+              continue;
+            }
+            seen.add(k);
+            out.push(k);
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  function collectGroupFamily(baseTabs) {
+    const out = [];
+    const seen = new Set();
+    try {
+      const groups = new Set();
+      for (const t of baseTabs || []) {
+        try {
+          if (t && !t.closing && t.group) {
+            groups.add(t.group);
+          }
+        } catch (e) {}
+      }
+      if (!groups.size) {
+        return collectTreeFamily(baseTabs);
+      }
+      const members = [];
+      for (const g of groups) {
+        let ms = [];
+        try {
+          ms = typeof groupMembers === "function" ? groupMembers(g) : [];
+        } catch (e) {
+          ms = [];
+        }
+        for (const m of ms || []) {
+          try {
+            if (m && !m.closing && !seen.has(m)) {
+              seen.add(m);
+              members.push(m);
+            }
+          } catch (e) {}
+        }
+      }
+      // Carry grouped trees along (same filtered walk as single moves).
+      return collectTreeFamily(members.length ? members : baseTabs);
+    } catch (e) {}
+    return collectTreeFamily(baseTabs);
+  }
+
+  function preservedSendGroups(moveSet) {
+    const preserved = new Set();
+    try {
+      let groups = [];
+      try {
+        groups = gBrowser.tabGroups || [];
+      } catch (e) {
+        return preserved;
+      }
+      const moving = new Set(moveSet || []);
+      for (const g of groups || []) {
+        let members = [];
+        try {
+          members =
+            typeof groupMembers === "function"
+              ? groupMembers(g).filter((t) => !t.pinned)
+              : [];
+        } catch (e) {
+          members = [];
+        }
+        if (!members.length) {
+          continue;
+        }
+        let allMoving = true;
+        for (const m of members) {
+          try {
+            if (!moving.has(m)) {
+              allMoving = false;
+              break;
+            }
+          } catch (e) {
+            allMoving = false;
+            break;
+          }
+        }
+        if (allMoving) {
+          preserved.add(g);
+        }
+      }
+    } catch (e) {}
+    return preserved;
+  }
+
+  function executeWorkspaceSend(target, moveSet) {
+    if (!isValidId(target) || !moveSet || !moveSet.length) {
+      return false;
     }
+    const moving = new Set();
+    try {
+      for (const t of moveSet) {
+        if (t && !t.closing) {
+          moving.add(t);
+        }
+      }
+    } catch (e) {}
+    if (!moving.size) {
+      return false;
+    }
+    const list = Array.from(moving);
+    let preserved = null;
+    try {
+      preserved = preservedSendGroups(list);
+    } catch (e) {
+      preserved = new Set();
+    }
+    // Snapshot parent links before any retag (getWs-gated reads go stale
+    // after the first setWs).
+    const parentOf = new Map();
+    try {
+      for (const t of list) {
+        let p = null;
+        try {
+          p =
+            typeof getTreeParentTab === "function" ? getTreeParentTab(t) : null;
+        } catch (e) {
+          p = null;
+        }
+        parentOf.set(t, p || null);
+      }
+    } catch (e) {}
+    // Eject partial-group members; whole groups stay joined so membership
+    // (and the tree nesting invariant) survives the retag.
+    for (const tab of list) {
+      try {
+        if (!tab.group) {
+          continue;
+        }
+        let keep = false;
+        try {
+          keep = preserved && preserved.has(tab.group);
+        } catch (e) {}
+        if (!keep) {
+          gBrowser.ungroupTab(tab);
+        }
+      } catch (e) {}
+    }
+    // Detach roots whose parent stays behind; keep edges whose parent
+    // travels. Stragglers (non-moving children of movers) promote to the
+    // grandparent or to roots — the detachTreeForWorkspaceSend rule.
+    try {
+      const hasTreeFns =
+        typeof clearTreeParent === "function" &&
+        typeof ensureTreeId === "function";
+      if (hasTreeFns) {
+        for (const tab of list) {
+          try {
+            const parent = parentOf.get(tab) || null;
+            if (parent && !moving.has(parent)) {
+              clearTreeParent(tab);
+            }
+            try {
+              ensureTreeId(tab);
+            } catch (e) {}
+          } catch (e) {}
+        }
+        // Promote non-moving children left behind by each mover.
+        let allTabs = [];
+        try {
+          allTabs = Array.from(gBrowser.tabs || []);
+        } catch (e) {}
+        for (const mover of list) {
+          let moverId = null;
+          try {
+            moverId =
+              typeof rawTreeId === "function" ? rawTreeId(mover) : null;
+          } catch (e) {}
+          if (!moverId) {
+            continue;
+          }
+          for (const t of allTabs) {
+            try {
+              if (!t || t === mover || moving.has(t) || t.closing) {
+                continue;
+              }
+              let pid = null;
+              try {
+                pid =
+                  typeof rawTreeParentId === "function"
+                    ? rawTreeParentId(t)
+                    : null;
+              } catch (e) {}
+              if (pid !== moverId) {
+                continue;
+              }
+              // Child stays: re-hang to the mover's parent when that
+              // parent stays too, else to a root.
+              const gpTab = parentOf.get(mover) || null;
+              if (gpTab && !moving.has(gpTab) && !gpTab.closing) {
+                let gid = null;
+                try {
+                  gid =
+                    typeof rawTreeId === "function" ? rawTreeId(gpTab) : null;
+                } catch (e) {}
+                if (gid) {
+                  try {
+                    if (typeof setTreeParent === "function") {
+                      setTreeParent(t, gid);
+                    }
+                  } catch (e) {}
+                  continue;
+                }
+              }
+              try {
+                clearTreeParent(t);
+              } catch (e) {}
+            } catch (e) {}
+          }
+          // Collapse flag travels with the family; drop it when nothing
+          // was carried (mirrors detachTreeForWorkspaceSend).
+          try {
+            let carried = false;
+            for (const t of list) {
+              if (parentOf.get(t) === mover) {
+                carried = true;
+                break;
+              }
+            }
+            if (!carried && typeof collapsedTreeParents !== "undefined") {
+              try {
+                collapsedTreeParents.delete(moverId);
+              } catch (e) {}
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    for (const tab of list) {
+      try {
+        setWs(tab, target);
+      } catch (e) {}
+    }
+    anchorAllGroups();
+    try {
+      if (typeof renderTree === "function") {
+        renderTree();
+      }
+    } catch (e) {}
+    try {
+      reconcile(current, Array.from(gBrowser.tabs));
+      pruneExtraNewTabs(current);
+    } catch (e) {}
+    // Dock counts are tag-based: repaint so pill counts follow the move
+    // immediately (drag-mode expansion collapses on dragend).
+    try {
+      if (typeof renderDock === "function") {
+        renderDock();
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  function resolveSendBase(explicit) {
     let tabs = [];
     // Explicit drag set wins (dock DnD): dragging an unselected tab must
     // move that tab, not whatever happens to be selected. Keyboard/palette
@@ -5087,36 +5377,451 @@
         }
       } catch (e) {}
     }
-    if (!tabs.length) {
+    return tabs;
+  }
+
+  // Send the multiselection (Ctrl+click) to WS N and stay; with no
+  // multiselection this is just the active tab. Trees travel: linked
+  // descendants join automatically so a parent move keeps its hierarchy in
+  // the target workspace. Native groups stay joined when the move covers
+  // the whole group; partial moves eject as before (groups are single-WS).
+  // Pinned tabs are global so sent pins stay visible; their tags are dormant
+  // state applied on eventual unpin. Sent tabs keep their containers
+  // (containers are immutable per tab), and position; bindings only affect
+  // newly opened tabs.
+  function sendTabTo(target, explicit, opts) {
+    if (!isValidId(target) || target === current) {
       return;
     }
-    for (const tab of tabs) {
-      try {
-        if (tab.group) {
-          gBrowser.ungroupTab(tab);
-        }
-      } catch (e) {}
-      // Workspace-scoped trees: sending detaches to a Level 0 root in the
-      // target workspace (children left behind are promoted in place).
-      try {
-        if (typeof detachTreeForWorkspaceSend === "function") {
-          detachTreeForWorkspaceSend(tab);
-        }
-      } catch (e) {}
-      setWs(tab, target);
+    const base = resolveSendBase(explicit);
+    if (!base.length) {
+      return;
     }
-    anchorAllGroups();
+    let moveSet = base;
     try {
-      if (typeof renderTree === "function") {
-        renderTree();
+      const withTree = !opts || opts.withTree !== false;
+      moveSet = withTree ? collectTreeFamily(base) : base.slice();
+    } catch (e) {
+      moveSet = base;
+    }
+    executeWorkspaceSend(target, moveSet);
+  }
+
+  // Explicit tree move: the tab(s) plus all linked descendants travel
+  // together, preserving parent links in the target workspace. Falls back
+  // to the live selection like sendTabTo when given nothing.
+  function sendTreeTo(target, explicit) {
+    if (!isValidId(target) || target === current) {
+      return;
+    }
+    const base = resolveSendBase(explicit);
+    if (!base.length) {
+      return;
+    }
+    executeWorkspaceSend(target, collectTreeFamily(base));
+  }
+
+  // Explicit native-group move: every tab in the containing group(s)
+  // travels together with membership intact (plus linked tree descendants).
+  // Ungrouped tabs fall back to a tree move.
+  function sendGroupTo(target, explicit) {
+    if (!isValidId(target) || target === current) {
+      return;
+    }
+    const base = resolveSendBase(explicit);
+    if (!base.length) {
+      return;
+    }
+    executeWorkspaceSend(target, collectGroupFamily(base));
+  }
+
+  // Tab context-menu "Move to Workspace" submenus: the mouse-first path for
+  // moving tabs, trees, and native groups across workspaces. Three variants
+  // share one target-resolution rule (clicked tab wins; its live
+  // multiselection rides along when the click belongs to it):
+  // - "Move Tab(s) to Workspace >" — always shown, calls sendTabTo (which
+  //   auto-carries linked tree descendants and preserves whole groups).
+  // - "Move Tree to Workspace >" — only when the selection owns descendants;
+  //   calls sendTreeTo explicitly (same carry, explicit label/count).
+  // - "Move Group to Workspace >" — only when the clicked tab sits in a
+  //   native group of 2+; calls sendGroupTo (whole group + grouped trees).
+  // Labels carry workspace names + bound-container suffixes (palette wsFull
+  // pattern, reimplemented here — the palette bundle is a separate scope).
+  // XUL hosts need createXULElement (HTML-namespaced duds never render);
+  // everything fails silent so a missing tabContextMenu never breaks chrome.
+  // popupshowing BUBBLES from nested menupopups: only handle showings that
+  // originate on our own menupopup (dock-menu pattern).
+  let moveMenuItems = [];
+
+  function clearMoveMenu() {
+    try {
+      for (const it of moveMenuItems) {
+        try {
+          if (it && it.parentNode) {
+            it.parentNode.removeChild(it);
+          } else if (it && typeof it.remove === "function") {
+            it.remove();
+          }
+        } catch (err) {}
+      }
+    } catch (err) {}
+    moveMenuItems = [];
+  }
+
+  function moveMenuClickedTab(e) {
+    try {
+      const popup = e && (e.currentTarget || e.target);
+      const node =
+        (popup && popup.triggerNode) ||
+        (typeof document !== "undefined" && document.popupNode) ||
+        null;
+      if (node) {
+        try {
+          const direct =
+            node.tab ||
+            (typeof node.closest === "function" ? node.closest("tab") : null);
+          if (direct) {
+            return direct;
+          }
+        } catch (err) {}
+        // Group-label right-click (or any group chrome): resolve to the
+        // group's first live member so the Group variant still surfaces.
+        try {
+          const grp =
+            typeof node.closest === "function"
+              ? node.closest("tab-group")
+              : null;
+          if (grp) {
+            let ms = [];
+            try {
+              ms =
+                typeof groupMembers === "function"
+                  ? groupMembers(grp)
+                  : grp.tabs || [];
+            } catch (err) {
+              ms = [];
+            }
+            for (const m of ms || []) {
+              if (m && !m.closing) {
+                return m;
+              }
+            }
+          }
+        } catch (err) {}
+      }
+      if (gBrowser && gBrowser.selectedTab) {
+        return gBrowser.selectedTab;
+      }
+    } catch (err) {}
+    return null;
+  }
+
+  function moveMenuSelectedTabs(clicked) {
+    try {
+      if (clicked) {
+        try {
+          let sel = [];
+          try {
+            if (typeof getTreeSelectedTabs === "function") {
+              sel = getTreeSelectedTabs() || [];
+            } else {
+              const multi =
+                (gBrowser &&
+                  (gBrowser.selectedTabs || gBrowser.multiselectedTabs)) ||
+                null;
+              if (Array.isArray(multi) && multi.length) {
+                sel = multi.slice();
+              } else if (gBrowser && gBrowser.selectedTab) {
+                sel = [gBrowser.selectedTab];
+              }
+            }
+          } catch (e) {}
+          if (sel.length > 1) {
+            try {
+              if (sel.includes(clicked)) {
+                const live = new Set(Array.from(gBrowser.tabs || []));
+                return sel.filter((t) => t && !t.closing && live.has(t));
+              }
+            } catch (e) {}
+          }
+        } catch (e) {}
+        return [clicked];
       }
     } catch (e) {}
+    return [];
+  }
+
+  function moveMenuWsLabel(id) {
     try {
-      reconcile(current, Array.from(gBrowser.tabs));
-      pruneExtraNewTabs(current);
+      let s = `Workspace ${id}`;
+      try {
+        const name =
+          typeof getWsName === "function" ? getWsName(id) : "";
+        if (name) {
+          s += ` (${name})`;
+        }
+      } catch (e) {}
+      try {
+        if (
+          typeof getWsContainerId === "function" &&
+          typeof describeContainer === "function"
+        ) {
+          const bid = getWsContainerId(id);
+          if (bid) {
+            const d = describeContainer(bid);
+            if (d && d.name) {
+              s += ` · ${d.name}`;
+            }
+          }
+        }
+      } catch (e) {}
+      return s;
+    } catch (e) {
+      return `Workspace ${id}`;
+    }
+  }
+
+  function makeMoveMenuNode(tag, id, label, disabled) {
+    try {
+      const el =
+        typeof document.createXULElement === "function"
+          ? document.createXULElement(tag)
+          : document.createElement(tag);
+      el.id = id;
+      try {
+        el.setAttribute("label", label);
+      } catch (e) {}
+      if (disabled) {
+        try {
+          el.setAttribute("disabled", "true");
+        } catch (e) {}
+      }
+      return el;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function moveMenuFamilySize(tabs) {
+    try {
+      if (!tabs || !tabs.length) {
+        return 0;
+      }
+      const seen = new Set();
+      for (const t of tabs) {
+        if (t && !t.closing) {
+          seen.add(t);
+        }
+      }
+      try {
+        for (const t of Array.from(seen)) {
+          let kids = [];
+          try {
+            kids =
+              typeof getTreeDescendants === "function"
+                ? getTreeDescendants(t)
+                : [];
+          } catch (e) {
+            kids = [];
+          }
+          for (const k of kids || []) {
+            try {
+              if (k && !k.closing) {
+                seen.add(k);
+              }
+            } catch (e) {}
+          }
+        }
+      } catch (e) {}
+      return seen.size;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function moveMenuGroupOf(tab) {
+    try {
+      const g = (tab && tab.group) || null;
+      if (!g) {
+        return null;
+      }
+      let members = [];
+      try {
+        members =
+          typeof groupMembers === "function" ? groupMembers(g) : g.tabs || [];
+      } catch (e) {
+        members = [];
+      }
+      members = (members || []).filter((t) => t && !t.closing);
+      if (members.length < 2) {
+        return null;
+      }
+      return { group: g, members };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function appendMoveSubmenu(menu, topId, topLabel, targets, runner) {
+    try {
+      const sub = makeMoveMenuNode("menu", topId, topLabel, false);
+      if (!sub) {
+        return null;
+      }
+      const popup =
+        typeof document.createXULElement === "function"
+          ? document.createXULElement("menupopup")
+          : document.createElement("menupopup");
+      if (!popup || typeof popup.appendChild !== "function") {
+        return null;
+      }
+      let cur = null;
+      try {
+        cur = isValidId(current) ? current : null;
+      } catch (e) {}
+      for (let i = 1; i <= 9; i++) {
+        const id = String(i);
+        const item = makeMoveMenuNode(
+          "menuitem",
+          `${topId}-${id}`,
+          moveMenuWsLabel(id),
+          cur ? id === cur : false
+        );
+        if (!item) {
+          continue;
+        }
+        if (typeof item.addEventListener === "function") {
+          item.addEventListener("command", () => {
+            try {
+              runner(id, targets);
+            } catch (err) {}
+          });
+        }
+        try {
+          popup.appendChild(item);
+        } catch (e) {}
+      }
+      try {
+        sub.appendChild(popup);
+      } catch (e) {
+        return null;
+      }
+      try {
+        menu.appendChild(sub);
+        moveMenuItems.push(sub);
+      } catch (e) {
+        return null;
+      }
+      return sub;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function onMoveMenuShowing(e) {
+    try {
+      const menu = (e && (e.currentTarget || e.target)) || null;
+      if (!menu || typeof menu.appendChild !== "function") {
+        return;
+      }
+      try {
+        if (!e || e.target !== menu) {
+          return;
+        }
+      } catch (err) {
+        return;
+      }
+      clearMoveMenu();
+      const clicked = moveMenuClickedTab(e);
+      if (!clicked || clicked.closing) {
+        return;
+      }
+      const targets = moveMenuSelectedTabs(clicked).filter(
+        (t) => t && !t.closing
+      );
+      if (!targets.length) {
+        return;
+      }
+      const n = targets.length;
+      const tabLabel =
+        n > 1 ? `Move ${n} Tabs to Workspace` : "Move Tab to Workspace";
+      try {
+        appendMoveSubmenu(menu, "aph-move-tab", tabLabel, targets.slice(), (id, ts) => {
+          try {
+            if (typeof sendTabTo === "function") {
+              sendTabTo(id, ts.length === 1 ? ts[0] : ts.slice());
+            }
+          } catch (err) {}
+        });
+      } catch (err) {}
+      // Tree variant: only when the selection owns descendants beyond
+      // itself (otherwise it duplicates the Tab row).
+      try {
+        const family = moveMenuFamilySize(targets);
+        if (family > n) {
+          const treeLabel =
+            n > 1
+              ? `Move Tree (${family} Tabs) to Workspace`
+              : `Move Tree (${family} Tabs) to Workspace`;
+          appendMoveSubmenu(menu, "aph-move-tree", treeLabel, targets.slice(), (id, ts) => {
+            try {
+              if (typeof sendTreeTo === "function") {
+                sendTreeTo(id, ts.length === 1 ? ts[0] : ts.slice());
+              } else if (typeof sendTabTo === "function") {
+                sendTabTo(id, ts.length === 1 ? ts[0] : ts.slice());
+              }
+            } catch (err) {}
+          });
+        }
+      } catch (err) {}
+      // Group variant: only when the clicked tab sits in a real group.
+      try {
+        const info = moveMenuGroupOf(clicked);
+        if (info) {
+          const gLabel = `Move Group (${info.members.length} Tabs) to Workspace`;
+          appendMoveSubmenu(menu, "aph-move-group", gLabel, [clicked], (id, ts) => {
+            try {
+              if (typeof sendGroupTo === "function") {
+                sendGroupTo(id, ts[0]);
+              } else if (typeof sendTabTo === "function") {
+                sendTabTo(id, info.members.slice());
+              }
+            } catch (err) {}
+          });
+        }
+      } catch (err) {}
+    } catch (err) {}
+  }
+
+  function cleanupMoveMenu() {
+    try {
+      clearMoveMenu();
+    } catch (e) {}
+    try {
+      const menu = document.getElementById("tabContextMenu");
+      if (menu) {
+        menu.removeEventListener("popupshowing", onMoveMenuShowing);
+      }
     } catch (e) {}
   }
 
+  function initMoveMenu() {
+    try {
+      const menu = document.getElementById("tabContextMenu");
+      if (menu && typeof menu.addEventListener === "function") {
+        menu.addEventListener("popupshowing", onMoveMenuShowing);
+      }
+    } catch (e) {}
+    try {
+      window.addEventListener("unload", cleanupMoveMenu, { once: true });
+    } catch (e) {}
+  }
+
+  if (document.readyState === "complete") {
+    initMoveMenu();
+  } else {
+    window.addEventListener("load", initMoveMenu, { once: true });
+  }
   // Workspace dock: mouse-first pills pinned to the bottom of the
   // vertical tab strip. The nav-bar #aph-ws-indicator auto-hides with the
   // top bar, so mouse users get this instead: active workspaces + current
@@ -5131,8 +5836,213 @@
   const DOCK_ID = "aph-ws-dock";
   const DOCK_MENU_ID = "aph-ws-dock-menu";
   // Tab being dragged over the dock (stock tab dataTransfer carries no tab
-  // ref, so track dragstart on the shared tab container instead).
+  // ref, so track dragstart on the shared tab container instead). Group
+  // headers drag the whole native group: stock strip lets a <tab-group>
+  // label move all its tabs, so the dock tracks that separately.
   let dockDragTab = null;
+  let dockDragGroup = null;
+  // Drag-mode: while a tab/group drag is in flight the dock expands to all
+  // 9 workspaces so any workspace (including empty ones) is a drop target.
+  // renderDock() checks this flag; enter/exit helpers re-render. The "+" pill
+  // also accepts drops (moves to the lowest inactive workspace).
+  let dockDragActive = false;
+
+  function dockTabDragType(e) {
+    try {
+      const dt = e && e.dataTransfer;
+      if (!dt) {
+        return false;
+      }
+      // Chrome-privileged tab-drag identity (browser.xhtml runs as chrome,
+      // so moz* APIs are visible here — unlike content, where bug 1345591
+      // hides them). This is the same check the strip's own
+      // getDropEffectForTabDrag uses: first type must be TAB_DROP_TYPE.
+      try {
+        if (typeof dt.mozItemCount === "number" && dt.mozItemCount > 0 &&
+            typeof dt.mozTypesAt === "function") {
+          const types = dt.mozTypesAt(0) || [];
+          if (types[0] === "application/x-moz-tabbrowser-tab") {
+            return true;
+          }
+        }
+      } catch (err) {}
+      // Firefox tab DnD carries application/x-moz-tabbrowser-tab (nsDragService).
+      // types may be a DOMStringList (contains()) or a plain array (includes()).
+      try {
+        if (typeof dt.contains === "function" && dt.contains("application/x-moz-tabbrowser-tab")) {
+          return true;
+        }
+      } catch (err) {}
+      try {
+        const types = dt.types || [];
+        for (const t of Array.from(types)) {
+          if (t === "application/x-moz-tabbrowser-tab") {
+            return true;
+          }
+        }
+      } catch (err) {}
+    } catch (e) {}
+    return false;
+  }
+
+  function isDockDropArmed(e) {
+    try {
+      if (dockDragTab || dockDragGroup || dockDragActive) {
+        return true;
+      }
+    } catch (err) {}
+    try {
+      return dockTabDragType(e);
+    } catch (err) {
+      return false;
+    }
+  }
+
+  // What will a drop move? Base tabs from resolveDockDragTabs plus linked
+  // tree descendants (sendTabTo auto-carry). Used for drop tooltips.
+  function dockDropPreview() {
+    try {
+      const base = resolveDockDragTabs();
+      if (!base.length) {
+        return { count: 0, kind: "tab" };
+      }
+      const wasGroup = !!dockDragGroup;
+      const seen = new Set();
+      for (const t of base) {
+        if (t && !t.closing) {
+          seen.add(t);
+        }
+      }
+      try {
+        for (const t of Array.from(seen)) {
+          let kids = [];
+          try {
+            kids =
+              typeof getTreeDescendants === "function"
+                ? getTreeDescendants(t)
+                : [];
+          } catch (e) {
+            kids = [];
+          }
+          for (const k of kids || []) {
+            if (k && !k.closing) {
+              seen.add(k);
+            }
+          }
+        }
+      } catch (e) {}
+      const count = seen.size;
+      let kind = base.length > 1 ? `${base.length} tabs` : "tab";
+      if (wasGroup) {
+        kind = `group (${count} tab${count === 1 ? "" : "s"})`;
+      } else if (count > base.length) {
+        kind = `tree (${count} tabs)`;
+      } else if (base.length > 1) {
+        kind = `${count} tabs`;
+      } else {
+        kind = "tab";
+      }
+      return { count, kind };
+    } catch (e) {
+      return { count: 0, kind: "tab" };
+    }
+  }
+
+  function enterDockDragMode() {
+    try {
+      if (!dockDragActive) {
+        dockDragActive = true;
+        renderDock();
+      }
+    } catch (e) {}
+  }
+
+  function exitDockDragMode() {
+    try {
+      if (dockDragActive) {
+        dockDragActive = false;
+        renderDock();
+      }
+    } catch (e) {
+      try {
+        dockDragActive = false;
+      } catch (_e) {}
+    }
+  }
+
+  // Drop-then-hide ordering: hiding the dragged tab while Firefox's own tab
+  // drag session is still active leaves its strip animation (translateY
+  // shoves, drop-indicator margins) stranded mid-flight — visible as
+  // overlapping tabs, gaps, and tabs pushed past the new-tab button. The
+  // strip's own cleanup runs on dragend (finishAnimateTabMove /
+  // _resetTabsAfterDrop clear inline styles), so a drop during a live tab
+  // drag is recorded here and only executed once dragend has unwound the
+  // session. Non-drag callers (tests, palette, context menu) and payloads
+  // without a live session keep the synchronous path.
+  let dockPendingDrop = null;
+
+  // A live Firefox tab drag parks its state on the dragged tab (_dragData,
+  // set by startTabDrag, deleted on dragend). Mocks and non-tab drags never
+  // carry it, so they stay synchronous (and existing tests keep passing).
+  function isLiveTabDragSession(tabs) {
+    try {
+      for (const t of tabs || []) {
+        try {
+          if (t && t._dragData) {
+            return true;
+          }
+        } catch (e) {}
+      }
+      for (const t of [dockDragTab]) {
+        try {
+          if (t && t._dragData) {
+            return true;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function executeDockDrop(dest, dragTabs, wasGroup) {
+    try {
+      if (!dragTabs || !dragTabs.length || !isValidId(dest)) {
+        return false;
+      }
+      if (dest === current) {
+        try {
+          pulseWorkspaceIndicator();
+        } catch (e) {}
+        return false;
+      }
+      if (wasGroup && typeof sendGroupTo === "function") {
+        sendGroupTo(dest, dragTabs);
+      } else {
+        sendTabTo(dest, dragTabs);
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function flushDockPendingDrop() {
+    let pending = null;
+    try {
+      pending = dockPendingDrop;
+      dockPendingDrop = null;
+    } catch (e) {
+      pending = null;
+    }
+    if (!pending) {
+      return false;
+    }
+    try {
+      return executeDockDrop(pending.dest, pending.tabs, pending.wasGroup);
+    } catch (e) {
+      return false;
+    }
+  }
 
   function dockAnchor() {
     try {
@@ -5300,7 +6210,7 @@
     }
   }
 
-  function makeDockPill(id, isCurrent, count) {
+  function makeDockPill(id, isCurrent, count, isEmpty) {
     let pill = null;
     try {
       pill = document.createElement("div");
@@ -5309,6 +6219,11 @@
       pill.setAttribute("role", "button");
       if (isCurrent) {
         pill.setAttribute("data-current", "1");
+      }
+      if (isEmpty) {
+        try {
+          pill.setAttribute("data-empty", "1");
+        } catch (e) {}
       }
       const glyph = dockGlyph(id);
       pill.textContent = glyph;
@@ -5329,6 +6244,8 @@
       } catch (e) {}
       if (count > 0) {
         title += ` · ${count} tab${count === 1 ? "" : "s"}`;
+      } else if (isEmpty) {
+        title += " · empty";
       }
       try {
         const bid = getWsContainerId(id);
@@ -5342,7 +6259,28 @@
           }
         }
       } catch (e) {}
-      pill.title = `${title} — click to switch, right-click for actions`;
+      // During a tab drag the tooltip previews the move (tree/group aware).
+      try {
+        if (dockDragActive) {
+          if (id === current) {
+            pill.title = `${title} — current workspace (drop does nothing)`;
+          } else {
+            let preview = null;
+            try {
+              preview = dockDropPreview();
+            } catch (e) {}
+            const what =
+              preview && preview.count > 0
+                ? `Drop to move ${preview.kind} here`
+                : "Drop to move tab(s) here";
+            pill.title = `${title} — ${what}`;
+          }
+        } else {
+          pill.title = `${title} — click to switch, drag tabs here to move, right-click for actions`;
+        }
+      } catch (e) {
+        pill.title = `${title} — click to switch, right-click for actions`;
+      }
       try {
         pill.addEventListener("click", () => {
           try {
@@ -5384,18 +6322,36 @@
         }
       } catch (e) {}
       try {
-        pill.addEventListener("dragover", (e) => {
+        const armDrop = (e) => {
           try {
-            if (!dockDragTab) {
-              return;
+            // Current workspace is never a drop target (send would no-op).
+            if (id === current) {
+              return false;
+            }
+            if (!isDockDropArmed(e)) {
+              return false;
             }
             e.preventDefault();
+            // The dock lives inside #vertical-tabs: without this the strip's
+            // own tab-drag handler (handle_dragover, bubble phase) also sees
+            // the event and starts its tab-shove animation underneath the
+            // dock hover. Shield it so pills are the only drop UI in play.
+            try {
+              if (typeof e.stopPropagation === "function") {
+                e.stopPropagation();
+              }
+            } catch (err) {}
             try {
               e.dataTransfer.dropEffect = "move";
             } catch (err) {}
             pill.classList.add("drop-target");
-          } catch (err) {}
-        });
+            return true;
+          } catch (err) {
+            return false;
+          }
+        };
+        pill.addEventListener("dragenter", armDrop);
+        pill.addEventListener("dragover", armDrop);
         pill.addEventListener("dragleave", () => {
           try {
             pill.classList.remove("drop-target");
@@ -5404,11 +6360,47 @@
         pill.addEventListener("drop", (e) => {
           try {
             e.preventDefault();
+            try {
+              if (typeof e.stopPropagation === "function") {
+                e.stopPropagation();
+              }
+            } catch (err) {}
             pill.classList.remove("drop-target");
-            const dragTabs = resolveDockDragTabs();
-            if (dragTabs.length) {
-              sendTabTo(id, dragTabs);
+            if (id === current) {
+              try {
+                pulseWorkspaceIndicator();
+              } catch (err) {}
+              return;
             }
+            const wasGroup = !!dockDragGroup;
+            let dragTabs = [];
+            try {
+              dragTabs = resolveDockDragTabs();
+            } catch (err) {
+              dragTabs = [];
+            }
+            // Tracker missed (e.g. dragstart outside our listener) but the
+            // payload is a tab drag: fall back to the live selection so the
+            // drop still moves something sensible instead of nothing.
+            if (!dragTabs.length && dockTabDragType(e)) {
+              try {
+                dragTabs = resolveSendBase(null).slice();
+              } catch (err) {
+                dragTabs = [];
+              }
+            }
+            if (!dragTabs.length) {
+              return;
+            }
+            // Live tab drag: defer until dragend so the strip's session
+            // cleanup runs first (see dockPendingDrop note above).
+            if (isLiveTabDragSession(dragTabs)) {
+              try {
+                dockPendingDrop = { dest: id, tabs: dragTabs.slice(), wasGroup };
+              } catch (err) {}
+              return;
+            }
+            executeDockDrop(id, dragTabs, wasGroup);
           } catch (err) {}
         });
       } catch (e) {}
@@ -5425,13 +6417,89 @@
       pill.className = "aph-ws-pill aph-ws-add";
       pill.textContent = "+";
       pill.title = free
-        ? `New workspace ${free} (switches here, opens a tab)`
+        ? `New workspace ${free} (click: switches here, opens a tab · drop: moves tab(s) here)`
         : "All 9 workspaces active";
       try {
         pill.addEventListener("click", () => {
           try {
             plusToWorkspace();
           } catch (e) {}
+        });
+      } catch (e) {}
+      // The "+" pill is a drop target for a fresh workspace: dropping moves
+      // to the lowest inactive ID (same destination a click would open).
+      try {
+        const armPlus = (e) => {
+          try {
+            if (!isDockDropArmed(e)) {
+              return false;
+            }
+            if (!free) {
+              return false;
+            }
+            e.preventDefault();
+            try {
+              if (typeof e.stopPropagation === "function") {
+                e.stopPropagation();
+              }
+            } catch (err) {}
+            try {
+              e.dataTransfer.dropEffect = "move";
+            } catch (err) {}
+            pill.classList.add("drop-target");
+            return true;
+          } catch (err) {
+            return false;
+          }
+        };
+        pill.addEventListener("dragenter", armPlus);
+        pill.addEventListener("dragover", armPlus);
+        pill.addEventListener("dragleave", () => {
+          try {
+            pill.classList.remove("drop-target");
+          } catch (err) {}
+        });
+        pill.addEventListener("drop", (e) => {
+          try {
+            e.preventDefault();
+            try {
+              if (typeof e.stopPropagation === "function") {
+                e.stopPropagation();
+              }
+            } catch (err) {}
+            pill.classList.remove("drop-target");
+            const dest = lowestInactiveId(getActiveIds());
+            if (!dest) {
+              try {
+                pulseWorkspaceIndicator();
+              } catch (err) {}
+              return;
+            }
+            const wasGroup = !!dockDragGroup;
+            let dragTabs = [];
+            try {
+              dragTabs = resolveDockDragTabs();
+            } catch (err) {
+              dragTabs = [];
+            }
+            if (!dragTabs.length && dockTabDragType(e)) {
+              try {
+                dragTabs = resolveSendBase(null).slice();
+              } catch (err) {
+                dragTabs = [];
+              }
+            }
+            if (!dragTabs.length) {
+              return;
+            }
+            if (isLiveTabDragSession(dragTabs)) {
+              try {
+                dockPendingDrop = { dest, tabs: dragTabs.slice(), wasGroup };
+              } catch (err) {}
+              return;
+            }
+            executeDockDrop(dest, dragTabs, wasGroup);
+          } catch (err) {}
         });
       } catch (e) {}
     } catch (e) {
@@ -5469,19 +6537,49 @@
           dock.removeChild(dock.firstChild);
         }
       } catch (e) {}
-      const ids = getActiveIds();
+      // Drag-mode expands to all 9 workspaces so empty ones accept drops.
+      // Normal mode shows active workspaces only (plus current).
+      let ids = [];
+      try {
+        ids = getActiveIds();
+      } catch (e) {
+        ids = [];
+      }
       const cur = isValidId(current) ? current : "1";
       const counts = dockCounts();
-      for (const id of ids) {
+      if (dockDragActive) {
         try {
-          const pill = makeDockPill(id, id === cur, counts[id] || 0);
-          if (pill) {
-            dock.appendChild(pill);
-          }
+          dock.setAttribute("data-aph-dragging", "1");
         } catch (e) {}
+        for (let i = 1; i <= 9; i++) {
+          const id = String(i);
+          try {
+            const pill = makeDockPill(
+              id,
+              id === cur,
+              counts[id] || 0,
+              !ids.includes(id)
+            );
+            if (pill) {
+              dock.appendChild(pill);
+            }
+          } catch (e) {}
+        }
+      } else {
+        try {
+          dock.removeAttribute("data-aph-dragging");
+        } catch (e) {}
+        for (const id of ids) {
+          try {
+            const pill = makeDockPill(id, id === cur, counts[id] || 0, false);
+            if (pill) {
+              dock.appendChild(pill);
+            }
+          } catch (e) {}
+        }
       }
       try {
-        const plus = makeDockPlus(lowestInactiveId(ids));
+        const plus = makeDockPlus(lowestInactiveId(getActiveIds()));
         if (plus) {
           dock.appendChild(plus);
         }
@@ -5762,6 +6860,26 @@
       }
       dock = document.createElement("div");
       dock.id = DOCK_ID;
+      // Dock gaps (padding between pills) sit inside #vertical-tabs: a tab
+      // drag hovering the gap would otherwise bubble to the strip's own
+      // dragover and animate tab shoves with no pill in play. Swallow it.
+      try {
+        const shield = (e) => {
+          try {
+            if (!isDockDropArmed(e)) {
+              return;
+            }
+            e.preventDefault();
+            try {
+              if (typeof e.stopPropagation === "function") {
+                e.stopPropagation();
+              }
+            } catch (err) {}
+          } catch (err) {}
+        };
+        dock.addEventListener("dragenter", shield);
+        dock.addEventListener("dragover", shield);
+      } catch (e) {}
       anchor.appendChild(dock);
       // Shared right-click menu must exist before pills reference it.
       try {
@@ -5776,23 +6894,76 @@
   function onDockDragStart(e) {
     try {
       dockDragTab = null;
+      dockDragGroup = null;
       const t = e && e.target;
-      const tab =
-        t && typeof t.closest === "function" ? t.closest("tab") : null;
-      if (tab && !tab.closing) {
-        dockDragTab = tab;
+      try {
+        const tab =
+          t && typeof t.closest === "function" ? t.closest("tab") : null;
+        if (tab && !tab.closing) {
+          dockDragTab = tab;
+          enterDockDragMode();
+          return;
+        }
+      } catch (err) {}
+      // No tab under the cursor: a group-header drag carries the whole
+      // native group (stock strip behavior). Resolve members at drop time
+      // so mid-drag closes don't strand stale refs.
+      try {
+        const grp =
+          t && typeof t.closest === "function" ? t.closest("tab-group") : null;
+        if (grp && !grp.closing) {
+          dockDragGroup = grp;
+          enterDockDragMode();
+          return;
+        }
+      } catch (err) {
+        dockDragGroup = null;
       }
+      // Drag started but hit neither tab nor group (e.g. empty strip gap):
+      // still enter drag-mode if the payload looks like tabs so empty
+      // workspaces become visible drop targets.
+      try {
+        if (dockTabDragType(e)) {
+          enterDockDragMode();
+        }
+      } catch (err) {}
     } catch (err) {
       dockDragTab = null;
+      dockDragGroup = null;
     }
   }
 
-  // Resolve what a dock drop should move: the dragged tab itself, expanded
-  // to the live multiselection only when the dragged tab belongs to it
-  // (stock strip-drag semantics). Reading selection alone is wrong — the
-  // user can drag an unselected tab while something else is selected.
+  // Resolve what a dock drop should move. Group-header drags return the
+  // group's live members (sendGroupTo keeps membership); tab drags return
+  // the dragged tab itself, expanded to the live multiselection only when
+  // the dragged tab belongs to it (stock strip-drag semantics). Reading
+  // selection alone is wrong — the user can drag an unselected tab while
+  // something else is selected. Trees ride along via sendTabTo's
+  // auto-carry; whole groups stay joined via preservation.
   function resolveDockDragTabs() {
     try {
+      if (dockDragGroup) {
+        let members = [];
+        try {
+          if (typeof groupMembers === "function") {
+            members = groupMembers(dockDragGroup);
+          } else {
+            members = Array.from(dockDragGroup.tabs || []);
+          }
+        } catch (e) {
+          members = [];
+        }
+        try {
+          const live = new Set(Array.from(gBrowser.tabs || []));
+          members = (members || []).filter(
+            (t) => t && !t.closing && live.has(t)
+          );
+        } catch (e) {}
+        if (members.length) {
+          return members;
+        }
+        // Stale group ref (closed mid-drag): fall through to tab logic.
+      }
       if (!dockDragTab || dockDragTab.closing) {
         return [];
       }
@@ -5826,9 +6997,19 @@
     }
   }
 
-  function onDockDragEnd() {
+  function onDockDragEnd(e) {
+    // A drop during a live tab drag only records dockPendingDrop (strip
+    // session still active). Now the session has unwound — execute the move
+    // against a settled strip, then collapse the drag UI.
+    try {
+      flushDockPendingDrop();
+    } catch (err) {}
+    try {
+      dockPendingDrop = null;
+    } catch (err) {}
     try {
       dockDragTab = null;
+      dockDragGroup = null;
       const dock = document.getElementById(DOCK_ID);
       if (dock && typeof dock.querySelectorAll === "function") {
         for (const p of Array.from(dock.querySelectorAll(".drop-target"))) {
@@ -5838,11 +7019,19 @@
         }
       }
     } catch (e) {}
+    // Collapse back to active-only pills after the drag (drop handlers run
+    // before dragend; deferred sends complete in flush above).
+    try {
+      exitDockDragMode();
+    } catch (e) {}
   }
 
   function cleanupDock() {
     try {
       dockDragTab = null;
+      dockDragGroup = null;
+      dockDragActive = false;
+      dockPendingDrop = null;
     } catch (e) {}
     try {
       const menu = dockMenu();
@@ -5859,8 +7048,12 @@
     } catch (e) {}
     try {
       if (gBrowser && gBrowser.tabContainer) {
+        gBrowser.tabContainer.removeEventListener("dragstart", onDockDragStart, true);
         gBrowser.tabContainer.removeEventListener("dragstart", onDockDragStart);
       }
+    } catch (e) {}
+    try {
+      window.removeEventListener("dragstart", onDockDragStart, true);
     } catch (e) {}
     try {
       window.removeEventListener("dragend", onDockDragEnd);
@@ -5871,10 +7064,17 @@
     try {
       renderDock();
     } catch (e) {}
+    // Capture phase: the strip's own tab element handles dragstart with
+    // capture=true and may stop propagation, which would starve a bubble
+    // listener on the container (no tracking → no expansion, no indicator).
+    // Ancestor capture fires first, so we always see the drag.
     try {
       if (gBrowser && gBrowser.tabContainer) {
-        gBrowser.tabContainer.addEventListener("dragstart", onDockDragStart);
+        gBrowser.tabContainer.addEventListener("dragstart", onDockDragStart, true);
       }
+    } catch (e) {}
+    try {
+      window.addEventListener("dragstart", onDockDragStart, true);
     } catch (e) {}
     try {
       window.addEventListener("dragend", onDockDragEnd);
@@ -6127,6 +7327,30 @@
       } catch (err) {}
       return;
     }
+    // Ctrl+Alt+Left/Right folds the selected tab(s) one tree level
+    // out/in (manual tree repair via keyboard; no-arg calls use the live
+    // selection, multiselection included). Physical codes: Right always
+    // deepens, even in RTL (mirroring applies to paint, not to keys). No
+    // editable-target guard: arrows never produce characters, and the
+    // AltGraph early-return above already shields AltGr compositions.
+    // (Some graphics drivers steal Ctrl+Alt+arrows for screen rotation;
+    // disable that OS hotkey if the browser never sees the press.)
+    if (e.ctrlKey && !e.shiftKey && !e.metaKey && e.code === "ArrowRight") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        indentTreeTab();
+      } catch (err) {}
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && !e.metaKey && e.code === "ArrowLeft") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        outdentTreeTab();
+      } catch (err) {}
+      return;
+    }
     // Alt+Shift cycling: brackets always, arrows outside editable text
     // (Alt+Shift+Left/Right selects words while typing), Tab toggles MRU.
     // e.code, not e.key: Shift turns "[" into "{".
@@ -6163,7 +7387,16 @@
     if (e.ctrlKey) {
       e.preventDefault();
       e.stopPropagation();
-      sendTabTo(d);
+      // Ctrl+Alt+Shift+digit moves the whole tree explicitly; plain
+      // Ctrl+Alt+digit moves the selection (auto-carrying descendants and
+      // preserving whole groups via sendTabTo).
+      try {
+        if (e.shiftKey && typeof sendTreeTo === "function") {
+          sendTreeTo(d);
+        } else {
+          sendTabTo(d);
+        }
+      } catch (err) {}
     } else if (e.shiftKey) {
       e.preventDefault();
       e.stopPropagation();
@@ -8469,6 +9702,8 @@
       window.AphWorkspaces = {
         switchTo,
         sendTabTo,
+        sendTreeTo,
+        sendGroupTo,
         cycleWorkspace,
         toggleLastWorkspace,
         getActiveWorkspaces: getActiveIds,

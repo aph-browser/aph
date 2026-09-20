@@ -566,8 +566,24 @@ tab[pending]:not([selected]) .tab-label,
 }
 
 .aph-ws-pill.drop-target {
-  outline: 2px solid var(--lwt-toolbar-field-highlight, rgba(125, 190, 255, 0.55)) !important;
+  outline: 2px solid var(--lwt-toolbar-field-highlight, rgba(125, 190, 255, 0.9)) !important;
   outline-offset: -2px !important;
+  opacity: 1 !important;
+  background: color-mix(in srgb, var(--lwt-toolbar-field-highlight, #7dbeff) 30%, transparent) !important;
+}
+
+/* Drag-mode: empty workspaces appear as dashed drop targets. */
+.aph-ws-pill[data-empty="1"] {
+  opacity: 0.55 !important;
+  border: 1px dashed color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 35%, transparent) !important;
+}
+
+#aph-ws-dock[data-aph-dragging="1"] .aph-ws-pill[data-current="1"] {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+}
+
+#aph-ws-dock[data-aph-dragging="1"] .aph-ws-pill:not([data-current="1"]):hover {
   opacity: 1 !important;
 }
 

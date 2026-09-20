@@ -230,9 +230,65 @@
       cmds.push({
         title: sendTabTitle(api, n),
         hint: `Ctrl+Alt+${n}`,
+        sub: "Moves the selection · linked tree children ride along · whole groups stay joined",
         run: () => api && api.sendTabTo(n),
       });
     }
+    // Tree / group moves only surface when the selection owns that
+    // structure (keeps the empty-query list clean; fuzzy queries still
+    // match them like every other command row).
+    try {
+      const family = sendTreeFamilySize(api);
+      let baseCount = 0;
+      try {
+        const multi =
+          (gBrowser && (gBrowser.selectedTabs || gBrowser.multiselectedTabs)) ||
+          null;
+        baseCount =
+          Array.isArray(multi) && multi.length > 1 ? multi.length : 1;
+      } catch (e) {}
+      if (family > baseCount && api && (api.sendTreeTo || api.sendTabTo)) {
+        for (let i = 1; i <= 9; i++) {
+          const n = String(i);
+          cmds.push({
+            title: sendTreeTitle(api, n, family),
+            hint: `Ctrl+Alt+Shift+${n}`,
+            sub: "Moves the tab plus all linked descendants together · hierarchy kept",
+            run: () => {
+              try {
+                if (api.sendTreeTo) {
+                  api.sendTreeTo(n);
+                } else {
+                  api.sendTabTo(n);
+                }
+              } catch (e) {}
+            },
+          });
+        }
+      }
+    } catch (e) {}
+    try {
+      const gsize = sendGroupSize();
+      if (gsize > 1 && api && (api.sendGroupTo || api.sendTabTo)) {
+        for (let i = 1; i <= 9; i++) {
+          const n = String(i);
+          cmds.push({
+            title: sendGroupTitle(api, n, gsize),
+            hint: "",
+            sub: "Moves every tab in the native group together · membership kept",
+            run: () => {
+              try {
+                if (api.sendGroupTo) {
+                  api.sendGroupTo(n);
+                } else {
+                  api.sendTabTo(n);
+                }
+              } catch (e) {}
+            },
+          });
+        }
+      }
+    } catch (e) {}
     try {
       if (api && api.getCurrent) {
         const cur = api.getCurrent();
