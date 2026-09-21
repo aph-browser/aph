@@ -77,7 +77,11 @@ const sb = {
       o[k] = v;
       tabVals.set(t, o);
     },
-    deleteCustomTabValue: () => {},
+      deleteCustomTabValue: (t, k) => {
+        const o = tabVals.get(t) || {};
+        delete o[k];
+        tabVals.set(t, o);
+      },
     getCustomWindowValue: () => undefined,
     setCustomWindowValue: () => {},
   },
@@ -190,5 +194,119 @@ describe("AltGr (Windows international keyboards)", () => {
     assert.equal(e._pd, true);
     assert.equal(created.length, n + 1);
     assert.equal(created[created.length - 1].userContextId, 7);
+  });
+});
+
+describe("tree indent/outdent hotkeys (Ctrl+Alt+Arrow)", () => {
+  const api = sb.window.AphWorkspaces;
+  const level = (t) => api.getTreeLevel(t);
+
+  function addTab(label) {
+    const t = makeTab(tabVals, { label, ws: "1", spec: `https://${label}.example/` });
+    sb.gBrowser.tabs.push(t);
+    return t;
+  }
+
+  it("Ctrl+Alt+Right indents the selected tab under the tab above", () => {
+    const r1 = addTab("kr1");
+    const r2 = addTab("kr2");
+    sb.gBrowser.selectedTab = r2;
+    const e = fireKey({ code: "ArrowRight", ctrlKey: true, altKey: true, altGraph: false });
+    assert.equal(e._pd, true, "hotkey claimed");
+    assert.equal(e._ps, true);
+    assert.equal(api.getTreeParent(r2), r1);
+    assert.equal(level(r2), 1);
+    // Cleanup: outdent back so later tests start flat.
+    sb.gBrowser.selectedTab = r2;
+    fireKey({ code: "ArrowLeft", ctrlKey: true, altKey: true, altGraph: false });
+    assert.equal(level(r2), 0);
+    for (const t of [r1, r2]) {
+      const i = sb.gBrowser.tabs.indexOf(t);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    }
+    sb.gBrowser.selectedTab = home;
+  });
+
+  it("Ctrl+Alt+Left outdents a child in place", () => {
+    const r1 = addTab("ko1");
+    const kid = addTab("ko-kid");
+    api.attachTreeChild(kid, r1);
+    assert.equal(level(kid), 1);
+    const before = sb.gBrowser.tabs.slice();
+    sb.gBrowser.selectedTab = kid;
+    const e = fireKey({ code: "ArrowLeft", ctrlKey: true, altKey: true, altGraph: false });
+    assert.equal(e._pd, true);
+    assert.equal(level(kid), 0);
+    assert.deepEqual(sb.gBrowser.tabs, before, "outdent keeps strip position");
+    for (const t of [r1, kid]) {
+      const i = sb.gBrowser.tabs.indexOf(t);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    }
+    sb.gBrowser.selectedTab = home;
+  });
+
+  it("indent is a no-op for the first tab; outdent for L0 roots", () => {
+    sb.gBrowser.selectedTab = home;
+    // home sits at strip index 0 (seed tab): nothing above to indent under.
+    const e1 = fireKey({ code: "ArrowRight", ctrlKey: true, altKey: true, altGraph: false });
+    assert.equal(e1._pd, true, "hotkey still claimed on no-op");
+    assert.equal(level(home), 0);
+    const lone = addTab("kn-lone");
+    sb.gBrowser.selectedTab = lone;
+    const e2 = fireKey({ code: "ArrowLeft", ctrlKey: true, altKey: true, altGraph: false });
+    assert.equal(e2._pd, true);
+    assert.equal(level(lone), 0);
+    const i = sb.gBrowser.tabs.indexOf(lone);
+    if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    sb.gBrowser.selectedTab = home;
+  });
+
+  it("multiselection indents as siblings via the hotkey", () => {
+    const p = addTab("km-p");
+    const a = addTab("km-a");
+    const b = addTab("km-b");
+    sb.gBrowser.selectedTab = a;
+    sb.gBrowser.selectedTabs = [a, b];
+    try {
+      const e = fireKey({ code: "ArrowRight", ctrlKey: true, altKey: true, altGraph: false });
+      assert.equal(e._pd, true);
+      assert.equal(api.getTreeParent(a), p);
+      assert.equal(api.getTreeParent(b), p);
+    } finally {
+      delete sb.gBrowser.selectedTabs;
+    }
+    for (const t of [p, a, b]) {
+      const i = sb.gBrowser.tabs.indexOf(t);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    }
+    sb.gBrowser.selectedTab = home;
+  });
+
+  it("AltGr+Arrow passes through (no tree change)", () => {
+    const r1 = addTab("kg1");
+    const r2 = addTab("kg2");
+    sb.gBrowser.selectedTab = r2;
+    const e = fireKey({ code: "ArrowRight", ctrlKey: true, altKey: true, altGraph: true });
+    assert.equal(e._pd, false, "must not claim AltGr composition");
+    assert.equal(e._ps, false);
+    assert.equal(level(r2), 0, "no parenting happened");
+    for (const t of [r1, r2]) {
+      const i = sb.gBrowser.tabs.indexOf(t);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    }
+    sb.gBrowser.selectedTab = home;
+  });
+
+  it("Shifted Ctrl+Alt+Arrow is not an indent (cycle layer owns Shift)", () => {
+    const r1 = addTab("ks1");
+    const r2 = addTab("ks2");
+    sb.gBrowser.selectedTab = r2;
+    const e = fireKey({ code: "ArrowRight", ctrlKey: true, altKey: true, shiftKey: true, altGraph: false });
+    assert.equal(level(r2), 0, "Shift variant must not indent");
+    for (const t of [r1, r2]) {
+      const i = sb.gBrowser.tabs.indexOf(t);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    }
+    sb.gBrowser.selectedTab = home;
   });
 });
