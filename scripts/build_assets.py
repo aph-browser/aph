@@ -40,6 +40,7 @@ BUNDLES: dict[str, list[str]] = {
         "workspaces/40-visibility-groups.js",
         "workspaces/45-tree-tabs.js",
         "workspaces/50-unload.js",
+        "workspaces/55-exclusive.js",
         "workspaces/60-indicator-switch.js",
         "workspaces/62-move-menu.js",
         "workspaces/65-dock.js",

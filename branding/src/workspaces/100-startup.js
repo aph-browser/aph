@@ -1,6 +1,7 @@
-  // New windows (Ctrl+N) inherit the source window's workspace instead of
-  // falling back to "1". Stored value wins (session restore); else opener,
-  // else most-recent / any open browser window; else "1".
+  // New windows (Ctrl+N) land on the lowest workspace no live window owns
+  // instead of inheriting the source window's workspace (which would
+  // collide under mutual exclusion). Stored value wins (session restore);
+  // opener inherits only when it would not collide; else lowest-unowned.
   function initialWorkspace() {
     try {
       const w = SessionStore.getCustomWindowValue(window, WIN_KEY);
@@ -13,7 +14,24 @@
       if (op && op !== window && !op.closed) {
         const ow = SessionStore.getCustomWindowValue(op, WIN_KEY);
         if (isValidId(ow)) {
-          return ow;
+          let collides = true;
+          try {
+            collides =
+              typeof findWsOwner === "function" ? !!findWsOwner(ow) : true;
+          } catch (_e) {
+            collides = true;
+          }
+          if (!collides) {
+            return ow;
+          }
+        }
+      }
+    } catch (e) {}
+    try {
+      if (typeof lowestUnownedWorkspace === "function") {
+        const free = lowestUnownedWorkspace();
+        if (isValidId(free)) {
+          return free;
         }
       }
     } catch (e) {}
@@ -77,6 +95,21 @@
       } catch (e) {}
       return;
     }
+    // Session-restore de-dupe: two windows can resurrect onto the same
+    // workspace. The second one falls back to the lowest unowned workspace
+    // instead of co-displaying. switchLocal (not switchTo): focusing
+    // another window mid-restore would be wrong.
+    try {
+      if (typeof findWsOwner === "function" && findWsOwner(target)) {
+        const free =
+          typeof lowestUnownedWorkspace === "function"
+            ? lowestUnownedWorkspace()
+            : null;
+        if (isValidId(free)) {
+          target = free;
+        }
+      }
+    } catch (e) {}
     // Prefer the restored selected tab when it already lives in target,
     // so we focus the exact tab left open instead of the first in order.
     try {
@@ -86,7 +119,11 @@
       }
     } catch (e) {}
     try {
-      switchTo(target);
+      if (typeof switchLocal === "function") {
+        switchLocal(target);
+      } else {
+        switchTo(target);
+      }
     } catch (e) {}
   }
 

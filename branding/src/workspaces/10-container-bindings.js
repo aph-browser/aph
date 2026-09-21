@@ -453,6 +453,29 @@
           if (!armed || tab.closing || !gBrowser.tabs.includes(tab)) {
             return;
           }
+          // Session restore in flight for this tab: never swap a
+          // restoring tab (its tag arrives via extData/SSTabRestored).
+          // Stamp only — same as the background path below.
+          try {
+            if (
+              SessionStore &&
+              typeof SessionStore.isTabRestoring === "function" &&
+              SessionStore.isTabRestoring(tab)
+            ) {
+              stampTab(tab);
+              try {
+                if (typeof treeAttachFromOpener === "function") {
+                  treeAttachFromOpener(tab, null);
+                }
+              } catch (_e) {}
+              try {
+                if (typeof renderTree === "function") {
+                  renderTree();
+                }
+              } catch (_e) {}
+              return;
+            }
+          } catch (e) {}
           if (gBrowser.selectedTab !== tab) {
             // Background tab — leave it alone, tag normally.
             stampTab(tab);
@@ -536,6 +559,13 @@
               gBrowser.removeTab(tab);
             } catch (_e) {}
           }
+          // Scrub the swap ghost: undo must not resurrect the
+          // wrong-container original as a duplicate of the replacement.
+          try {
+            if (typeof scrubAdoptionGhost === "function") {
+              scrubAdoptionGhost(window, tab);
+            }
+          } catch (e) {}
         } catch (e) {}
       }, 0);
       return true;

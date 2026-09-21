@@ -120,11 +120,30 @@
     } catch (e) {}
   }
 
-  function switchTo(target) {
+  // Local-only switch: show `target` in this window. Cross-window policy
+  // lives in switchTo (55-exclusive.js); callers that already resolved
+  // ownership (startup de-dupe) use this directly. Returns "local"/"noop"
+  // so console callers can confirm what ran (no UI effect).
+  function switchLocal(target) {
+    if (!isValidId(target) || target === current) {
+      return "noop";
+    }
+    beginWorkspaceSwitch(target);
+    finishWorkspaceSwitch(target);
+    return "local";
+  }
+
+  // Commit this window's claim first: current + WIN_KEY + indicator. The
+  // adopted-tab handler stamps arrivals to `current`, so the claim must
+  // precede any pull — otherwise pulled tabs land in the old workspace.
+  function beginWorkspaceSwitch(target) {
     if (!isValidId(target) || target === current) {
       return;
     }
-    const tabs = Array.from(gBrowser.tabs);
+    let tabs = [];
+    try {
+      tabs = Array.from(gBrowser.tabs);
+    } catch (e) {}
     rememberCurrent(tabs);
     lastUsed = current;
     current = target;
@@ -134,7 +153,23 @@
     updateIndicator();
     pulseWorkspaceIndicator();
     try {
-      SessionStore.setCustomWindowValue(window, WIN_KEY, target);
+      if (typeof setWindowWs === "function") {
+        setWindowWs(target);
+      } else {
+        SessionStore.setCustomWindowValue(window, WIN_KEY, target);
+      }
+    } catch (e) {}
+  }
+
+  // Settle visibility after the claim (and any pull): fresh tab snapshot
+  // so adopted tabs reconcile in the same pass.
+  function finishWorkspaceSwitch(target) {
+    if (!isValidId(target)) {
+      return;
+    }
+    let tabs = [];
+    try {
+      tabs = Array.from(gBrowser.tabs);
     } catch (e) {}
     anchorAllGroups();
     reconcile(target, tabs);
@@ -167,6 +202,70 @@
         arc.scheduleAutoSweep();
       }
     } catch (e) {}
+  }
+
+  // Exclusive entry: every keyboard/dock/palette path funnels here.
+  // Owned elsewhere -> focus-jump (V1 has no steal). Dormant -> claim
+  // first (so arrivals stamp correctly), pull its tabs here via adoptTab,
+  // then settle. Private windows bypass the pool and switch locally.
+  // Returns "focused"/"focus-failed"/"switched"/"local"/"noop" for console
+  // diagnosis (callers ignore it).
+  function switchTo(target) {
+    if (!isValidId(target) || target === current) {
+      return "noop";
+    }
+    try {
+      if (typeof aphIsPrivateWindow === "function" && aphIsPrivateWindow(window)) {
+        switchLocal(target);
+        return "local";
+      }
+    } catch (e) {}
+    let owner = null;
+    try {
+      owner = typeof findWsOwner === "function" ? findWsOwner(target) : null;
+    } catch (e) {
+      owner = null;
+    }
+    if (owner && owner !== window) {
+      let ok = false;
+      try {
+        if (typeof focusWsOwner === "function") {
+          ok = focusWsOwner(owner);
+        } else if (owner && typeof owner.focus === "function") {
+          owner.focus();
+          ok = true;
+        }
+      } catch (e) {
+        ok = false;
+      }
+      try {
+        pulseWorkspaceIndicator();
+      } catch (e) {}
+      return ok ? "focused" : "focus-failed";
+    }
+    try {
+      if (typeof beginWorkspaceSwitch === "function") {
+        beginWorkspaceSwitch(target);
+      }
+    } catch (e) {}
+    try {
+      if (typeof pullDormantTabs === "function") {
+        pullDormantTabs(target);
+      }
+    } catch (e) {}
+    try {
+      if (typeof finishWorkspaceSwitch === "function") {
+        finishWorkspaceSwitch(target);
+      } else {
+        switchLocal(target);
+      }
+    } catch (e) {}
+    try {
+      if (typeof broadcastWsSwitch === "function") {
+        broadcastWsSwitch(target);
+      }
+    } catch (e) {}
+    return "switched";
   }
 
   // Cycling: "active" = has a live unpinned tab (pins are global with a
@@ -336,10 +435,120 @@
     return preserved;
   }
 
+  // Forward a send into the window that owns `target` (adopt + tag there).
+  // The owner's adopted-tab handler settles selection/headers/dock; this
+  // side heals selection in case a selected tab rode along. Pinned tabs
+  // never forward (app anchors don't duplicate); trees/groups flatten on
+  // forward (v1 — same rule as partial moves ejecting).
+  function forwardWorkspaceSend(owner, target, moveSet) {
+    try {
+      const moving = [];
+      try {
+        for (const t of moveSet || []) {
+          if (t && !t.closing && !t.pinned) {
+            moving.push(t);
+          }
+        }
+      } catch (e) {}
+      if (!moving.length || !owner || owner.closed || !owner.gBrowser) {
+        return false;
+      }
+      let forwarded = 0;
+      for (const t of moving) {
+        try {
+          if (!t || t.closing || t.pinned) {
+            continue;
+          }
+          let nt = null;
+          try {
+            if (typeof owner.gBrowser.adoptTab === "function") {
+              let idx = 0;
+              try {
+                idx = (owner.gBrowser.tabs && owner.gBrowser.tabs.length) || 0;
+              } catch (e) {}
+              try {
+                nt = owner.gBrowser.adoptTab(t, { tabIndex: idx }) || null;
+              } catch (e) {
+                try {
+                  nt = owner.gBrowser.adoptTab(t) || null;
+                } catch (_e) {}
+              }
+            }
+          } catch (e) {}
+          if (!nt) {
+            continue;
+          }
+          forwarded++;
+          // Scrub the adoption ghost: source is this window, and undo must
+          // not resurrect the forwarded tab as a duplicate.
+          try {
+            if (typeof scrubAdoptionGhost === "function") {
+              scrubAdoptionGhost(window, t);
+            }
+          } catch (e) {}
+          try {
+            setWs(nt, target);
+          } catch (e) {}
+          try {
+            if (typeof clearTreeParent === "function") {
+              clearTreeParent(nt);
+            }
+          } catch (e) {}
+          try {
+            if (typeof ensureTreeId === "function") {
+              ensureTreeId(nt);
+            }
+          } catch (e) {}
+        } catch (e) {}
+      }
+      try {
+        if (
+          owner.AphWorkspaces &&
+          typeof owner.AphWorkspaces.renderDock === "function"
+        ) {
+          owner.AphWorkspaces.renderDock();
+        }
+      } catch (e) {}
+      try {
+        reconcile(current, Array.from(gBrowser.tabs));
+        pruneExtraNewTabs(current);
+      } catch (e) {}
+      try {
+        if (typeof renderDock === "function") {
+          renderDock();
+        }
+      } catch (e) {}
+      return forwarded > 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function executeWorkspaceSend(target, moveSet) {
     if (!isValidId(target) || !moveSet || !moveSet.length) {
       return false;
     }
+    // Remote-owned target: forwarding into the owner beats stranding tabs
+    // hidden here and absent there (invisible in both windows). A
+    // private-owned target refuses instead — never cross that boundary.
+    try {
+      const selfPrivate =
+        typeof aphIsPrivateWindow === "function" && aphIsPrivateWindow(window);
+      if (!selfPrivate && typeof findWsOwner === "function") {
+        const owner = findWsOwner(target);
+        if (owner && owner !== window) {
+          return forwardWorkspaceSend(owner, target, moveSet);
+        }
+        try {
+          if (typeof findWsOwner === "function" && findWsOwner(target, true)) {
+            try {
+              pulseWorkspaceIndicator();
+            } catch (e) {}
+            return false;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
     const moving = new Set();
     try {
       for (const t of moveSet) {

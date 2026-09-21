@@ -103,6 +103,13 @@
               gBrowser.removeTab(tab);
             } catch (_e) {}
           }
+          // Scrub the reopen ghost: undo must not resurrect the
+          // wrong-container original as a duplicate of the replacement.
+          try {
+            if (typeof scrubAdoptionGhost === "function") {
+              scrubAdoptionGhost(window, tab);
+            }
+          } catch (e) {}
           routeLog(`reopened in container ${bound} (was ${cid})`);
           return;
         }
@@ -215,6 +222,18 @@
       if (!tab || tab.closing) {
         return false;
       }
+      // Session-restored tabs are born young with blank content in TabOpen
+      // (birth stamped before SessionStore applies extData) — never mistake
+      // a restored extension page for a fresh install tab.
+      try {
+        if (
+          SessionStore &&
+          typeof SessionStore.isTabRestoring === "function" &&
+          SessionStore.isTabRestoring(tab)
+        ) {
+          return false;
+        }
+      } catch (e) {}
       if (!getSilenceFirstRun() || !isAddonFirstRunSpec(spec)) {
         return false;
       }
@@ -319,6 +338,22 @@
             return;
           }
         } catch (e) {}
+        // Session restore in flight for this tab (created tagless via
+        // TabOpen, extData applied after): never route it — its first
+        // commit looks exactly like a fresh navigation. Settle it so no
+        // later stage claims it either. (The silencer guards itself.)
+        try {
+          if (
+            SessionStore &&
+            typeof SessionStore.isTabRestoring === "function" &&
+            SessionStore.isTabRestoring(tab)
+          ) {
+            try {
+              tab.__aphFresh = false;
+            } catch (e) {}
+            return;
+          }
+        } catch (e) {}
         let scheme = "";
         try {
           scheme = String(aLocation.scheme || "").toLowerCase();
@@ -400,6 +435,20 @@
         } catch (e) {
           return;
         }
+        // Same restore guard as the commit stage: a restoring tab's
+        // pre-dispatch channel looks like a fresh navigation.
+        try {
+          if (
+            SessionStore &&
+            typeof SessionStore.isTabRestoring === "function" &&
+            SessionStore.isTabRestoring(tab)
+          ) {
+            try {
+              tab.__aphFresh = false;
+            } catch (e) {}
+            return;
+          }
+        } catch (e) {}
         // Channel URI: the pre-redirect target, known before dispatch.
         let channel = aRequest;
         try {

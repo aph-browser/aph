@@ -578,6 +578,14 @@ tab[pending]:not([selected]) .tab-label,
   border: 1px dashed color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 35%, transparent) !important;
 }
 
+/* Remote: workspace live in another window (mutual exclusion). Outlined
+   with a dot — click focus-jumps, never pulls (V1 has no steal). */
+.aph-ws-pill[data-remote="1"] {
+  opacity: 0.75 !important;
+  border: 1px solid color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 40%, transparent) !important;
+  background: transparent !important;
+}
+
 #aph-ws-dock[data-aph-dragging="1"] .aph-ws-pill[data-current="1"] {
   opacity: 0.45 !important;
   cursor: not-allowed !important;

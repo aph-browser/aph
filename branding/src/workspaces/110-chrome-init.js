@@ -107,7 +107,25 @@
   // window stays reachable (observer -> closure -> document/gBrowser) and
   // leaks until process exit.
   function cleanupWindowObservers() {
+    // Merge-back first, while tabs are still adoptable: a closing window
+    // must never destroy a workspace. Unpinned tabs move to the survivor
+    // (pins die with the window, stock semantics); last-window closes and
+    // private-boundary crossings are no-ops.
     try {
+      if (typeof mergeTabsIntoSurvivor === "function") {
+        mergeTabsIntoSurvivor();
+      }
+    } catch (e) {}
+    try {
+      if (typeof cleanupWsSwitchObserver === "function") {
+        cleanupWsSwitchObserver();
+      }
+    } catch (e) {}
+    try {
+      if (typeof cleanupQuitFlag === "function") {
+        cleanupQuitFlag();
+      }
+    } catch (e) {}    try {
       if (bindingObserver) {
         Services.prefs.removeObserver(WS_CONTAINER_PREF, bindingObserver);
       }
@@ -263,6 +281,33 @@
     try {
       window.AphWorkspaces = {
         switchTo,
+        switchLocal: typeof switchLocal === "function" ? switchLocal : switchTo,
+        getRemoteWorkspaces:
+          typeof getRemoteOwners === "function" ? getRemoteOwners : () => ({}),
+        isWsOwnedElsewhere:
+          typeof isWsOwnedElsewhere === "function" ? isWsOwnedElsewhere : () => false,
+        pullDormantTabs:
+          typeof pullDormantTabs === "function" ? pullDormantTabs : () => 0,
+        mergeTabsIntoSurvivor:
+          typeof mergeTabsIntoSurvivor === "function"
+            ? mergeTabsIntoSurvivor
+            : () => ({ merged: 0 }),
+        lowestUnownedWorkspace:
+          typeof lowestUnownedWorkspace === "function"
+            ? lowestUnownedWorkspace
+            : () => null,
+        debugExclusive:
+          typeof debugExclusive === "function" ? debugExclusive : () => ({}),
+        debugSession:
+          typeof debugSession === "function" ? debugSession : () => ([]),
+        findDuplicateTabs:
+          typeof findDuplicateTabs === "function" ? findDuplicateTabs : () => ([]),
+        closeDuplicateTabs:
+          typeof closeDuplicateTabs === "function"
+            ? closeDuplicateTabs
+            : () => ({ dryRun: true, closed: 0, doomed: [], groups: 0 }),
+        scrubAdoptionGhost:
+          typeof scrubAdoptionGhost === "function" ? scrubAdoptionGhost : () => {},
         sendTabTo,
         sendTreeTo,
         sendGroupTo,
@@ -321,6 +366,14 @@
       };
     } catch (e) {}
     current = initialWorkspace();
+    // Stamp the live claim immediately: the restore path can settle without
+    // passing through beginWorkspaceSwitch, and other windows must see this
+    // window's workspace from birth, not from its first manual switch.
+    try {
+      if (isValidId(current) && typeof setWindowWs === "function") {
+        setWindowWs(current);
+      }
+    } catch (e) {}
     if (isValidId(current)) {
       try {
         gBrowser.tabContainer.setAttribute("data-aph-ws", current);
@@ -365,10 +418,22 @@
       } catch (e) {}
     } catch (e) {}
     // Session restore may not preserve hidden state; force a full pass.
+    // Claim-only (switchLocal, never switchTo): a fresh window must not
+    // rip dormant tabs out of other windows uninvited — adoption flattens
+    // groups/trees in flight, and an unasked pull is pure destruction.
+    // Dormant workspaces wait to be summoned explicitly. Broadcast the
+    // claim so other windows' docks show the new remote pill.
     try {
       const saved = isValidId(current) ? current : "1";
       current = saved === "1" ? "__force__" : "1";
-      switchTo(saved);
+      if (typeof switchLocal === "function") {
+        switchLocal(saved);
+      } else {
+        switchTo(saved);
+      }
+      if (typeof broadcastWsSwitch === "function") {
+        broadcastWsSwitch(saved);
+      }
     } catch (e) {}
     gBrowser.tabContainer.addEventListener("TabOpen", onTabOpen);
     gBrowser.tabContainer.addEventListener("TabClose", onTabClose);
@@ -455,6 +520,16 @@
     }
     try {
       initRouteListener();
+    } catch (e) {}
+    try {
+      if (typeof initWsSwitchObserver === "function") {
+        initWsSwitchObserver();
+      }
+    } catch (e) {}
+    try {
+      if (typeof initQuitFlag === "function") {
+        initQuitFlag();
+      }
     } catch (e) {}
     scheduleStartupRestore();
     // Global-service registrations above outlive this window unless removed.

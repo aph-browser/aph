@@ -1,6 +1,10 @@
 /* Aph workspaces: IDs "1"-"9", zero UI. Alt+Shift+1..9 jumps to a workspace,
  * Alt+Shift+]/Right cycles next active, Alt+Shift+[/Left cycles previous,
  * Alt+Shift+Tab toggles the last two used (MRU),
+ * Exclusive model (tiling-WM): a workspace renders in at most one window.
+ * Dormant workspaces pull here via adoptTab (no reload); workspaces live
+ * elsewhere focus-jump on request (V1 has no steal). Window close merges
+ * unpinned tabs back into a survivor (pins die with the window, stock).
  * Ctrl+Alt+1..9 sends the selection there (stay here, focus next —
  * linked tree children ride along, whole native groups stay joined),
  * Ctrl+Alt+Shift+1..9 sends the whole tree explicitly.

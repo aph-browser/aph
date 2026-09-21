@@ -15,6 +15,7 @@ function makeEnv(silencePref) {
   const tabVals = new WeakMap();
   const tabs = [];
   const removed = [];
+  const restoring = new Set();
   let progressListener = null;
   let sel = null;
   const prefStore = {};
@@ -95,6 +96,7 @@ function makeEnv(silencePref) {
         delete o[k];
         tabVals.set(t, o);
       },
+      isTabRestoring: (t) => restoring.has(t),
       getCustomWindowValue: () => undefined,
       setCustomWindowValue: () => {},
     },
@@ -178,7 +180,7 @@ function makeEnv(silencePref) {
       0
     );
   }
-  return { sb, tabs, removed, tabVals, addInstallTab, fireStart, fireCommit,
+  return { sb, tabs, removed, tabVals, restoring, addInstallTab, fireStart, fireCommit,
     listener: () => progressListener,
     api: sb.window.AphWorkspaces };
 }
@@ -256,8 +258,7 @@ describe("addon first-run silencer", () => {
     assert.ok(env.tabs.includes(t), "tab kept");
   });
 
-  it("ignores subframes and same-document commits", () => {
-    const env = makeEnv();
+  it("ignores subframes and same-document commits", () => {    const env = makeEnv();
     const t = env.addInstallTab("sb-help");
     const req = {
       URI: { scheme: "moz-extension", asciiHost: "uuid", spec: HELP_SPEC },
@@ -275,5 +276,17 @@ describe("addon first-run silencer", () => {
     );
     assert.ok(env.tabs.includes(t), "tab kept");
     assert.deepEqual(req.canceled, []);
+  });
+
+  it("leaves session-restoring tabs alone at both stages", () => {
+    const env = makeEnv();
+    const t = env.addInstallTab("restore-help");
+    env.restoring.add(t);
+    const req = env.fireStart(t, HELP_SPEC);
+    assert.deepEqual(req.canceled, [], "pre-dispatch untouched");
+    assert.ok(env.tabs.includes(t), "tab kept");
+    env.fireCommit(t, HELP_SPEC);
+    assert.ok(env.tabs.includes(t), "tab kept at commit");
+    env.restoring.delete(t);
   });
 });

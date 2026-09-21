@@ -17,6 +17,7 @@ const prefStore = {
 const created = [];
 const removed = [];
 const discarded = [];
+const restoring = new Set();
 let listener = null;
 
 const home = makeTab(tabVals, {
@@ -81,6 +82,7 @@ const sb = {
       tabVals.set(t, o);
     },
     deleteCustomTabValue: () => {},
+    isTabRestoring: (t) => restoring.has(t),
     getCustomWindowValue: () => undefined,
     setCustomWindowValue: () => {},
   },
@@ -1035,6 +1037,49 @@ describe("bound new-tab interception (BrowserOpenTab wrap)", () => {
       delete sb.window.PrivateBrowsingUtils;
       dropTabs([binder]);
       api.switchTo("1");
+    }
+  });
+});
+
+describe("restore guards (routing)", () => {
+  it("never routes a restoring tab at commit or pre-dispatch, settling it", () => {
+    api.switchTo("1");
+    const t = makeTab(tabVals, {
+      label: "rst", ws: "1", fresh: true, spec: "https://github.com/",
+    });
+    sb.gBrowser.tabs.push(t);
+    restoring.add(t);
+    try {
+      const n = created.length;
+      fireLoc(t, "github.com");
+      assert.equal(created.length, n, "no container swap at commit");
+      assert.equal(wsOf(t), "1", "tag kept");
+      assert.equal(t.__aphFresh, false, "settled so no later stage claims it");
+      assert.ok(sb.gBrowser.tabs.includes(t), "tab kept");
+      const req = fireStart(t, "github.com");
+      assert.deepEqual(req.canceled || [], [], "pre-dispatch untouched");
+      assert.equal(created.length, n);
+    } finally {
+      restoring.delete(t);
+      const i = sb.gBrowser.tabs.indexOf(t);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    }
+  });
+
+  it("routes normally once restore completes", () => {
+    api.switchTo("1");
+    const t = makeTab(tabVals, {
+      label: "live", ws: "1", fresh: true, spec: "https://github.com/",
+    });
+    sb.gBrowser.tabs.push(t);
+    try {
+      fireLoc(t, "github.com");
+      const rep = created[created.length - 1];
+      assert.ok(!sb.gBrowser.tabs.includes(t), "original removed");
+      assert.equal(wsOf(rep), "2");
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(t);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
     }
   });
 });
