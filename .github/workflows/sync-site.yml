@@ -56,7 +56,7 @@ jobs:
           if git fetch origin main 2>/dev/null; then
             git reset --hard FETCH_HEAD
           fi
-          rsync -a --delete --exclude='CNAME' "$GITHUB_WORKSPACE/docs/" /tmp/site/
+          rsync -a --delete --exclude='.git/' --exclude='CNAME' "$GITHUB_WORKSPACE/docs/" /tmp/site/
           git add -A
           if git status --porcelain | grep -q .; then
             git commit -m "Sync from aph-browser/aph@${GITHUB_SHA:0:7}"
