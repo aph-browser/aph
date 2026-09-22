@@ -256,6 +256,9 @@ jobs:
     needs: [appimage, flatpak, windows]
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
       - name: Collect handoffs
         uses: actions/download-artifact@v8
         with:
