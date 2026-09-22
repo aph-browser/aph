@@ -1,0 +1,22 @@
+pkgbase = aph-bin
+	pkgdesc = Firefox-based, workspaces-first web browser
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/aph-browser/aph
+	arch = x86_64
+	license = MPL-2.0
+	provides = aph
+	conflicts = aph
+	depends = dbus
+	depends = gtk3
+	depends = libxt
+	depends = mime-types
+	depends = nss
+	depends = nspr
+	optdepends = libpulse: audio playback
+	source = aph-x86_64.AppImage::https://github.com/aph-browser/aph/releases/download/v0.1.0/aph-x86_64.AppImage
+	source = aph.sh
+	sha256sums = 7e15108160332eca5d048df6c0caea13e8213f9645f24eb5e87a5b3e37650427
+	sha256sums = SKIP
+
+pkgname = aph-bin

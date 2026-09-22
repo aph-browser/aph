@@ -1,0 +1,44 @@
+# Maintainer: TrueKing <samuellance73@gmail.com>
+# AUR repack of Aph releases: downloads the official AppImage from GitHub
+# Releases, extracts it (no FUSE needed at runtime), and installs the
+# browser tree to /opt/aph with a seed-once launcher at /usr/bin/aph.
+# Bump pkgver + refresh the AppImage sha256 from SHA256SUMS on each release.
+pkgname=aph-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Firefox-based, workspaces-first web browser"
+arch=('x86_64')
+url="https://github.com/aph-browser/aph"
+license=('MPL-2.0')
+depends=('dbus' 'gtk3' 'libxt' 'mime-types' 'nss' 'nspr')
+optdepends=('libpulse: audio playback')
+provides=('aph')
+conflicts=('aph')
+source=(
+  "aph-x86_64.AppImage::https://github.com/aph-browser/aph/releases/download/v${pkgver}/aph-x86_64.AppImage"
+  'aph.sh'
+)
+sha256sums=(
+  '7e15108160332eca5d048df6c0caea13e8213f9645f24eb5e87a5b3e37650427'
+  'SKIP'
+)
+
+prepare() {
+  chmod +x aph-x86_64.AppImage
+  ./aph-x86_64.AppImage --appimage-extract >/dev/null
+}
+
+package() {
+  # Browser tree (mirrors the AppImage AppDir layout).
+  install -dm755 "$pkgdir/opt/aph"
+  cp -a squashfs-root/usr/bin/. "$pkgdir/opt/aph/"
+  cp -a squashfs-root/usr/share/. "$pkgdir/usr/share/"
+
+  # Seed-once launcher.
+  install -Dm755 aph.sh "$pkgdir/usr/bin/aph"
+
+  # Desktop entry: point at the launcher, keep Icon=aph (hicolor icon
+  # ships in usr/share from the AppDir above).
+  sed 's|^Exec=.*|Exec=aph %u|' squashfs-root/aph.desktop > aph-fixed.desktop
+  install -Dm644 aph-fixed.desktop "$pkgdir/usr/share/applications/aph.desktop"
+}
