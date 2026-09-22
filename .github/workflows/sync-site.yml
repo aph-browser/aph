@@ -42,9 +42,12 @@ jobs:
         if: steps.gate.outputs.ready == 'true'
         run: |
           set -eu
+          export GIT_TERMINAL_PROMPT=0
           rm -rf /tmp/site
-          git init -qb main /tmp/site
+          mkdir -p /tmp/site
           cd /tmp/site
+          git init -q -b main
+          git rev-parse --is-inside-work-tree
           git config user.name "aph-site-sync"
           git config user.email "aph-site-sync@users.noreply.github.com"
           git remote add origin "https://x-access-token:${SITE_TOKEN}@github.com/aph-browser/aph-browser.github.io.git"
