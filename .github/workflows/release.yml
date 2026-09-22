@@ -1,7 +1,7 @@
 name: Release (tag)
 
 # First public releases: push a `v*` tag and this builds all three
-# platforms in-run, then publishes a GitHub pre-release with
+# platforms in-run, then publishes a GitHub release with
 # aph-x86_64.AppImage, aph-x86_64.flatpak, aph-win64-portable.zip and
 # SHA256SUMS. Binaries never cross workflow runs (download-artifact is
 # run-scoped), so the build and the publish live in this one workflow.
@@ -284,10 +284,10 @@ jobs:
           VER="${TAG#v}"
           FXVER="$(cat dist/rel-meta/firefox-version.txt)"
           cat > notes.md <<'EOF'
-          ## Aph __VER__ — beta pre-release
+           ## Aph __VER__
 
-          First public pre-release. Unsigned test builds with no auto-update
-          yet; each release is a manual re-download.
+           Unsigned builds with no auto-update
+           yet; each release is a manual re-download.
 
           - Aph version: __VER__
           - Firefox base: __FXVER__ (recorded from application.ini at build time)
@@ -318,10 +318,10 @@ jobs:
           echo "TAG=${TAG}" >> "$GITHUB_ENV"
           echo "VER=${VER}" >> "$GITHUB_ENV"
 
-      - name: Publish GitHub pre-release
+      - name: Publish GitHub release
         run: |
           set -eu
-          gh release create "$TAG" --prerelease --title "Aph $VER" --notes-file notes.md \
+          gh release create "$TAG" --title "Aph $VER" --notes-file notes.md \
             release/aph-x86_64.AppImage release/aph-x86_64.flatpak \
             release/aph-win64-portable.zip release/Aph-Setup-*.exe release/SHA256SUMS
         env:

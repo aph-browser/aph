@@ -4,7 +4,7 @@
 # browser tree to /opt/aph with a seed-once launcher at /usr/bin/aph.
 # Bump pkgver + refresh the AppImage sha256 from SHA256SUMS on each release.
 pkgname=aph-bin
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Firefox-based, workspaces-first web browser"
 arch=('x86_64')

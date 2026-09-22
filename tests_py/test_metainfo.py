@@ -20,5 +20,5 @@ def test_metainfo_has_current_release() -> None:
     entries = releases.findall("release")
     assert len(entries) == 1
     entry = entries[0]
-    assert entry.get("version") == "0.1.0"
+    assert entry.get("version") == "0.1.1"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", entry.get("date") or "")

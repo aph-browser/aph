@@ -1,6 +1,6 @@
 [project]
 name = "aph"
-version = "0.1.0"
+version = "0.1.1"
 description = "Aph Browser — Firefox-based browser with native overrides"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -16,7 +16,7 @@ from scripts.winget_manifest import (
     write_manifests,
 )
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 SHA = "ab" * 32
 
 
@@ -25,17 +25,17 @@ def test_app_id_matches_inno_setup() -> None:
 
 
 def test_asset_url_and_filename_convention() -> None:
-    assert installer_filename(VERSION) == "Aph-Setup-0.1.0.exe"
+    assert installer_filename(VERSION) == "Aph-Setup-0.1.1.exe"
     assert (
         installer_url(VERSION)
-        == "https://github.com/aph-browser/aph/releases/download/v0.1.0/Aph-Setup-0.1.0.exe"
+        == "https://github.com/aph-browser/aph/releases/download/v0.1.1/Aph-Setup-0.1.1.exe"
     )
 
 
 def test_lookup_sha256_from_sums_file(tmp_path: Path) -> None:
     sums = tmp_path / "SHA256SUMS"
-    sums.write_text(f"{SHA}  Aph-Setup-0.1.0.exe\n{'cd' * 32} *other.zip\n", encoding="utf-8")
-    assert lookup_sha256(sums, "Aph-Setup-0.1.0.exe") == SHA
+    sums.write_text(f"{SHA}  Aph-Setup-0.1.1.exe\n{'cd' * 32} *other.zip\n", encoding="utf-8")
+    assert lookup_sha256(sums, "Aph-Setup-0.1.1.exe") == SHA
     with pytest.raises(ValueError, match="not found"):
         lookup_sha256(sums, "missing.exe")
 
