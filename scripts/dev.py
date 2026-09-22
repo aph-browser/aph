@@ -35,6 +35,11 @@ def ensure_rebranded(root: Path) -> None:
             list((root / "branding").rglob("*.js"))
             + list((root / "branding").rglob("*.css"))
             + list((root / "branding").rglob("*.ftl"))
+            # Logos feed icon slicing + omni injection (icons.py, assets.py):
+            # a swapped aph.png must count as stale, not launch silently old.
+            + list((root / "branding").rglob("*.png"))
+            + list((root / "branding").rglob("*.svg"))
+            + list((root / "branding").rglob("*.ico"))
             + list((root / "scripts" / "aph_rebrand").rglob("*.py"))
             + [root / "scripts" / "rebrand.py", root / "scripts" / "build_assets.py"]
         )
