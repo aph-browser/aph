@@ -18,15 +18,28 @@ on:
 
 jobs:
   sync:
-    # Skipped until SITE_DEPLOY_TOKEN is set (one-time setup above) —
-    # keeps main green before the site repo exists.
-    if: ${{ secrets.SITE_DEPLOY_TOKEN != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      # Skipped until SITE_DEPLOY_TOKEN is set (one-time setup above) —
+      # keeps the run green before the site repo exists. (The `secrets`
+      # context is only readable inside steps, hence the gate lives here
+      # instead of a job-level `if`.)
+      - name: Check for deploy token
+        id: gate
+        run: |
+          if [ -z "${SITE_TOKEN}" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          SITE_TOKEN: ${{ secrets.SITE_DEPLOY_TOKEN }}
+
       - name: Push docs/ to site repo
+        if: steps.gate.outputs.ready == 'true'
         run: |
           set -eu
           rm -rf /tmp/site
