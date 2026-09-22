@@ -7,6 +7,14 @@
     if (!tab || rawWs(tab)) {
       return false;
     }
+    // Restoring tabs own no tag yet — their extData arrives around
+    // SSTabRestored. Stamping now would freeze them to the current
+    // workspace (3->2 scramble); onTabRestored stamps once settled.
+    try {
+      if (typeof isRestoringTab === "function" && isRestoringTab(tab)) {
+        return false;
+      }
+    } catch (ex) {}
     try {
       if (tab.__aphRepairArmed) {
         return false;
@@ -33,6 +41,19 @@
 
   function onTabOpen(e) {
     const tab = e.target;
+    if (!tab) {
+      return;
+    }
+    // Session restore owns this tab until SSTabRestored: extData (aphWs,
+    // tree links) has not been applied yet, so every write below — birth
+    // age, last-viewed, fresh flag, container repair, stamp, tree attach —
+    // would race the restore and freeze a tagless WS3 tab to the current
+    // workspace. Let onTabRestored settle it.
+    try {
+      if (typeof isRestoringTab === "function" && isRestoringTab(tab)) {
+        return;
+      }
+    } catch (err) {}
     // Birth stamp for the addon first-run silencer (age gate). Every live
     // tab passes here; restored tabs (SSTabRestored) deliberately get none
     // so a kept-open page is never mistaken for an install tab (adopted
@@ -132,7 +153,34 @@
     try {
       tab.__aphFresh = false;
     } catch (err) {}
-    stampTab(tab);
+    // Bulk restore can still be applying the tag when SSTabRestored fires
+    // (tagless at event time, extData lands a tick later). Stamping now
+    // would freeze a WS3 tab to the current workspace, so tagless tabs
+    // stamp only once settled: now when ready, otherwise one tick later
+    // (which also covers a still-restoring tab). Tagged tabs skip both —
+    // stampTab is a no-op for them.
+    if (!rawWs(tab)) {
+      let settled = false;
+      try {
+        settled =
+          typeof isRestoringTab !== "function" || !isRestoringTab(tab);
+      } catch (err) {
+        settled = true;
+      }
+      if (settled) {
+        stampTab(tab);
+      } else {
+        try {
+          setTimeout(() => {
+            try {
+              if (!tab.closing) {
+                stampTab(tab);
+              }
+            } catch (err) {}
+          }, 0);
+        } catch (err) {}
+      }
+    }
     // Restored tabs keep their tag, so stampTab above is a no-op for them
     // (no setWs, hence no per-tab sync) — sync markers explicitly or
     // restored tabs keep stale chrome until the next binding change.
@@ -154,23 +202,71 @@
     } catch (err) {}
     // Restored tabs keep their persisted tree links; heal dangling edges
     // (missing/cross-WS parents) and ensure every tab owns a tree id.
+    // Both wait when the tab is still restoring: ensureTreeId would mint
+    // a fresh id over the persisted one, and heal would read the
+    // not-yet-applied workspace tag (defaulting to "1") as a cross-WS
+    // edge and clear a valid link. The tick above stamps first; heal and
+    // ensure re-run there once settled.
+    let restoreSettled = true;
     try {
-      if (typeof ensureTreeId === "function") {
+      restoreSettled =
+        typeof isRestoringTab !== "function" || !isRestoringTab(tab);
+    } catch (err) {}
+    try {
+      if (typeof ensureTreeId === "function" && restoreSettled) {
         ensureTreeId(tab);
       }
     } catch (err) {}
     try {
-      if (typeof healTreeLinks === "function") {
+      if (typeof healTreeLinks === "function" && restoreSettled) {
         healTreeLinks();
       }
     } catch (err) {}
+    if (!restoreSettled) {
+      try {
+        setTimeout(() => {
+          try {
+            if (tab.closing) {
+              return;
+            }
+            if (typeof ensureTreeId === "function") {
+              ensureTreeId(tab);
+            }
+          } catch (err) {}
+          try {
+            if (typeof healTreeLinks === "function") {
+              healTreeLinks();
+            }
+          } catch (err) {}
+          try {
+            if (typeof renderTree === "function") {
+              renderTree();
+            }
+          } catch (err) {}
+          // Visibility was skipped below (no tag yet) — settle it now
+          // that extData has landed, mirroring the synchronous rule.
+          try {
+            if (!tab.pinned && isValidId(current) && rawWs(tab) && getWs(tab) !== current && !tab.hidden) {
+              if (gBrowser.selectedTab !== tab) {
+                aphHideTab(tab);
+              }
+            }
+          } catch (err) {}
+        }, 0);
+      } catch (err) {}
+    }
     try {
       if (typeof renderTree === "function") {
         renderTree();
       }
     } catch (err) {}
+    // A tagless still-restoring tab has no workspace yet (getWs defaults
+    // to "1") — hiding/showing now would act on the wrong workspace.
+    // The tick above settles visibility once extData lands.
     try {
-      if (tab.pinned) {
+      if (!restoreSettled && !rawWs(tab)) {
+        // Skip visibility until the tick.
+      } else if (tab.pinned) {
         if (tab.hidden) {
           aphShowTab(tab);
         }
@@ -252,7 +348,13 @@
     } catch (err) {}
     try {
       if (!rawWs(tab) && isValidId(current)) {
-        setWs(tab, current);
+        try {
+          if (typeof isRestoringTab === "function" && isRestoringTab(tab)) {
+            // Restoring tag arrives via extData — never stamp it here.
+          } else {
+            setWs(tab, current);
+          }
+        } catch (_e) {}
       }
     } catch (err) {}
     try {

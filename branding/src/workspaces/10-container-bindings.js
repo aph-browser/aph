@@ -432,6 +432,14 @@
       if (!tab || rawWs(tab) || !isValidId(current)) {
         return false;
       }
+      // Restoring tabs must never be armed: the deferred swap would race
+      // extData (and onTabOpen now returns early for them anyway — this
+      // is belt-and-braces for direct callers).
+      try {
+        if (typeof isRestoringTab === "function" && isRestoringTab(tab)) {
+          return false;
+        }
+      } catch (e) {}
       const bound = getWsContainerId(current);
       if (!bound) {
         return false;
@@ -453,26 +461,17 @@
           if (!armed || tab.closing || !gBrowser.tabs.includes(tab)) {
             return;
           }
-          // Session restore in flight for this tab: never swap a
-          // restoring tab (its tag arrives via extData/SSTabRestored).
-          // Stamp only — same as the background path below.
+          // Session restore in flight for this tab: never swap — and
+          // never stamp either (its tag arrives via extData/SSTabRestored;
+          // stamping now would freeze it to the current workspace).
+          // Hands off entirely; onTabRestored settles it.
           try {
             if (
-              SessionStore &&
-              typeof SessionStore.isTabRestoring === "function" &&
-              SessionStore.isTabRestoring(tab)
+              (typeof isRestoringTab === "function" && isRestoringTab(tab)) ||
+              (SessionStore &&
+                typeof SessionStore.isTabRestoring === "function" &&
+                SessionStore.isTabRestoring(tab))
             ) {
-              stampTab(tab);
-              try {
-                if (typeof treeAttachFromOpener === "function") {
-                  treeAttachFromOpener(tab, null);
-                }
-              } catch (_e) {}
-              try {
-                if (typeof renderTree === "function") {
-                  renderTree();
-                }
-              } catch (_e) {}
               return;
             }
           } catch (e) {}

@@ -382,6 +382,14 @@
     updateIndicator();
     try {
       for (const t of gBrowser.tabs) {
+        // Restoring tabs are owned by SessionStore until SSTabRestored:
+        // stamping or minting tree ids now would race extData and freeze
+        // a WS3 tab to this window's workspace. Skip them here.
+        try {
+          if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
+            continue;
+          }
+        } catch (e) {}
         if (!rawWs(t)) {
           setWs(t, isValidId(current) ? current : "1");
         }

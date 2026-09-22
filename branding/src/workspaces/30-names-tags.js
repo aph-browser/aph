@@ -83,6 +83,29 @@
     return rawWs(tab) || "1";
   }
 
+  // True while SessionStore still owns the tab (bulk restore in flight).
+  // Custom tab values (aphWs, tree links) arrive via extData around
+  // SSTabRestored — any stamp/retag/tree-attach before this clears must
+  // wait, or a tagless restored tab is permanently stamped to whatever
+  // workspace happens to be current (the 3->2 restore scramble). All
+  // restore-unsafe writers funnel through this guard.
+  function isRestoringTab(tab) {
+    try {
+      if (!tab) {
+        return false;
+      }
+      if (
+        typeof SessionStore !== "undefined" &&
+        SessionStore &&
+        typeof SessionStore.isTabRestoring === "function" &&
+        SessionStore.isTabRestoring(tab)
+      ) {
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
   function setWs(tab, ws) {
     try {
       SessionStore.setCustomTabValue(tab, KEY, ws);

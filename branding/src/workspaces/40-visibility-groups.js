@@ -170,6 +170,22 @@
       }
     }
     const votes = Object.create(null);
+    // Incomplete restore data must never vote: a tagless or still-
+    // restoring member has no workspace yet, and majority-voting it now
+    // would permanently retag a WS3 tab to WS2. Abort and let the
+    // SSTabRestored unify re-run once extData lands.
+    for (const m of members) {
+      try {
+        if (typeof isRestoringTab === "function" && isRestoringTab(m)) {
+          return;
+        }
+      } catch (e) {}
+      try {
+        if (!rawWs(m)) {
+          return;
+        }
+      } catch (e) {}
+    }
     for (const m of members) {
       const v = rawWs(m);
       if (v) {
@@ -319,6 +335,13 @@
       if (t.pinned || t.closing || t === sel) {
         continue;
       }
+      // Restoring tabs are owned by SessionStore — never prune a tab
+      // whose URL/tag hasn't settled (its newtab face may be transient).
+      try {
+        if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
+          continue;
+        }
+      } catch (e) {}
       if (getWs(t) !== target) {
         continue;
       }

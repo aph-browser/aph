@@ -803,6 +803,14 @@
       if (!child || child.closing) {
         return 0;
       }
+      // Restoring children own no tag yet — retagging to the opener's
+      // workspace would scramble a WS3 restore into WS2. The restore
+      // path keeps persisted links via healTreeLinks instead.
+      try {
+        if (typeof isRestoringTab === "function" && isRestoringTab(child)) {
+          return 0;
+        }
+      } catch (e) {}
       ensureTreeId(child);
       try {
         if (child.pinned) {
@@ -1768,6 +1776,17 @@
           if (!pid) {
             continue;
           }
+          // Restore in flight for either end: workspace tags (and the
+          // parent id itself) may not be applied yet. Clearing now would
+          // destroy a valid persisted edge on a tag-default ("1") mirage.
+          try {
+            if (
+              typeof isRestoringTab === "function" &&
+              (isRestoringTab(t) || isRestoringTab(findTabByTreeId(pid)))
+            ) {
+              continue;
+            }
+          } catch (e) {}
           let bad = false;
           try {
             if (t.pinned) {
@@ -1791,7 +1810,16 @@
               } catch (e) {}
               try {
                 if (!bad && getWs(parent) !== getWs(t)) {
-                  bad = true;
+                  // Tagless ends have no workspace yet (getWs defaults to
+                  // "1") — never clear on that mirage; the SSTabRestored
+                  // pass re-heals once extData lands.
+                  let untagged = false;
+                  try {
+                    untagged = !rawWs(parent) || !rawWs(t);
+                  } catch (_e) {}
+                  if (!untagged) {
+                    bad = true;
+                  }
                 }
               } catch (e) {}
               // Trees live inside groups: edges spanning group states
