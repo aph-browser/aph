@@ -412,17 +412,28 @@ tab[pending]:not([selected]) .tab-label,
 }
 
 /* ==========================================================================
-   13. Selected tab presence: same hover token as §12 at a stronger mix,
-   so selected reads as "hover, committed". Exempt from the §12 hover
-   rule by its :not([selected]) guard, so the two never fight. Container
-   identity lines and pending dim keep working untouched; background-only,
-   both tab-strip orientations.
+   13. Selected tab presence: a solid pill on the desk, not a wash. The
+   old translucent mix sank into the desk (§19) and read as "hover,
+   committed" only against the previous shine-through. Mixing toward
+   --toolbar-bgcolor (not transparent) keeps the pill opaque and
+   theme-true on cream and dark desks alike; radius follows the Aph
+   scale and a hairline ring lifts it off the strip. Exempt from the
+   §12 hover rule by its :not([selected]) guard, so the two never
+   fight. Container identity lines and pending dim keep working
+   untouched; background-only, both tab-strip orientations.
    ========================================================================== */
 
-.tabbrowser-tab[selected] > .tab-stack > .tab-background {
+.tabbrowser-tab[selected] > .tab-stack > .tab-background,
+tab[selected] > .tab-stack > .tab-background {
   background-color: color-mix(
     in srgb,
-    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 70%,
+    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 55%,
+    var(--toolbar-bgcolor, #23252f)
+  ) !important;
+  border-radius: var(--aph-radius-md) !important;
+  box-shadow: 0 0 0 1px color-mix(
+    in srgb,
+    var(--toolbar-text-color, #ffffff) 12%,
     transparent
   ) !important;
 }
