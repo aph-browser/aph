@@ -430,7 +430,7 @@ tab[selected] > .tab-stack > .tab-background {
     var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 55%,
     var(--toolbar-bgcolor, #23252f)
   ) !important;
-  border-radius: var(--aph-radius-md) !important;
+  border-radius: var(--aph-radius-lg) !important;
   box-shadow: 0 0 0 1px color-mix(
     in srgb,
     var(--toolbar-text-color, #ffffff) 12%,
