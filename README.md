@@ -2,6 +2,8 @@
 
 Aph is a Firefox-based, workspaces-first web browser: it repackages upstream Firefox with native workspace management, a command palette, tab archiving, and hardened privacy defaults injected directly into the browser UI — no fork, no recompilation, just the stock binary with Aph overrides applied on every launch.
 
+Website: <https://aph-browser.github.io/> · [Releases](https://github.com/aph-browser/aph/releases)
+
 > **Beta:** Aph 0.x is unsigned and has no auto-update yet. Each release is
 > a manual re-download. Windows users will see a SmartScreen warning on
 > first launch — this is expected for unsigned software.

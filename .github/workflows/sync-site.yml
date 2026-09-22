@@ -1,0 +1,54 @@
+name: Sync site (aph-browser.github.io)
+
+# The website is authored here in docs/ and mirrored to the org site repo,
+# which GitHub Pages serves at https://aph-browser.github.io/. The site
+# repo holds no unique content — every push here overwrites it.
+#
+# One-time setup:
+#   1. Create an EMPTY repo named aph-browser/aph-browser.github.io
+#      (no README/license — it must start branchless).
+#   2. This repo → Settings → Secrets → Actions → SITE_DEPLOY_TOKEN:
+#      a PAT (classic, `repo` scope) that can push to the site repo.
+#   3. Site repo → Settings → Pages → Deploy from a branch → main, / (root).
+on:
+  push:
+    branches: ["main"]
+    paths: ["docs/**", ".github/workflows/sync-site.yml"]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    # Skipped until SITE_DEPLOY_TOKEN is set (one-time setup above) —
+    # keeps main green before the site repo exists.
+    if: ${{ secrets.SITE_DEPLOY_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Push docs/ to site repo
+        run: |
+          set -eu
+          rm -rf /tmp/site
+          git init -qb main /tmp/site
+          cd /tmp/site
+          git config user.name "aph-site-sync"
+          git config user.email "aph-site-sync@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${SITE_TOKEN}@github.com/aph-browser/aph-browser.github.io.git"
+          # Empty repo: nothing to fetch yet; otherwise resume its history
+          # so the mirror keeps a sane log.
+          if git fetch origin main 2>/dev/null; then
+            git reset --hard FETCH_HEAD
+          fi
+          rsync -a --delete --exclude='CNAME' "$GITHUB_WORKSPACE/docs/" /tmp/site/
+          git add -A
+          if git status --porcelain | grep -q .; then
+            git commit -m "Sync from aph-browser/aph@${GITHUB_SHA:0:7}"
+            # Force: the site repo is a pure generated mirror with this
+            # workflow as its only writer, so there is nothing to merge.
+            git push --force origin HEAD:main
+          else
+            echo "No site changes."
+          fi
+        env:
+          SITE_TOKEN: ${{ secrets.SITE_DEPLOY_TOKEN }}
