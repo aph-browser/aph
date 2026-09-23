@@ -99,6 +99,13 @@ ManifestVersion: {MANIFEST_VERSION}
 """
 
 
+def _yaml_quote(value: str) -> str:
+    # Plain YAML scalars break on ": " (parsed as a nested mapping) — the
+    # exact failure Manifest Validation reported on the locale file. Quote
+    # descriptions defensively so prose can contain colons.
+    return '"{}"'.format(value.replace("\\", "\\\\").replace('"', '\\"'))
+
+
 def render_locale(version: str) -> str:
     tags = "\n".join(f"- {t}" for t in TAGS)
     return f"""\
@@ -110,8 +117,8 @@ PublisherUrl: {RELEASES_URL}
 PackageName: {PACKAGE_NAME}
 License: {LICENSE}
 LicenseUrl: {LICENSE_URL}
-ShortDescription: {SHORT_DESCRIPTION}
-Description: {DESCRIPTION}
+ShortDescription: {_yaml_quote(SHORT_DESCRIPTION)}
+Description: {_yaml_quote(DESCRIPTION)}
 Tags:
 {tags}
 ReleaseNotesUrl: {RELEASES_URL}/tag/v{version}

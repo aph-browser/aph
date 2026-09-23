@@ -67,3 +67,16 @@ def test_write_manifests_layout(tmp_path: Path) -> None:
     assert (tmp_path / VERSION / names[0]).is_file()
     for path in written:
         assert "ManifestType:" in path.read_text(encoding="utf-8")
+
+
+def test_rendered_descriptions_survive_colons() -> None:
+    """Manifest Validation rejected the locale file: an unquoted ': ' in
+    Description parses as a nested YAML mapping. Descriptions must render
+    double-quoted so prose colons can never break YAML parsing again.
+    (No pyyaml in dev deps — assert the quoting contract directly.)
+    """
+    locale = render_locale(VERSION)
+    for key in ("ShortDescription", "Description"):
+        line = next(ln for ln in locale.splitlines() if ln.startswith(f"{key}:"))
+        value = line.split(":", 1)[1].strip()
+        assert value.startswith('"') and value.endswith('"'), line
