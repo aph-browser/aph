@@ -92,8 +92,10 @@ test:
 # by design (last-line-wins merge, see scripts/update_prefs.py).
 repomix:
     # NOTE: repomix takes ONE --ignore (repeats overwrite); keep this a single
-    # comma-separated list matching the groups documented above.
-    bunx repomix --ignore "branding/workspaces.js,branding/command-palette.js,uv.lock,*.png,*.svg,*.ico,docs/**,tests/**,tests_py/**,packaging/winget/**,packaging/Output/**"
+    # comma-separated list matching the groups documented above. Asset globs
+    # need **/ (bare *.svg only matches repo root — repomixignore quirk that
+    # once leaked the 134KB aph.svg into the pack).
+    bunx repomix --ignore "branding/workspaces.js,branding/command-palette.js,uv.lock,**/*.png,**/*.svg,**/*.ico,docs/**,tests/**,tests_py/**,packaging/winget/**,packaging/Output/**"
 
 # Show profile and build status
 status:
