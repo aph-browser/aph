@@ -13,6 +13,8 @@ import pytest
 
 from scripts.aph_rebrand import BrandPatcher, load_payloads
 from scripts.aph_rebrand.injectors.toolbar import (
+    _ANCHOR,
+    _REPLACEMENT,
     CUSTOMIZABLE_UI_PATH,
     ToolbarDefaultsInjector,
 )
@@ -22,17 +24,7 @@ MODULE_WITH_ANCHOR = (
     b'  "back-button",\n'
     b'  "forward-button",\n'
     b'  "stop-reload-button",\n'
-    b"];\n"
-    b"verticalTabsDefaultPlacements: [\n"
-    b'          "alltabs-button",\n'
-    b'          "smartwindow-group-tabs-button",\n'
-    b'          "ai-window-toggle",\n'
-    b"        ],\n"
-)
-
-PATCHED_FRAGMENT = (
-    b'verticalTabsDefaultPlacements: ["alltabs-button",\n'
-    b'      "smartwindow-group-tabs-button", ...navbarPlacements],'
+    b"];\n" + _ANCHOR
 )
 
 
@@ -64,7 +56,7 @@ def test_toolbar_anchor_rewritten_once(toolbar_ja) -> None:
     BrandPatcher(toolbar_ja, load_payloads({})).patch()
     with zipfile.ZipFile(toolbar_ja) as z:
         data = z.read(CUSTOMIZABLE_UI_PATH)
-    assert data.count(PATCHED_FRAGMENT) == 1
+    assert data.count(_REPLACEMENT) == 1
     assert b'"ai-window-toggle"],' not in data
     # Stock placements survive verbatim behind the spread.
     assert b'"back-button"' in data

@@ -18,11 +18,11 @@ from ..constants import (
     THEME_LINK_TAG,
     WORKSPACES_SCRIPT_TAG,
 )
-from .base import Injector, PatchCounts
+from .base import PatchCounts
 
-# Canonical injection order (matches legacy _inject_workspaces_script).
-# Note PALETTE_LINK and PALETTE_SCRIPT straddle WORKSPACES_SCRIPT — the
-# order is load-bearing for byte-identical browser.xhtml output.
+# Canonical injection order. Note PALETTE_LINK and PALETTE_SCRIPT straddle
+# WORKSPACES_SCRIPT — the order is load-bearing for byte-identical
+# browser.xhtml output.
 CANONICAL_TAG_ORDER = (
     THEME_LINK_TAG,
     PALETTE_LINK_TAG,
@@ -37,12 +37,6 @@ CANONICAL_TAG_ORDER = (
 
 class XhtmlInjector:
     name = "xhtml"
-
-    def __init__(self, feature_injectors: list[Injector]) -> None:
-        self._features = feature_injectors
-
-    def xhtml_tags(self) -> list[str]:
-        return []
 
     def all_tags(self) -> list[str]:
         # Fixed canonical order — do NOT concatenate feature tags here:

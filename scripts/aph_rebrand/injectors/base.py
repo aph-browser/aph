@@ -61,10 +61,6 @@ class Injector(Protocol):
 
     name: str
 
-    def xhtml_tags(self) -> list[str]:
-        """Script/link tags this injector needs in browser.xhtml."""
-        return []
-
     def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
         """Rewrite an already-shipped entry in place. Returns (possibly new) data."""
         return data

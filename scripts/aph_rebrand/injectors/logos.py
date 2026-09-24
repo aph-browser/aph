@@ -11,9 +11,6 @@ class LogoInjector:
     def __init__(self, logos: dict[str, bytes]) -> None:
         self._logos = logos
 
-    def xhtml_tags(self) -> list[str]:
-        return []
-
     def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
         if filename in self._logos:
             counts.logos += 1

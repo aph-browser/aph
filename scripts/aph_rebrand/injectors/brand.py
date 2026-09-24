@@ -19,9 +19,6 @@ class BrandStringsInjector:
         self._brandings_ftl_data = brandings_ftl_data
         self._sync_ftl_data = sync_ftl_data
 
-    def xhtml_tags(self) -> list[str]:
-        return []
-
     def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
         # Surgical replacements — sync-brand before brand (suffix overlap).
         fname = filename.lower()

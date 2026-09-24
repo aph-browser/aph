@@ -13,24 +13,16 @@ from ..constants import (
     ARCHIVE_HTML_JA_PATH,
     ARCHIVE_JA_PATH,
     ARCHIVE_PAGE_JA_PATH,
-    ARCHIVE_SCRIPT_TAG,
     ARCHIVE_SHARED_JA_PATH,
-    ARCHIVE_SHARED_SCRIPT_TAG,
     PALETTE_CSS_JA_PATH,
     PALETTE_JA_PATH,
-    PALETTE_LINK_TAG,
-    PALETTE_SCRIPT_TAG,
     TABRENAME_JA_PATH,
-    TABRENAME_SCRIPT_TAG,
     TEXTPICK_CHILD_JA_PATH,
     TEXTPICK_JA_PATH,
     TEXTPICK_PARENT_JA_PATH,
-    TEXTPICK_SCRIPT_TAG,
     TEXTPICK_SHARED_JA_PATH,
     THEME_JA_PATH,
-    THEME_LINK_TAG,
     WORKSPACES_JA_PATH,
-    WORKSPACES_SCRIPT_TAG,
 )
 from .base import PatchCounts
 
@@ -40,12 +32,6 @@ class WorkspacesInjector:
 
     def __init__(self, js: bytes | None) -> None:
         self._js = js
-
-    def xhtml_tags(self) -> list[str]:
-        # Tags are unconditional (matches legacy _inject_workspaces_script):
-        # a missing payload still gets its tag, the missing file warns at
-        # load time. Payload presence only gates new_entries below.
-        return [WORKSPACES_SCRIPT_TAG]
 
     def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
         return data
@@ -63,9 +49,6 @@ class ThemeInjector:
     def __init__(self, css: bytes | None) -> None:
         self._css = css
 
-    def xhtml_tags(self) -> list[str]:
-        return [THEME_LINK_TAG]
-
     def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
         return data
 
@@ -82,9 +65,6 @@ class PaletteInjector:
     def __init__(self, js: bytes | None, css: bytes | None) -> None:
         self._js = js
         self._css = css
-
-    def xhtml_tags(self) -> list[str]:
-        return [PALETTE_LINK_TAG, PALETTE_SCRIPT_TAG]
 
     def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
         return data
@@ -113,9 +93,6 @@ class TextpickInjector:
         self._controller_js = controller_js
         # ja_path -> bytes for shared / child / parent (actor framework URIs).
         self._extra_files = extra_files
-
-    def xhtml_tags(self) -> list[str]:
-        return [TEXTPICK_SCRIPT_TAG]
 
     def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
         return data
@@ -152,9 +129,6 @@ class ArchiveInjector:
         self._shared_js = shared_js
         self._page_files = page_files
 
-    def xhtml_tags(self) -> list[str]:
-        return [ARCHIVE_SHARED_SCRIPT_TAG, ARCHIVE_SCRIPT_TAG]
-
     def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
         return data
 
@@ -183,9 +157,6 @@ class TabrenameInjector:
 
     def __init__(self, js: bytes | None) -> None:
         self._js = js
-
-    def xhtml_tags(self) -> list[str]:
-        return [TABRENAME_SCRIPT_TAG]
 
     def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
         return data

@@ -75,7 +75,7 @@ class BrandPatcher:
         ]
         self._replace_injectors: list[Injector] = [brand, logos, ToolbarDefaultsInjector()]
         self._feature_injectors: list[Injector] = features
-        self._xhtml = XhtmlInjector(features)
+        self._xhtml = XhtmlInjector()
         # Brand/string + logo + toolbar-defaults replacements run for every
         # entry; xhtml injection only touches browser.xhtml (handled inline
         # in patch()).

@@ -67,6 +67,16 @@ def test_dock_stacks_vertically() -> None:
     assert "vertical" in body and "column" in body
 
 
+def test_collapsed_launcher_has_width_floor() -> None:
+    """The collapsed strip once measured 0px wide (invisible, unhoverable,
+    toggle-back dead) with every child reporting visible. A min-width floor
+    on the collapsed launcher props it up; normal widths pass through."""
+    css = _css()
+    m = re.search(r"sidebar-main:not\(\[expanded\]\)\s*\{([^}]*)\}", css)
+    assert m, "missing collapsed launcher floor rule"
+    assert "min-width" in m.group(1), "floor must pin min-width"
+
+
 def test_tree_rails_present() -> None:
     """Indented tabs draw Tree Style Tab guides via injected rail elements:
     one inner rail (L1), inner + outer ancestor rail (L2). Real elements,
@@ -298,3 +308,22 @@ def test_no_dead_urlbar_shadow_selectors() -> None:
         assert dead not in code, f"dead urlbar selector still present: {dead}"
     for live in (".urlbar-background", ".urlbar-input-container"):
         assert live in code, f"expected class selector missing: {live}"
+
+
+def test_rounded_menus_present() -> None:
+    """Rounded popups (§20): menupopup corners plus the panel variables
+    so stock context menus, the dock's own menus, and arrow panels agree.
+    Inner first/last-row radii keep hover backgrounds inside the corners;
+    overflow clipping is banned (long menus keep their scrollbox)."""
+    css = _css()
+    for sel in (
+        "menupopup {",
+        "--panel-border-radius",
+        "--arrowpanel-border-radius",
+        "menupopup > menuitem:first-child",
+        "menupopup > menuitem:last-child",
+    ):
+        assert sel in css, f"missing rounded-menu selector: {sel}"
+    body = css[css.find("menupopup {") :]
+    body = body[: body.find("}") + 1]
+    assert "overflow" not in body

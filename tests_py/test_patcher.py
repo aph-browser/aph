@@ -1,6 +1,5 @@
 """End-to-end patcher tests on a synthetic omni.ja."""
 
-import warnings
 import zipfile
 
 import pytest
@@ -93,29 +92,3 @@ def test_toolkit_omni_without_xhtml_gets_no_features(tmp_path) -> None:
     assert counts.brand == 1
     assert counts.wsjs == 0
     assert counts.xhtml == 0
-
-
-def test_legacy_wrapper_still_returns_16_tuple(synthetic_ja) -> None:
-    from scripts.rebrand import _patch_single_ja
-
-    payloads = load_payloads({})
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        result = _patch_single_ja(
-            synthetic_ja,
-            payloads.brand_ftl_data,
-            payloads.brandings_ftl_data,
-            payloads.sync_ftl_data,
-            payloads.logos,
-            payloads.workspaces_js,
-            payloads.theme_css,
-            payloads.palette_js,
-            payloads.palette_css,
-            payloads.textpick_js,
-            payloads.textpick_files,
-            payloads.archive_js,
-            payloads.archive_shared_js,
-            payloads.archive_page_files,
-            payloads.tabrename_js,
-        )
-    assert len(result) == 16

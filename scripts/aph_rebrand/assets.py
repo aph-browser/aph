@@ -63,6 +63,16 @@ def _read(src, label: str) -> bytes | None:
     return None
 
 
+def _load_map(pairs: list[tuple], label: str) -> dict[str, bytes]:
+    """Read (src, ja_path) pairs into a ja_path -> bytes map, skipping misses."""
+    files: dict[str, bytes] = {}
+    for src, ja_path in pairs:
+        data = _read(src, label)
+        if data is not None:
+            files[ja_path] = data
+    return files
+
+
 def load_ftl() -> tuple[bytes, bytes, bytes]:
     if not BRAND_FTL_SRC.is_file():
         raise FileNotFoundError(f"{BRAND_FTL_SRC} not found.")
@@ -135,30 +145,26 @@ def load_payloads(icon_buffers: dict[int, bytes]) -> PatchPayloads:
     payloads.palette_css = _read(PALETTE_CSS_SRC, "palette CSS injection")
     payloads.textpick_js = _read(TEXTPICK_JS_SRC, "picker injection")
 
-    textpick_files: dict[str, bytes] = {}
-    for src, ja_path in (
-        (TEXTPICK_SHARED_SRC, TEXTPICK_SHARED_JA_PATH),
-        (TEXTPICK_CHILD_SRC, TEXTPICK_CHILD_JA_PATH),
-        (TEXTPICK_PARENT_SRC, TEXTPICK_PARENT_JA_PATH),
-    ):
-        data = _read(src, "picker file")
-        if data is not None:
-            textpick_files[ja_path] = data
-    payloads.textpick_files = textpick_files
+    payloads.textpick_files = _load_map(
+        [
+            (TEXTPICK_SHARED_SRC, TEXTPICK_SHARED_JA_PATH),
+            (TEXTPICK_CHILD_SRC, TEXTPICK_CHILD_JA_PATH),
+            (TEXTPICK_PARENT_SRC, TEXTPICK_PARENT_JA_PATH),
+        ],
+        "picker file",
+    )
 
     payloads.archive_shared_js = _read(ARCHIVE_SHARED_SRC, "archive shared injection")
     payloads.archive_js = _read(ARCHIVE_JS_SRC, "archive injection")
 
-    archive_page_files: dict[str, bytes] = {}
-    for src, ja_path in (
-        (ARCHIVE_HTML_SRC, ARCHIVE_HTML_JA_PATH),
-        (ARCHIVE_CSS_SRC, ARCHIVE_CSS_JA_PATH),
-        (ARCHIVE_PAGE_SRC, ARCHIVE_PAGE_JA_PATH),
-    ):
-        data = _read(src, "archive page file")
-        if data is not None:
-            archive_page_files[ja_path] = data
-    payloads.archive_page_files = archive_page_files
+    payloads.archive_page_files = _load_map(
+        [
+            (ARCHIVE_HTML_SRC, ARCHIVE_HTML_JA_PATH),
+            (ARCHIVE_CSS_SRC, ARCHIVE_CSS_JA_PATH),
+            (ARCHIVE_PAGE_SRC, ARCHIVE_PAGE_JA_PATH),
+        ],
+        "archive page file",
+    )
 
     payloads.tabrename_js = _read(TABRENAME_JS_SRC, "tab rename injection")
     return payloads

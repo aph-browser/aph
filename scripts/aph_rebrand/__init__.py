@@ -7,8 +7,6 @@ ZIP_STORED (no compression) for memory-mapping.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from .assets import PatchPayloads, load_payloads
 from .cache import clear_startup_cache
 from .constants import OMNI_JA
@@ -86,67 +84,3 @@ def rebrand() -> bool:
     print("Clearing profile startup and favicon cache...")
     clear_startup_cache()
     return True
-
-
-def _patch_single_ja(
-    ja_path: Path,
-    brand_ftl_data: bytes,
-    brandings_ftl_data: bytes,
-    sync_ftl_data: bytes,
-    logos: dict[str, bytes],
-    workspaces_js: bytes | None = None,
-    theme_css: bytes | None = None,
-    palette_js: bytes | None = None,
-    palette_css: bytes | None = None,
-    textpick_js: bytes | None = None,
-    textpick: dict[str, bytes] | None = None,
-    archive_js: bytes | None = None,
-    archive_shared_js: bytes | None = None,
-    archive_page: dict[str, bytes] | None = None,
-    tabrename_js: bytes | None = None,
-) -> tuple[int, ...]:
-    """Deprecated compatibility wrapper: prefer :class:`BrandPatcher`.
-
-    Kept so external imports of ``scripts.rebrand._patch_single_ja`` keep
-    working; delegates to the injector pipeline and returns the legacy
-    16-tuple in historical field order.
-    """
-    import warnings
-
-    warnings.warn(
-        "_patch_single_ja is deprecated; use BrandPatcher instead",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    payloads = PatchPayloads(
-        brand_ftl_data=brand_ftl_data,
-        brandings_ftl_data=brandings_ftl_data,
-        sync_ftl_data=sync_ftl_data,
-        logos=logos,
-        workspaces_js=workspaces_js,
-        theme_css=theme_css,
-        palette_js=palette_js,
-        palette_css=palette_css,
-        textpick_js=textpick_js,
-        textpick_files=textpick or {},
-        archive_js=archive_js,
-        archive_shared_js=archive_shared_js,
-        archive_page_files=archive_page or {},
-        tabrename_js=tabrename_js,
-    )
-    return BrandPatcher(ja_path, payloads).patch().as_tuple()
-
-
-def _inject_workspaces_script(xhtml_bytes: bytes) -> bytes:
-    """Deprecated compatibility wrapper: prefer ``XhtmlInjector``."""
-    import warnings
-
-    from .injectors.xhtml import XhtmlInjector
-
-    warnings.warn(
-        "_inject_workspaces_script is deprecated; use XhtmlInjector instead",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    data, _ = XhtmlInjector([]).inject(xhtml_bytes)
-    return data

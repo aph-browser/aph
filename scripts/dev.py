@@ -125,20 +125,24 @@ def profile_locked(profile: Path) -> bool:
         return False
 
 
+def _seed_file(src: Path, dst: Path) -> str:
+    """Copy src -> dst once; never overwrite user edits."""
+    if not src.is_file():
+        return "missing-source"
+    if dst.exists():
+        return "kept"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    return "seeded"
+
+
 def seed_user_js(root: Path, profile: Path) -> str:
     """Seed config/user.js into the profile once; never overwrite user edits.
 
     Returns "seeded" (fresh copy), "kept" (profile already had one — user
     changes preserved), or "missing-source" (nothing to seed from).
     """
-    src = root / "config" / "user.js"
-    dst = profile / "user.js"
-    if not src.is_file():
-        return "missing-source"
-    if dst.exists():
-        return "kept"
-    shutil.copy2(src, dst)
-    return "seeded"
+    return _seed_file(root / "config" / "user.js", profile / "user.js")
 
 
 def seed_chrome_css(root: Path, profile: Path) -> str:
@@ -147,15 +151,28 @@ def seed_chrome_css(root: Path, profile: Path) -> str:
     Same seed-once contract as seed_user_js: never overwrite user edits.
     Returns "seeded", "kept", or "missing-source".
     """
-    src = root / "branding" / "userChrome.css"
-    dst = profile / "chrome" / "userChrome.css"
+    return _seed_file(root / "branding" / "userChrome.css", profile / "chrome" / "userChrome.css")
+
+
+def _sync_file(
+    src: Path, dst: Path, profile: Path, backup_name: str, missing_hint: str = ""
+) -> None:
+    """Force re-apply src over dst (explicit opt-in).
+
+    Backs up dst to backup_name first, refuses while Firefox holds the
+    profile lock. All user-facing messages match the historical wording.
+    """
     if not src.is_file():
-        return "missing-source"
-    if dst.exists():
-        return "kept"
+        print(f"ERROR: {src} not found.{missing_hint}", file=sys.stderr)
+        sys.exit(1)
+    if profile_locked(profile):
+        print(f"ERROR: Firefox is running on {profile} - quit it first.", file=sys.stderr)
+        sys.exit(1)
     dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        shutil.copy2(dst, dst.parent / backup_name)
     shutil.copy2(src, dst)
-    return "seeded"
+    print(f"Synced {src} -> {dst} (previous saved as {backup_name})")
 
 
 def sync_user_js(root: Path, profile: Path) -> None:
@@ -165,19 +182,13 @@ def sync_user_js(root: Path, profile: Path) -> None:
     Firefox holds the profile lock. Next launch, Firefox applies the synced
     file over prefs.js — user edits to listed prefs are overwritten.
     """
-    src = root / "config" / "user.js"
-    dst = profile / "user.js"
-    if not src.is_file():
-        print(f"ERROR: {src} not found. Run: just update-prefs", file=sys.stderr)
-        sys.exit(1)
-    if profile_locked(profile):
-        print(f"ERROR: Firefox is running on {profile} - quit it first.", file=sys.stderr)
-        sys.exit(1)
-    profile.mkdir(parents=True, exist_ok=True)
-    if dst.exists():
-        shutil.copy2(dst, profile / "user.js.bak")
-    shutil.copy2(src, dst)
-    print(f"Synced {src} -> {dst} (previous saved as user.js.bak)")
+    _sync_file(
+        root / "config" / "user.js",
+        profile / "user.js",
+        profile,
+        "user.js.bak",
+        " Run: just update-prefs",
+    )
 
 
 def sync_chrome_css(root: Path, profile: Path) -> None:
@@ -186,19 +197,12 @@ def sync_chrome_css(root: Path, profile: Path) -> None:
     Same contract as sync_user_js: backs up to userChrome.css.bak first,
     refuses while Firefox holds the profile lock.
     """
-    src = root / "branding" / "userChrome.css"
-    dst = profile / "chrome" / "userChrome.css"
-    if not src.is_file():
-        print(f"ERROR: {src} not found.", file=sys.stderr)
-        sys.exit(1)
-    if profile_locked(profile):
-        print(f"ERROR: Firefox is running on {profile} - quit it first.", file=sys.stderr)
-        sys.exit(1)
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if dst.exists():
-        shutil.copy2(dst, profile / "chrome" / "userChrome.css.bak")
-    shutil.copy2(src, dst)
-    print(f"Synced {src} -> {dst} (previous saved as userChrome.css.bak)")
+    _sync_file(
+        root / "branding" / "userChrome.css",
+        profile / "chrome" / "userChrome.css",
+        profile,
+        "userChrome.css.bak",
+    )
 
 
 DAILY_FLAGS = ("--daily", "--local")

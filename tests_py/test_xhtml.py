@@ -10,7 +10,7 @@ def _doc(body: str = "") -> bytes:
 
 
 def test_injects_all_tags_after_anchor() -> None:
-    data, changed = XhtmlInjector([]).inject(_doc())
+    data, changed = XhtmlInjector().inject(_doc())
     assert changed
     text = data.decode()
     anchor_at = text.index(ANCHOR) + len(ANCHOR)
@@ -23,21 +23,21 @@ def test_injects_all_tags_after_anchor() -> None:
 
 
 def test_injection_is_idempotent() -> None:
-    once, _ = XhtmlInjector([]).inject(_doc())
-    twice, changed = XhtmlInjector([]).inject(once)
+    once, _ = XhtmlInjector().inject(_doc())
+    twice, changed = XhtmlInjector().inject(once)
     assert not changed
     assert twice == once
 
 
 def test_falls_back_to_head_close_without_anchor() -> None:
-    data, changed = XhtmlInjector([]).inject(b"<html><head></head><body></body></html>")
+    data, changed = XhtmlInjector().inject(b"<html><head></head><body></body></html>")
     assert changed
     assert b"workspaces.js" in data
 
 
 def test_non_utf8_passthrough() -> None:
     raw = b"\xff\xfe\x00invalid"
-    data, changed = XhtmlInjector([]).inject(raw)
+    data, changed = XhtmlInjector().inject(raw)
     assert not changed
     assert data == raw
 
