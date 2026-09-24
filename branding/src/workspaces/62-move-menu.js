@@ -322,10 +322,7 @@
       try {
         const family = moveMenuFamilySize(targets);
         if (family > n) {
-          const treeLabel =
-            n > 1
-              ? `Move Tree (${family} Tabs) to Workspace`
-              : `Move Tree (${family} Tabs) to Workspace`;
+          const treeLabel = `Move Tree (${family} Tabs) to Workspace`;
           appendMoveSubmenu(menu, "aph-move-tree", treeLabel, targets.slice(), (id, ts) => {
             try {
               if (typeof sendTreeTo === "function") {

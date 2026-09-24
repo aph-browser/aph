@@ -5,21 +5,7 @@
 // - tree visibility never fights a collapsed native group.
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { run, makeTab } = require("./helpers");
-
-function makeGroup(tabs, o) {
-  const g = {
-    tabs: tabs.slice(),
-    collapsed: !!(o && o.collapsed),
-    hidden: false,
-  };
-  for (const t of tabs) {
-    t.group = g;
-  }
-  // Minimal tab-group element surface: onGroupChange uses closest().
-  g.closest = (sel) => (sel === "tab-group" ? g : null);
-  return g;
-}
+const { run, makeTab, makeGroup, makeSessionStore, makeCi, makeChromeUtils, nullIdentityService } = require("./helpers");
 
 function makeEnv() {
   const tabVals = new WeakMap();
@@ -96,21 +82,7 @@ function makeEnv() {
         _updateCloseButtons() {},
       },
     },
-    SessionStore: {
-      getCustomTabValue: (t, k) => (tabVals.get(t) || {})[k],
-      setCustomTabValue: (t, k, v) => {
-        const o = tabVals.get(t) || {};
-        o[k] = v;
-        tabVals.set(t, o);
-      },
-      deleteCustomTabValue: (t, k) => {
-        const o = tabVals.get(t) || {};
-        delete o[k];
-        tabVals.set(t, o);
-      },
-      getCustomWindowValue: () => undefined,
-      setCustomWindowValue: () => {},
-    },
+    SessionStore: makeSessionStore(tabVals),
     Services: {
       prefs: {
         getStringPref: (k, d) => (k in prefStore ? prefStore[k] : d),
@@ -126,21 +98,8 @@ function makeEnv() {
       },
       obs: { addObserver() {}, removeObserver() {} },
     },
-    ChromeUtils: {
-      generateQI: () => () => {},
-      importESModule: () => ({
-        ContextualIdentityService: {
-          getPublicIdentityFromId: () => null,
-          getPublicIdentities: () => [],
-          create: () => { throw new Error("unused"); },
-          remove: () => {},
-        },
-      }),
-    },
-    Ci: {
-      nsIWebProgressListener: { LOCATION_CHANGE_SAME_DOCUMENT: 2 },
-      nsIWebProgress: { NOTIFY_LOCATION: 1 },
-    },
+    ChromeUtils: makeChromeUtils(nullIdentityService),
+    Ci: makeCi(),
   };
   // Seed like tree.test.js so init's forced switchTo doesn't birth a "new"
   // tab into the empty strip (reconcile never strands a tabless window).

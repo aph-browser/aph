@@ -3,57 +3,9 @@
 // current workspace rejects, and native tab payloads fall back to selection.
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { run, makeTab } = require("./helpers");
+const { run, makeTab, makeFakeNode: fakeNode, makeSessionStore, makeCi, makeChromeUtils } = require("./helpers");
 
 const TAB_TYPE = "application/x-moz-tabbrowser-tab";
-
-function fakeNode(localName) {
-  const n = {
-    localName: localName || "div",
-    children: [],
-    _attrs: {},
-    style: {},
-    hidden: false,
-    textContent: "",
-    title: "",
-    className: "",
-    id: "",
-    parentNode: null,
-    _handlers: {},
-    _classes: new Set(),
-    appendChild(c) {
-      c.parentNode = n;
-      n.children.push(c);
-      return c;
-    },
-    removeChild(c) {
-      const i = n.children.indexOf(c);
-      if (i !== -1) n.children.splice(i, 1);
-      c.parentNode = null;
-      return c;
-    },
-    get firstChild() { return n.children[0] || null; },
-    setAttribute(k, v) { n._attrs[k] = String(v); },
-    getAttribute(k) { return k in n._attrs ? n._attrs[k] : null; },
-    removeAttribute(k) { delete n._attrs[k]; },
-    addEventListener(t, fn) { (n._handlers[t] = n._handlers[t] || []).push(fn); },
-    removeEventListener() {},
-    fire(t, ev) { for (const fn of n._handlers[t] || []) fn(ev || {}); },
-    querySelectorAll() { return []; },
-    querySelector() { return null; },
-    closest(sel) {
-      if (sel === ".aph-ws-pill" && n.className.split(" ").includes("aph-ws-pill")) return n;
-      if (sel === "tab" && n._isTab) return n;
-      return null;
-    },
-  };
-  n.classList = {
-    add(c) { n._classes.add(c); },
-    remove(c) { n._classes.delete(c); },
-    contains(c) { return n._classes.has(c); },
-  };
-  return n;
-}
 
 function makeEnv() {
   const tabVals = new WeakMap();
@@ -150,21 +102,7 @@ function makeEnv() {
         _updateCloseButtons() {},
       },
     },
-    SessionStore: {
-      getCustomTabValue: (t, k) => (tabVals.get(t) || {})[k],
-      setCustomTabValue: (t, k, v) => {
-        const o = tabVals.get(t) || {};
-        o[k] = v;
-        tabVals.set(t, o);
-      },
-      deleteCustomTabValue: (t, k) => {
-        const o = tabVals.get(t) || {};
-        delete o[k];
-        tabVals.set(t, o);
-      },
-      getCustomWindowValue: () => undefined,
-      setCustomWindowValue: () => {},
-    },
+    SessionStore: makeSessionStore(tabVals),
     Services: {
       prefs: {
         getStringPref: (k, d) => (k in prefStore ? prefStore[k] : d),
@@ -180,14 +118,8 @@ function makeEnv() {
       },
       obs: { addObserver() {}, removeObserver() {} },
     },
-    ChromeUtils: {
-      generateQI: () => () => {},
-      importESModule: () => ({ ContextualIdentityService: identities }),
-    },
-    Ci: {
-      nsIWebProgressListener: { LOCATION_CHANGE_SAME_DOCUMENT: 2 },
-      nsIWebProgress: { NOTIFY_LOCATION: 1 },
-    },
+    ChromeUtils: makeChromeUtils(identities),
+    Ci: makeCi(),
   };
   sb.window.window = sb.window;
   const seed = makeTab(tabVals, { label: "seedpin", ws: "1", spec: "https://seed.example/", pinned: true });

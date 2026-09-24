@@ -548,3 +548,81 @@ describe("archive search", () => {
     assert.ok(api.allItems("new tab").some((r) => r.title === "New Tab"));
   });
 });
+
+describe("sidebar footer toggle", () => {
+  function footerSandbox(prefHidden) {
+    const writes = [];
+    const sb2 = {
+      window: {
+        addEventListener() {},
+        AphWorkspaces: {
+          getCurrent: () => "1",
+          getWsName: () => "",
+          getWsContainer: () => 0,
+          describeContainer: () => null,
+          getRoutes: () => ({}),
+          setRoute: () => {},
+          deleteRoute: () => {},
+          getWs: () => "1",
+          switchTo: () => {},
+          sendTabTo: () => {},
+          openBoundTab: () => ({}),
+          openTempTab: () => ({}),
+        },
+      },
+      document: { readyState: "loading" },
+      gBrowser: {
+        tabs: [],
+        addTrustedTab: () => ({}),
+        get selectedTab() {
+          return { linkedBrowser: { currentURI: { spec: "about:newtab" } } };
+        },
+      },
+      SessionStore: {},
+      Services: {
+        prefs: {
+          getBoolPref: () => !!prefHidden,
+          setBoolPref: (k, v) => { writes.push([k, !!v]); },
+          setCharPref: (k, v) => { writes.push([k, String(v)]); },
+        },
+      },
+    };
+    run(
+      "command-palette.js",
+      sb2,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest = { allItems };"
+    );
+    return { api: sb2.window.__aphTest, writes };
+  }
+
+  it("hides by default (no Services means Show command)", () => {
+    const row = T.allItems("sidebar footer").find((r) => r.title.endsWith("Sidebar Footer (Off)"));
+    assert.ok(row, "footer toggle command exists");
+    assert.equal(row.title, "○ Sidebar Footer (Off)");
+    assert.equal(row.keepOpen, true);
+  });
+
+  it("titles follow the pref and running flips it", () => {
+    const shown = footerSandbox(false);
+    const hideRow = shown.api.allItems("sidebar footer").find((r) => r.title.endsWith("Sidebar Footer (On)"));
+    assert.equal(hideRow.title, "✓ Sidebar Footer (On)");
+    assert.doesNotThrow(() => hideRow.run());
+    assert.deepEqual(shown.writes, [["aph.sidebar.hideFooter", true]]);
+
+    const hidden = footerSandbox(true);
+    const showRow = hidden.api.allItems("sidebar footer").find((r) => r.title.endsWith("Sidebar Footer (Off)"));
+    assert.equal(showRow.title, "○ Sidebar Footer (Off)");
+    assert.doesNotThrow(() => showRow.run());
+    assert.deepEqual(hidden.writes, [["aph.sidebar.hideFooter", false]]);
+  });
+
+  it("offers blind sidebar recovery (exit hover mode)", () => {
+    const row = T.allItems("exit hover").find((r) => r.title === "Show Sidebar (Exit Hover Mode)");
+    assert.ok(row, "recovery command exists");
+    const w = footerSandbox(true);
+    const live = w.api.allItems("exit hover").find((r) => r.title === "Show Sidebar (Exit Hover Mode)");
+    assert.doesNotThrow(() => live.run());
+    assert.deepEqual(w.writes, [["sidebar.visibility", "always-show"]]);
+  });
+});

@@ -52,8 +52,10 @@
   gap: 0 !important;
 }
 
-/* 2. Kill invisible flexible spacers */
-#nav-bar toolbarspring,
+/* 2. Kill invisible fixed spacers (titlebar edges, vertical-strip gap).
+   Flexible spaces (toolbarspring) STAY: they flank the urlbar as
+   cushions and ride the generic §3 hide/show rules by DOM position
+   like everything else. */
 #nav-bar .titlebar-spacer,
 #nav-bar #vertical-spacer {
   display: none !important;
@@ -185,9 +187,10 @@
   flex: 1 1 auto !important;
   min-width: 0px !important;
   height: 30px !important;
-  /* At idle: 6% margin centers the bar with clean breathing room.
-     Delayed like the buttons so the whole bar doesn't snap back early. */
-  margin-inline: 6% !important;
+  /* At idle: 8% margin centers a slightly narrower bar with clean
+     breathing room. Delayed like the buttons so the whole bar doesn't
+     snap back early. */
+  margin-inline: 8% !important;
   transition: margin-inline var(--aph-pop-in) var(--aph-hide-delay) !important;
 }
 
@@ -202,7 +205,7 @@
 #nav-bar[data-aph-popup-open] #urlbar-container,
 #navigator-toolbox:has(#nav-bar #urlbar[open]) #urlbar-container,
 #nav-bar:has(#urlbar[open]) #urlbar-container {
-  margin-inline: 8px !important;
+  margin-inline: 12px !important;
   transition: margin-inline var(--aph-pop-in) 0s !important;
 }
 
@@ -284,6 +287,25 @@
   background: var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) !important;
   color: var(--toolbarbutton-color, white) !important;
   opacity: 1 !important;
+}
+
+/* Switch animation: incoming workspace tabs fade in over 150ms after the
+   synchronous hidden-attribute swap (see animateIncomingTabs in
+   60-indicator-switch.js). Opacity-only so the strip never reflows
+   mid-switch; the class is removed on a timer. */
+@keyframes aph-ws-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+tab.aph-ws-enter,
+.tabbrowser-tab.aph-ws-enter {
+  animation: aph-ws-enter 0.15s ease-out !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  tab.aph-ws-enter,
+  .tabbrowser-tab.aph-ws-enter {
+    animation: none !important;
+  }
 }
 
 /* ==========================================================================
@@ -540,8 +562,12 @@ tab[selected] > .tab-stack > .tab-background {
   align-items: center !important;
   justify-content: center !important;
   gap: 4px !important;
-  padding: 6px 4px 8px !important;
-  border-top: 1px solid var(--panel-border-color, rgba(255, 255, 255, 0.1)) !important;
+  /* No top border: the dock melts into the strip (pills + Aph key carry
+     the footer read on their own — the line rendered as a harsh split). */
+  border-top: none !important;
+  /* Tight bottom so the stock gear footer below sits close — one bottom
+     block (pills / Aph / gear) instead of two floating footers. */
+  padding: 6px 4px 4px !important;
 }
 
 #aph-ws-dock[hidden] {
@@ -567,6 +593,8 @@ tab[selected] > .tab-stack > .tab-background {
   opacity: 0.85 !important;
   user-select: none !important;
   cursor: pointer !important;
+  /* Anchor for the corner count badge (no offsets — layout untouched). */
+  position: relative !important;
 }
 
 .aph-ws-pill:hover {
@@ -610,10 +638,29 @@ tab[selected] > .tab-stack > .tab-background {
   opacity: 1 !important;
 }
 
+/* Tab count: tiny corner badge riding the pill's top inline-end corner
+   instead of inline text (which stretched every pill). Own fill + ring so
+   it reads over the strip; logical inset keeps LTR/RTL mirrored. */
 .aph-ws-count {
-  font-size: 10px !important;
-  font-weight: 400 !important;
-  opacity: 0.7 !important;
+  position: absolute !important;
+  top: -5px !important;
+  inset-inline-end: -5px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 14px !important;
+  height: 14px !important;
+  padding: 0 3px !important;
+  box-sizing: border-box !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  border-radius: 999px !important;
+  background: var(--toolbar-bgcolor, #23252f) !important;
+  color: var(--toolbar-text-color, #e8e8ec) !important;
+  border: 1px solid color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 30%, transparent) !important;
+  opacity: 1 !important;
+  pointer-events: none !important;
 }
 
 .aph-ws-add {
@@ -624,10 +671,40 @@ tab[selected] > .tab-stack > .tab-background {
   opacity: 1 !important;
 }
 
+/* Aph key: own centered row beneath the pills (flex-basis:100% forces
+   the wrap onto a fresh line; content stays centered). Separate class so
+   pill queries + drop logic ignore it; bolder glyph so it reads as a
+   logo rather than a workspace number. */
+.aph-dock-aph {
+  flex: 1 1 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 26px !important;
+  height: 26px !important;
+  margin-top: 2px !important;
+  padding: 0 6px !important;
+  box-sizing: border-box !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  border-radius: var(--aph-radius-md) !important;
+  background: color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 10%, transparent) !important;
+  color: var(--toolbar-text-color, #e8e8ec) !important;
+  opacity: 0.85 !important;
+  user-select: none !important;
+  cursor: pointer !important;
+}
+
+.aph-dock-aph:hover {
+  opacity: 1 !important;
+  background: var(--toolbarbutton-background-color-hover, rgba(255, 255, 255, 0.12)) !important;
+}
+
 /* Collapsed strip: dots only. Counts hide, pills compress to icon width. */
 sidebar-main:not([expanded]) #aph-ws-dock {
   gap: 3px !important;
-  padding: 4px 2px 6px !important;
+  padding: 4px 2px 4px !important;
 }
 
 sidebar-main:not([expanded]) .aph-ws-pill {
@@ -637,8 +714,23 @@ sidebar-main:not([expanded]) .aph-ws-pill {
   font-size: 11px !important;
 }
 
+sidebar-main:not([expanded]) .aph-dock-aph {
+  min-height: 22px !important;
+  height: 22px !important;
+  font-size: 11px !important;
+}
+
 sidebar-main:not([expanded]) .aph-ws-count {
   display: none !important;
+}
+
+/* Collapsed-launcher width floor: with the footer hidden and few/zero
+   intrinsic contributors the strip has measured 0px wide in the wild
+   (invisible, unhoverable, toggle-back dead) while every child reported
+   visible. min-width beats width, so this only ever props up a collapsed
+   measurement — normal collapsed widths pass through untouched. */
+sidebar-main:not([expanded]) {
+  min-width: 48px !important;
 }
 
 /* ==========================================================================
@@ -936,4 +1028,29 @@ tab[data-aph-starred="1"] .tab-close-button,
   margin: 0 !important;
   border-radius: 0 !important;
   box-shadow: none !important;
+}
+
+/* ==========================================================================
+   20. Rounded menus & panels: context menus (XUL menupopup — stock and the
+   dock's own) plus arrow panels share the XL radius token, so popups read
+   as cards matching the canvas frame (§19). No overflow clipping here —
+   long menus keep their internal scrollbox. First/last rows get matching
+   inner radii so hover backgrounds never poke out of the rounded corners.
+   ========================================================================== */
+:root {
+  --panel-border-radius: var(--aph-radius-xl) !important;
+  --arrowpanel-border-radius: var(--aph-radius-xl) !important;
+}
+menupopup {
+  border-radius: var(--aph-radius-xl) !important;
+}
+menupopup > menu:first-child,
+menupopup > menuitem:first-child {
+  border-top-left-radius: var(--aph-radius-md) !important;
+  border-top-right-radius: var(--aph-radius-md) !important;
+}
+menupopup > menu:last-child,
+menupopup > menuitem:last-child {
+  border-bottom-left-radius: var(--aph-radius-md) !important;
+  border-bottom-right-radius: var(--aph-radius-md) !important;
 }

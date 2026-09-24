@@ -222,6 +222,28 @@
   // Heal a membership change now: anchor, hide strays (never selected), sync.
   function unifyGroup(group) {
     anchorGroup(group);
+    // Incomplete restore data must never hide: tagless/restoring members
+    // have no workspace yet (getWs defaults "1") and an early hide sticks
+    // (nothing re-shows until tagged). Bail like anchorGroup does; the
+    // settle path re-runs unify once extData lands.
+    try {
+      for (const m of groupMembers(group).filter((t) => !t.pinned)) {
+        let tag = null;
+        try {
+          tag = rawWs(m);
+        } catch (e) {
+          tag = null;
+        }
+        if (!tag) {
+          return;
+        }
+        try {
+          if (typeof isRestoringTab === "function" && isRestoringTab(m)) {
+            return;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
     if (!isValidId(current)) {
       return;
     }
@@ -273,6 +295,19 @@
       if (t.closing) {
         continue;
       }
+      // Restoring/tagless tabs have no workspace yet (getWs defaults "1"):
+      // hiding now sticks (nothing re-shows until tagged), so leave them
+      // visible — the settle path (stamp/SSTabRestored) converges them.
+      // Tags are never deleted, so tagless always means not-yet-tagged.
+      let tagged = false;
+      try {
+        tagged = !!rawWs(t);
+      } catch (e) {
+        tagged = false;
+      }
+      if (!tagged) {
+        continue;
+      }
       try {
         if (t.pinned || getWs(t) === target) {
           aphShowTab(t);
@@ -322,7 +357,7 @@
     try {
       sel = gBrowser.selectedTab;
     } catch (e) {}
-    const selIsNew = !!(sel && sel !== undefined && isNewTab(sel) && getWs(sel) === target);
+    const selIsNew = !!(sel && isNewTab(sel) && getWs(sel) === target);
     let keep = selIsNew ? 0 : 1; // inactive spares allowed beyond selected
     let tabs = [];
     try {

@@ -742,6 +742,420 @@
     return pill;
   }
 
+  // Aph key: persistent mouse entry point in Aph's own dock row (owns
+  // its paint via theme.css — never fights Firefox's sidebar footer).
+  // Left-click / Enter opens the Aph menu (palette is its first row);
+  // right-click opens the dock menu for the current workspace. Distinct
+  // `aph-dock-aph` class (never `aph-ws-pill`) so workspace-pill queries
+  // and drop logic ignore it. Hidden during tab-drag mode so drop targets
+  // stay clean.
+  const APH_MENU_ID = "aph-aph-menu";
+
+  function aphDockOpenPalette() {
+    try {
+      if (window.AphPalette) {
+        if (typeof window.AphPalette.open === "function") {
+          window.AphPalette.open();
+          return;
+        }
+        if (typeof window.AphPalette.toggle === "function") {
+          window.AphPalette.toggle();
+          return;
+        }
+      }
+    } catch (e) {}
+  }
+
+  function aphMenuCurrent() {
+    try {
+      if (typeof current !== "undefined" && typeof isValidId === "function" && isValidId(current)) {
+        return current;
+      }
+    } catch (e) {}
+    return "1";
+  }
+
+  function aphMenu() {
+    try {
+      const m = document.getElementById(APH_MENU_ID);
+      return m || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Open-or-select a URL in the current workspace's bound container when
+  // possible; plain trusted tab otherwise. Fail-silent house style.
+  function aphOpenTab(url) {
+    try {
+      if (typeof openBoundTab === "function") {
+        openBoundTab(url);
+        return;
+      }
+    } catch (e) {}
+    try {
+      const t = gBrowser.addTrustedTab(url);
+      try {
+        gBrowser.selectedTab = t;
+      } catch (_e) {}
+    } catch (e) {}
+  }
+
+  function aphOpenArchive() {
+    try {
+      const a = window.AphArchive || null;
+      if (a && typeof a.openArchive === "function" && a.openArchive()) {
+        return;
+      }
+    } catch (e) {}
+    try {
+      aphOpenTab("chrome://browser/content/aph-archive.html");
+    } catch (e) {}
+  }
+
+  function aphArchiveCurrent() {
+    try {
+      const a = window.AphArchive || null;
+      if (a && typeof a.archiveCurrent === "function") {
+        a.archiveCurrent();
+        return;
+      }
+    } catch (e) {}
+  }
+
+  function aphShowCustomizeSidebar() {
+    try {
+      if (window.SidebarController && typeof window.SidebarController.show === "function") {
+        window.SidebarController.show("viewCustomizeSidebar");
+        return;
+      }
+    } catch (e) {}
+  }
+
+  function clearAphMenu(menu) {
+    try {
+      while (menu.firstChild) {
+        menu.removeChild(menu.firstChild);
+      }
+    } catch (e) {}
+  }
+
+  function onAphMenuShowing(e) {
+    try {
+      const menu = (e && (e.currentTarget || e.target)) || null;
+      if (!menu || typeof menu.appendChild !== "function") {
+        return;
+      }
+      // popupshowing BUBBLES: opening the nested Bind submenu re-fires this
+      // listener with e.target = the submenu. Only rebuild on our own popup.
+      try {
+        if (!e || e.target !== menu) {
+          return;
+        }
+      } catch (err) {
+        return;
+      }
+      clearAphMenu(menu);
+      const cur = aphMenuCurrent();
+      let curName = "";
+      try {
+        curName = typeof getWsName === "function" ? getWsName(cur) || "" : "";
+      } catch (err) {}
+      const head = curName ? `${cur}: ${curName}` : `Workspace ${cur}`;
+      const pal = makeDockMenuItem("aph-aph-palette", "Open Command Palette…", () => {
+        try {
+          aphDockOpenPalette();
+        } catch (err) {}
+      });
+      if (pal) {
+        try {
+          pal.setAttribute("shortcut", "Ctrl+K");
+        } catch (err) {}
+        try {
+          menu.appendChild(pal);
+        } catch (err) {}
+      }
+      try {
+        const sep =
+          typeof document.createXULElement === "function"
+            ? document.createXULElement("menuseparator")
+            : document.createElement("menuseparator");
+        menu.appendChild(sep);
+      } catch (err) {}
+      const rename = makeDockMenuItem("aph-aph-rename", `Rename ${head}…`, () => {
+        try {
+          if (typeof promptDockRename === "function") {
+            promptDockRename(cur);
+          }
+        } catch (err) {}
+      });
+      if (rename) {
+        try {
+          menu.appendChild(rename);
+        } catch (err) {}
+      }
+      try {
+        if (typeof isPrivateWindow === "function" ? !isPrivateWindow() : true) {
+          const bindMenu =
+            typeof document.createXULElement === "function"
+              ? document.createXULElement("menu")
+              : document.createElement("menu");
+          bindMenu.setAttribute("label", `Bind ${head} to Container…`);
+          const sub =
+            typeof document.createXULElement === "function"
+              ? document.createXULElement("menupopup")
+              : document.createElement("menupopup");
+          let bound = 0;
+          try {
+            bound = typeof getWsContainerId === "function" ? getWsContainerId(cur) : 0;
+          } catch (err) {}
+          const none = makeDockMenuItem("aph-aph-bind-none", "None (unbound)", () => {
+            try {
+              if (typeof setWsBinding === "function") {
+                setWsBinding(cur, 0);
+              }
+              if (typeof renderDock === "function") {
+                renderDock();
+              }
+            } catch (err) {}
+          });
+          if (none) {
+            if (!bound) {
+              try {
+                none.setAttribute("checked", "true");
+              } catch (err) {}
+            }
+            sub.appendChild(none);
+          }
+          try {
+            const list = typeof listContainers === "function" ? listContainers() : [];
+            for (const c of list || []) {
+              const item = makeDockMenuItem(
+                `aph-aph-bind-${c.userContextId}`,
+                c.name || `Container ${c.userContextId}`,
+                () => {
+                  try {
+                    if (typeof setWsBinding === "function") {
+                      setWsBinding(cur, c.userContextId);
+                    }
+                    if (typeof renderDock === "function") {
+                      renderDock();
+                    }
+                  } catch (err) {}
+                }
+              );
+              if (item && bound === c.userContextId) {
+                try {
+                  item.setAttribute("checked", "true");
+                } catch (err) {}
+              }
+              if (item) {
+                sub.appendChild(item);
+              }
+            }
+          } catch (err) {}
+          bindMenu.appendChild(sub);
+          menu.appendChild(bindMenu);
+        }
+      } catch (err) {}
+      let archTitle = "Archive Current Tab";
+      try {
+        if (typeof archiveCmdTitle === "function") {
+          archTitle = archiveCmdTitle();
+        }
+      } catch (err) {}
+      const arch = makeDockMenuItem("aph-aph-archive", archTitle, () => {
+        try {
+          aphArchiveCurrent();
+        } catch (err) {}
+      });
+      if (arch) {
+        try {
+          menu.appendChild(arch);
+        } catch (err) {}
+      }
+      const openArch = makeDockMenuItem("aph-aph-open-archive", "Open Archive", () => {
+        try {
+          aphOpenArchive();
+        } catch (err) {}
+      });
+      if (openArch) {
+        try {
+          menu.appendChild(openArch);
+        } catch (err) {}
+      }
+      try {
+        const sep =
+          typeof document.createXULElement === "function"
+            ? document.createXULElement("menuseparator")
+            : document.createElement("menuseparator");
+        menu.appendChild(sep);
+      } catch (err) {}
+      const cust = makeDockMenuItem("aph-aph-customize", "Customize Sidebar…", () => {
+        try {
+          aphShowCustomizeSidebar();
+        } catch (err) {}
+      });
+      if (cust) {
+        try {
+          menu.appendChild(cust);
+        } catch (err) {}
+      }
+      const prefs = makeDockMenuItem("aph-aph-settings", "Aph Settings…", () => {
+        try {
+          aphOpenTab("about:config?filter=aph");
+        } catch (err) {}
+      });
+      if (prefs) {
+        try {
+          menu.appendChild(prefs);
+        } catch (err) {}
+      }
+      const about = makeDockMenuItem("aph-aph-about", "About Aph", () => {
+        try {
+          aphOpenTab("https://aph-browser.github.io/");
+        } catch (err) {}
+      });
+      if (about) {
+        try {
+          menu.appendChild(about);
+        } catch (err) {}
+      }
+    } catch (e) {}
+  }
+
+  function ensureAphMenu() {
+    try {
+      let menu = aphMenu();
+      if (menu) {
+        return menu;
+      }
+      const set =
+        typeof document.getElementById === "function"
+          ? document.getElementById("mainPopupSet")
+          : null;
+      if (!set || typeof set.appendChild !== "function") {
+        return null;
+      }
+      menu =
+        typeof document.createXULElement === "function"
+          ? document.createXULElement("menupopup")
+          : document.createElement("menupopup");
+      menu.id = APH_MENU_ID;
+      if (typeof menu.addEventListener === "function") {
+        menu.addEventListener("popupshowing", onAphMenuShowing);
+      }
+      set.appendChild(menu);
+      return menu;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function openAphMenu(btn, e) {
+    try {
+      const menu = ensureAphMenu();
+      if (!menu) {
+        aphDockOpenPalette();
+        return;
+      }
+      try {
+        if (typeof menu.openPopupAtScreen === "function" && e && e.screenX != null) {
+          menu.openPopupAtScreen(e.screenX, e.screenY, true);
+          return;
+        }
+      } catch (_e) {}
+      try {
+        if (typeof menu.openPopup === "function") {
+          if (btn) {
+            menu.openPopup(btn, "after_end", 0, 0, true, false, e);
+          } else {
+            menu.openPopup(null, "", 0, 0, true, false, e);
+          }
+          return;
+        }
+      } catch (_e) {}
+    } catch (e) {}
+    try {
+      aphDockOpenPalette();
+    } catch (_e) {}
+  }
+
+  function makeDockAph() {
+    let btn = null;
+    try {
+      btn = document.createElement("div");
+      btn.className = "aph-dock-aph";
+      btn.setAttribute("role", "button");
+      btn.setAttribute("tabindex", "0");
+      btn.textContent = "Aph";
+      btn.title = "Aph — menu · click for Aph actions · right-click for workspace actions";
+      try {
+        btn.addEventListener("click", (e) => {
+          try {
+            if (typeof e.stopPropagation === "function") {
+              e.stopPropagation();
+            }
+          } catch (_e) {}
+          try {
+            if (typeof e.preventDefault === "function") {
+              e.preventDefault();
+            }
+          } catch (_e) {}
+          openAphMenu(btn, e);
+        });
+      } catch (e) {}
+      try {
+        btn.addEventListener("keydown", (e) => {
+          try {
+            if (e && (e.key === "Enter" || e.key === " ")) {
+              if (typeof e.preventDefault === "function") {
+                e.preventDefault();
+              }
+              openAphMenu(btn, null);
+            }
+          } catch (_e) {}
+        });
+      } catch (e) {}
+      try {
+        btn.addEventListener("contextmenu", (e) => {
+          try {
+            if (typeof e.preventDefault === "function") {
+              e.preventDefault();
+            }
+            if (typeof e.stopPropagation === "function") {
+              e.stopPropagation();
+            }
+          } catch (_e) {}
+          try {
+            const menu = typeof ensureDockMenu === "function" ? ensureDockMenu() : null;
+            const id =
+              typeof current !== "undefined" && typeof isValidId === "function" && isValidId(current)
+                ? current
+                : "1";
+            if (menu) {
+              try {
+                menu.setAttribute("data-ws", id);
+              } catch (_e) {}
+              if (typeof menu.openPopupAtScreen === "function" && e) {
+                menu.openPopupAtScreen(e.screenX, e.screenY, true);
+                return;
+              }
+              if (typeof menu.openPopup === "function") {
+                menu.openPopup(btn, "after_start", 0, 0, true, false, e);
+                return;
+              }
+            }
+          } catch (_e) {}
+          aphDockOpenPalette();
+        });
+      } catch (e) {}
+    } catch (e) {
+      btn = null;
+    }
+    return btn;
+  }
+
   function renderDock() {
     try {
       const anchor = dockAnchor();
@@ -843,6 +1257,16 @@
         const plus = makeDockPlus(lowestInactiveId(getActiveIds()));
         if (plus) {
           dock.appendChild(plus);
+        }
+      } catch (e) {}
+      // Aph key last (far end of the row). Skipped in drag mode — pills +
+      // plus are the only drop UI in play there.
+      try {
+        if (!dockDragActive) {
+          const aph = makeDockAph();
+          if (aph) {
+            dock.appendChild(aph);
+          }
         }
       } catch (e) {}
     } catch (e) {}
@@ -1317,6 +1741,19 @@
           menu.parentNode.removeChild(menu);
         } else if (typeof menu.remove === "function") {
           menu.remove();
+        }
+      }
+    } catch (e) {}
+    try {
+      const amenu = aphMenu();
+      if (amenu) {
+        if (typeof amenu.removeEventListener === "function") {
+          amenu.removeEventListener("popupshowing", onAphMenuShowing);
+        }
+        if (amenu.parentNode) {
+          amenu.parentNode.removeChild(amenu);
+        } else if (typeof amenu.remove === "function") {
+          amenu.remove();
         }
       }
     } catch (e) {}

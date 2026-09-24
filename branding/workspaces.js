@@ -208,18 +208,6 @@
     return id;
   }
 
-  function getAllBindings() {
-    const out = Object.create(null);
-    for (let i = 1; i <= 9; i++) {
-      const ws = String(i);
-      const id = getWsContainerId(ws);
-      if (id) {
-        out[ws] = { userContextId: id, ...(describeContainer(id) || {}) };
-      }
-    }
-    return out;
-  }
-
   // Per-tab container-line dimming: when a tab's container equals its
   // workspace's bound container, the native `.tab-context-line` is redundant
   // (the WS badge in updateIndicator already shows the binding). Matching
@@ -1157,6 +1145,28 @@
   // Heal a membership change now: anchor, hide strays (never selected), sync.
   function unifyGroup(group) {
     anchorGroup(group);
+    // Incomplete restore data must never hide: tagless/restoring members
+    // have no workspace yet (getWs defaults "1") and an early hide sticks
+    // (nothing re-shows until tagged). Bail like anchorGroup does; the
+    // settle path re-runs unify once extData lands.
+    try {
+      for (const m of groupMembers(group).filter((t) => !t.pinned)) {
+        let tag = null;
+        try {
+          tag = rawWs(m);
+        } catch (e) {
+          tag = null;
+        }
+        if (!tag) {
+          return;
+        }
+        try {
+          if (typeof isRestoringTab === "function" && isRestoringTab(m)) {
+            return;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
     if (!isValidId(current)) {
       return;
     }
@@ -1208,6 +1218,19 @@
       if (t.closing) {
         continue;
       }
+      // Restoring/tagless tabs have no workspace yet (getWs defaults "1"):
+      // hiding now sticks (nothing re-shows until tagged), so leave them
+      // visible — the settle path (stamp/SSTabRestored) converges them.
+      // Tags are never deleted, so tagless always means not-yet-tagged.
+      let tagged = false;
+      try {
+        tagged = !!rawWs(t);
+      } catch (e) {
+        tagged = false;
+      }
+      if (!tagged) {
+        continue;
+      }
       try {
         if (t.pinned || getWs(t) === target) {
           aphShowTab(t);
@@ -1257,7 +1280,7 @@
     try {
       sel = gBrowser.selectedTab;
     } catch (e) {}
-    const selIsNew = !!(sel && sel !== undefined && isNewTab(sel) && getWs(sel) === target);
+    const selIsNew = !!(sel && isNewTab(sel) && getWs(sel) === target);
     let keep = selIsNew ? 0 : 1; // inactive spares allowed beyond selected
     let tabs = [];
     try {
@@ -1869,29 +1892,6 @@
       return false;
     } catch (e) {
       return false;
-    }
-  }
-
-  // Last index (in gBrowser.tabs order) occupied by parent or any of its
-  // descendants. New children are inserted directly after it.
-  function lastTreeDescendantIndex(parentTab) {
-    try {
-      const tabs = Array.from(gBrowser.tabs || []);
-      let best = tabs.indexOf(parentTab);
-      if (best === -1) {
-        return -1;
-      }
-      for (const d of getTreeDescendants(parentTab)) {
-        try {
-          const i = tabs.indexOf(d);
-          if (i > best) {
-            best = i;
-          }
-        } catch (e) {}
-      }
-      return best;
-    } catch (e) {
-      return -1;
     }
   }
 
@@ -2893,49 +2893,6 @@
     } catch (e) {
       return { error: "debug-threw" };
     }
-  }
-
-  // Swapped-in replacements (container repair, domain-route reopen) keep
-  // the original's tree slot: same parent, same workspace, same position.
-  function inheritTreeLink(replacement, original) {
-    try {
-      if (!replacement || !original || replacement === original) {
-        return;
-      }
-      ensureTreeId(replacement);
-      let ws = null;
-      try {
-        ws = getWs(original);
-      } catch (e) {}
-      if (isValidId(ws)) {
-        try {
-          setWs(replacement, ws);
-        } catch (e) {}
-      }
-      let pid = null;
-      try {
-        pid = rawTreeParentId(original);
-      } catch (e) {}
-      if (pid) {
-        const parentTab = findTabByTreeId(pid);
-        if (parentTab && parentTab !== replacement && !parentTab.closing) {
-          try {
-            setTreeParent(replacement, pid);
-          } catch (e) {}
-        } else {
-          clearTreeParent(replacement);
-        }
-      } else {
-        clearTreeParent(replacement);
-      }
-      try {
-        const tabs = Array.from(gBrowser.tabs || []);
-        const at = tabs.indexOf(original);
-        if (at !== -1) {
-          moveTreeTabTo(replacement, at);
-        }
-      } catch (e) {}
-    } catch (e) {}
   }
 
   // Closing a parent promotes direct children up one level in place
@@ -4700,9 +4657,15 @@
     return false;
   }
 
-  function parkSelectedStarredTab() {
+  // Shared Ctrl+W park for owned-base-URL tabs (pins + stars): guards,
+  // drift-reset-in-place, then neighbor-select + discard. checkOwned(sel)
+  // returns a reason string when the tab isn't eligible, null when it is
+  // (each kind keeps its own check order); getTarget/doReset carry the
+  // kind's base-URL accessors with the usual typeof guards (50 loads
+  // before 75/76).
+  function parkSelectedOwnedTab(prefOn, checkOwned, getTarget, doReset) {
     try {
-      if (!getCtrlWParksStarred()) {
+      if (!prefOn()) {
         return { ok: false, reason: "disabled" };
       }
       let sel = null;
@@ -4717,13 +4680,9 @@
           return { ok: false, reason: "closing" };
         }
       } catch (e) {}
-      try {
-        if (sel.pinned) {
-          return { ok: false, reason: "pinned" };
-        }
-      } catch (e) {}
-      if (!isStarredForPark(sel)) {
-        return { ok: false, reason: "not-starred" };
+      const notOwned = checkOwned(sel);
+      if (notOwned) {
+        return { ok: false, reason: notOwned };
       }
       // Multiselection closes as a unit in stock — never half-park it.
       try {
@@ -4764,19 +4723,19 @@
           return { ok: false, reason: "newtab" };
         }
       } catch (e) {}
-      // Drifted star: reset to the starred base URL in place (stay
-      // selected, no unload) and claim the keystroke. Same ordering as
-      // pins: after the guards (unsaved work still prompts via stock,
-      // internal pages never navigate), before the neighbor check so a
-      // sole-tab star can still reset.
+      // Drifted base: reset to the base URL in place (stay selected, no
+      // unload) and claim the keystroke. Runs after the guards above so
+      // unsaved work still falls through to stock (which prompts) and
+      // internal pages never navigate; runs before the neighbor check so
+      // a sole-tab owned tab can still reset. Reset-then-discard in one
+      // press is deliberately avoided: the fresh navigation would race
+      // the discard (which tears down the load), so park happens on the
+      // next press, once at base.
       try {
-        const target =
-          typeof effectiveStarURL === "function" ? effectiveStarURL(sel) : "";
+        const target = getTarget(sel);
         if (target && spec && target !== spec) {
           try {
-            if (typeof resetStarTab === "function") {
-              resetStarTab(sel);
-            }
+            doReset(sel);
           } catch (_e) {}
           // Reset navigation must not re-trigger domain routing.
           try {
@@ -4820,126 +4779,49 @@
     }
   }
 
-  function parkSelectedPinnedTab() {
-    try {
-      if (!getCtrlWParksPinned()) {
-        return { ok: false, reason: "disabled" };
-      }
-      let sel = null;
-      try {
-        sel = gBrowser.selectedTab;
-      } catch (e) {}
-      if (!sel) {
-        return { ok: false, reason: "no-tab" };
-      }
-      try {
-        if (sel.closing) {
-          return { ok: false, reason: "closing" };
-        }
-      } catch (e) {}
-      try {
-        if (!sel.pinned) {
-          return { ok: false, reason: "not-pinned" };
-        }
-      } catch (e) {
-        return { ok: false, reason: "not-pinned" };
-      }
-      // Multiselection closes as a unit in stock — never half-park it.
-      try {
-        const multi = gBrowser.selectedTabs || gBrowser.multiselectedTabs || null;
-        if (Array.isArray(multi) && multi.length > 1) {
-          return { ok: false, reason: "multi" };
-        }
-      } catch (e) {}
-      // Already parked: let stock close (second press closes).
-      try {
-        if (typeof sel.hasAttribute === "function" && sel.hasAttribute("pending")) {
-          return { ok: false, reason: "pending" };
-        }
-      } catch (e) {}
-      // Unsaved work: non-force discard would not prompt, so fall through
-      // to stock close, which does.
-      try {
-        if (sel.linkedBrowser?.frameLoader?.tabParent?.hasBeforeUnload) {
-          return { ok: false, reason: "beforeunload" };
-        }
-      } catch (e) {}
-      let spec = null;
-      try {
-        spec = sel.linkedBrowser?.currentURI?.spec;
-      } catch (e) {}
-      if (typeof spec !== "string" || !spec) {
-        return { ok: false, reason: "unknown-url" };
-      }
-      if (
-        spec.startsWith("about:") ||
-        spec.startsWith("chrome:") ||
-        spec.startsWith("resource:")
-      ) {
-        return { ok: false, reason: "internal" };
-      }
-      try {
-        if (isNewTab(sel)) {
-          return { ok: false, reason: "newtab" };
-        }
-      } catch (e) {}
-      // Drifted pin: reset to the pinned base URL in place (stay selected,
-      // no unload) and claim the keystroke — the tab visibly snaps back
-      // instead of closing. Runs after the guards above so unsaved work
-      // still falls through to stock (which prompts) and internal pages
-      // never navigate; runs before the neighbor check so a sole-tab pin
-      // can still reset. Reset-then-discard in one press is deliberately
-      // avoided: the fresh navigation would race the discard (which tears
-      // down the load), so park happens on the next press, once at base.
-      try {
-        const target =
-          typeof effectivePinURL === "function" ? effectivePinURL(sel) : "";
-        if (target && spec && target !== spec) {
-          try {
-            if (typeof resetPinTab === "function") {
-              resetPinTab(sel);
-            }
-          } catch (_e) {}
-          // Reset navigation must not re-trigger domain routing.
-          try {
-            sel.__aphFresh = false;
-          } catch (_e) {}
-          return { ok: true, reset: true };
-        }
-      } catch (e) {}
-      const next = findParkNeighbor(sel);
-      if (!next) {
-        return { ok: false, reason: "only-tab" };
-      }
-      if (typeof gBrowser.discardBrowser !== "function") {
-        return { ok: false, reason: "no-api" };
-      }
-      try {
-        gBrowser.selectedTab = next;
-      } catch (e) {
-        return { ok: false, reason: "no-select" };
-      }
-      let discarded = false;
-      try {
-        // Stock returns false on refusal, undefined on success.
-        discarded = gBrowser.discardBrowser(sel) !== false;
-      } catch (e) {
-        discarded = false;
-      }
-      if (!discarded) {
+  function parkSelectedStarredTab() {
+    return parkSelectedOwnedTab(
+      getCtrlWParksStarred,
+      (sel) => {
         try {
-          gBrowser.selectedTab = sel;
-        } catch (_e) {}
-        return { ok: false, reason: "discard-refused" };
+          if (sel.pinned) {
+            return "pinned";
+          }
+        } catch (e) {}
+        if (!isStarredForPark(sel)) {
+          return "not-starred";
+        }
+        return null;
+      },
+      (sel) => (typeof effectiveStarURL === "function" ? effectiveStarURL(sel) : ""),
+      (sel) => {
+        if (typeof resetStarTab === "function") {
+          resetStarTab(sel);
+        }
       }
-      // Discarded reload must not re-trigger domain routing.
-      try {
-        sel.__aphFresh = false;
-      } catch (e) {}
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, reason: "error" };
-    }
+    );
+  }
+
+  function parkSelectedPinnedTab() {
+    return parkSelectedOwnedTab(
+      getCtrlWParksPinned,
+      (sel) => {
+        try {
+          if (!sel.pinned) {
+            return "not-pinned";
+          }
+        } catch (e) {
+          return "not-pinned";
+        }
+        return null;
+      },
+      (sel) => (typeof effectivePinURL === "function" ? effectivePinURL(sel) : ""),
+      (sel) => {
+        if (typeof resetPinTab === "function") {
+          resetPinTab(sel);
+        }
+      }
+    );
   }
 
   // Exclusive workspaces (tiling-WM model): a workspace renders in at most
@@ -6292,6 +6174,52 @@
     } catch (e) {}
   }
 
+  // Switch animation: fade incoming tabs in after the synchronous
+  // hidden-attribute swap. A leave-side fade is impossible here — the whole
+  // switch commits in one task, so a leave frame would never paint — but
+  // the enter fade alone reads as a soft dissolve, and the indicator pulse
+  // above covers the "confirmation". Pins are global (never change) so
+  // they are excluded; tree-collapsed descendants were already re-hidden
+  // by applyTreeVisibility and stay out. Fail-silent throughout (test tabs
+  // have no classList, which just no-ops).
+  function animateIncomingTabs(tabs) {
+    let animated = null;
+    try {
+      for (const t of tabs || []) {
+        try {
+          if (!t || t.closing || t.pinned) {
+            continue;
+          }
+          if (t.hidden) {
+            continue;
+          }
+          if (typeof t.hasAttribute === "function" && t.hasAttribute("hidden")) {
+            continue;
+          }
+          if (!t.classList || typeof t.classList.add !== "function") {
+            continue;
+          }
+          t.classList.add("aph-ws-enter");
+          (animated = animated || []).push(t);
+        } catch (e) {}
+      }
+    } catch (e) {}
+    if (!animated) {
+      return;
+    }
+    try {
+      setTimeout(() => {
+        try {
+          for (const t of animated) {
+            try {
+              t.classList.remove("aph-ws-enter");
+            } catch (e) {}
+          }
+        } catch (e) {}
+      }, 200);
+    } catch (e) {}
+  }
+
   // Local-only switch: show `target` in this window. Cross-window policy
   // lives in switchTo (55-exclusive.js); callers that already resolved
   // ownership (startup de-dupe) use this directly. Returns "local"/"noop"
@@ -6346,6 +6274,11 @@
     anchorAllGroups();
     reconcile(target, tabs);
     pruneExtraNewTabs(target);
+    // Fresh snapshot: reconcile may have opened a tab for an empty
+    // workspace, which the stale list above would miss.
+    try {
+      animateIncomingTabs(Array.from(gBrowser.tabs));
+    } catch (e) {}
     // Pinned tabs match the viewed workspace (not their dormant tag), so
     // every switch re-syncs markers; unpinned matches are tag-stable and
     // the pass is a cheap no-op for them.
@@ -6899,12 +6832,9 @@
           tabs = explicit.filter((t) => t && !t.closing);
         }
       } else if (explicit && !explicit.closing) {
-        try {
-          const live = Array.from(gBrowser.tabs || []);
-          tabs = live.includes(explicit) ? [explicit] : [explicit];
-        } catch (e) {
-          tabs = [explicit];
-        }
+        // Single explicit tab (drag or caller): liveness filtering needs
+        // the strip, which may itself throw — either way it moves alone.
+        tabs = [explicit];
       }
     } catch (e) {}
     if (!tabs.length) {
@@ -7303,10 +7233,7 @@
       try {
         const family = moveMenuFamilySize(targets);
         if (family > n) {
-          const treeLabel =
-            n > 1
-              ? `Move Tree (${family} Tabs) to Workspace`
-              : `Move Tree (${family} Tabs) to Workspace`;
+          const treeLabel = `Move Tree (${family} Tabs) to Workspace`;
           appendMoveSubmenu(menu, "aph-move-tree", treeLabel, targets.slice(), (id, ts) => {
             try {
               if (typeof sendTreeTo === "function") {
@@ -8110,6 +8037,420 @@
     return pill;
   }
 
+  // Aph key: persistent mouse entry point in Aph's own dock row (owns
+  // its paint via theme.css — never fights Firefox's sidebar footer).
+  // Left-click / Enter opens the Aph menu (palette is its first row);
+  // right-click opens the dock menu for the current workspace. Distinct
+  // `aph-dock-aph` class (never `aph-ws-pill`) so workspace-pill queries
+  // and drop logic ignore it. Hidden during tab-drag mode so drop targets
+  // stay clean.
+  const APH_MENU_ID = "aph-aph-menu";
+
+  function aphDockOpenPalette() {
+    try {
+      if (window.AphPalette) {
+        if (typeof window.AphPalette.open === "function") {
+          window.AphPalette.open();
+          return;
+        }
+        if (typeof window.AphPalette.toggle === "function") {
+          window.AphPalette.toggle();
+          return;
+        }
+      }
+    } catch (e) {}
+  }
+
+  function aphMenuCurrent() {
+    try {
+      if (typeof current !== "undefined" && typeof isValidId === "function" && isValidId(current)) {
+        return current;
+      }
+    } catch (e) {}
+    return "1";
+  }
+
+  function aphMenu() {
+    try {
+      const m = document.getElementById(APH_MENU_ID);
+      return m || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Open-or-select a URL in the current workspace's bound container when
+  // possible; plain trusted tab otherwise. Fail-silent house style.
+  function aphOpenTab(url) {
+    try {
+      if (typeof openBoundTab === "function") {
+        openBoundTab(url);
+        return;
+      }
+    } catch (e) {}
+    try {
+      const t = gBrowser.addTrustedTab(url);
+      try {
+        gBrowser.selectedTab = t;
+      } catch (_e) {}
+    } catch (e) {}
+  }
+
+  function aphOpenArchive() {
+    try {
+      const a = window.AphArchive || null;
+      if (a && typeof a.openArchive === "function" && a.openArchive()) {
+        return;
+      }
+    } catch (e) {}
+    try {
+      aphOpenTab("chrome://browser/content/aph-archive.html");
+    } catch (e) {}
+  }
+
+  function aphArchiveCurrent() {
+    try {
+      const a = window.AphArchive || null;
+      if (a && typeof a.archiveCurrent === "function") {
+        a.archiveCurrent();
+        return;
+      }
+    } catch (e) {}
+  }
+
+  function aphShowCustomizeSidebar() {
+    try {
+      if (window.SidebarController && typeof window.SidebarController.show === "function") {
+        window.SidebarController.show("viewCustomizeSidebar");
+        return;
+      }
+    } catch (e) {}
+  }
+
+  function clearAphMenu(menu) {
+    try {
+      while (menu.firstChild) {
+        menu.removeChild(menu.firstChild);
+      }
+    } catch (e) {}
+  }
+
+  function onAphMenuShowing(e) {
+    try {
+      const menu = (e && (e.currentTarget || e.target)) || null;
+      if (!menu || typeof menu.appendChild !== "function") {
+        return;
+      }
+      // popupshowing BUBBLES: opening the nested Bind submenu re-fires this
+      // listener with e.target = the submenu. Only rebuild on our own popup.
+      try {
+        if (!e || e.target !== menu) {
+          return;
+        }
+      } catch (err) {
+        return;
+      }
+      clearAphMenu(menu);
+      const cur = aphMenuCurrent();
+      let curName = "";
+      try {
+        curName = typeof getWsName === "function" ? getWsName(cur) || "" : "";
+      } catch (err) {}
+      const head = curName ? `${cur}: ${curName}` : `Workspace ${cur}`;
+      const pal = makeDockMenuItem("aph-aph-palette", "Open Command Palette…", () => {
+        try {
+          aphDockOpenPalette();
+        } catch (err) {}
+      });
+      if (pal) {
+        try {
+          pal.setAttribute("shortcut", "Ctrl+K");
+        } catch (err) {}
+        try {
+          menu.appendChild(pal);
+        } catch (err) {}
+      }
+      try {
+        const sep =
+          typeof document.createXULElement === "function"
+            ? document.createXULElement("menuseparator")
+            : document.createElement("menuseparator");
+        menu.appendChild(sep);
+      } catch (err) {}
+      const rename = makeDockMenuItem("aph-aph-rename", `Rename ${head}…`, () => {
+        try {
+          if (typeof promptDockRename === "function") {
+            promptDockRename(cur);
+          }
+        } catch (err) {}
+      });
+      if (rename) {
+        try {
+          menu.appendChild(rename);
+        } catch (err) {}
+      }
+      try {
+        if (typeof isPrivateWindow === "function" ? !isPrivateWindow() : true) {
+          const bindMenu =
+            typeof document.createXULElement === "function"
+              ? document.createXULElement("menu")
+              : document.createElement("menu");
+          bindMenu.setAttribute("label", `Bind ${head} to Container…`);
+          const sub =
+            typeof document.createXULElement === "function"
+              ? document.createXULElement("menupopup")
+              : document.createElement("menupopup");
+          let bound = 0;
+          try {
+            bound = typeof getWsContainerId === "function" ? getWsContainerId(cur) : 0;
+          } catch (err) {}
+          const none = makeDockMenuItem("aph-aph-bind-none", "None (unbound)", () => {
+            try {
+              if (typeof setWsBinding === "function") {
+                setWsBinding(cur, 0);
+              }
+              if (typeof renderDock === "function") {
+                renderDock();
+              }
+            } catch (err) {}
+          });
+          if (none) {
+            if (!bound) {
+              try {
+                none.setAttribute("checked", "true");
+              } catch (err) {}
+            }
+            sub.appendChild(none);
+          }
+          try {
+            const list = typeof listContainers === "function" ? listContainers() : [];
+            for (const c of list || []) {
+              const item = makeDockMenuItem(
+                `aph-aph-bind-${c.userContextId}`,
+                c.name || `Container ${c.userContextId}`,
+                () => {
+                  try {
+                    if (typeof setWsBinding === "function") {
+                      setWsBinding(cur, c.userContextId);
+                    }
+                    if (typeof renderDock === "function") {
+                      renderDock();
+                    }
+                  } catch (err) {}
+                }
+              );
+              if (item && bound === c.userContextId) {
+                try {
+                  item.setAttribute("checked", "true");
+                } catch (err) {}
+              }
+              if (item) {
+                sub.appendChild(item);
+              }
+            }
+          } catch (err) {}
+          bindMenu.appendChild(sub);
+          menu.appendChild(bindMenu);
+        }
+      } catch (err) {}
+      let archTitle = "Archive Current Tab";
+      try {
+        if (typeof archiveCmdTitle === "function") {
+          archTitle = archiveCmdTitle();
+        }
+      } catch (err) {}
+      const arch = makeDockMenuItem("aph-aph-archive", archTitle, () => {
+        try {
+          aphArchiveCurrent();
+        } catch (err) {}
+      });
+      if (arch) {
+        try {
+          menu.appendChild(arch);
+        } catch (err) {}
+      }
+      const openArch = makeDockMenuItem("aph-aph-open-archive", "Open Archive", () => {
+        try {
+          aphOpenArchive();
+        } catch (err) {}
+      });
+      if (openArch) {
+        try {
+          menu.appendChild(openArch);
+        } catch (err) {}
+      }
+      try {
+        const sep =
+          typeof document.createXULElement === "function"
+            ? document.createXULElement("menuseparator")
+            : document.createElement("menuseparator");
+        menu.appendChild(sep);
+      } catch (err) {}
+      const cust = makeDockMenuItem("aph-aph-customize", "Customize Sidebar…", () => {
+        try {
+          aphShowCustomizeSidebar();
+        } catch (err) {}
+      });
+      if (cust) {
+        try {
+          menu.appendChild(cust);
+        } catch (err) {}
+      }
+      const prefs = makeDockMenuItem("aph-aph-settings", "Aph Settings…", () => {
+        try {
+          aphOpenTab("about:config?filter=aph");
+        } catch (err) {}
+      });
+      if (prefs) {
+        try {
+          menu.appendChild(prefs);
+        } catch (err) {}
+      }
+      const about = makeDockMenuItem("aph-aph-about", "About Aph", () => {
+        try {
+          aphOpenTab("https://aph-browser.github.io/");
+        } catch (err) {}
+      });
+      if (about) {
+        try {
+          menu.appendChild(about);
+        } catch (err) {}
+      }
+    } catch (e) {}
+  }
+
+  function ensureAphMenu() {
+    try {
+      let menu = aphMenu();
+      if (menu) {
+        return menu;
+      }
+      const set =
+        typeof document.getElementById === "function"
+          ? document.getElementById("mainPopupSet")
+          : null;
+      if (!set || typeof set.appendChild !== "function") {
+        return null;
+      }
+      menu =
+        typeof document.createXULElement === "function"
+          ? document.createXULElement("menupopup")
+          : document.createElement("menupopup");
+      menu.id = APH_MENU_ID;
+      if (typeof menu.addEventListener === "function") {
+        menu.addEventListener("popupshowing", onAphMenuShowing);
+      }
+      set.appendChild(menu);
+      return menu;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function openAphMenu(btn, e) {
+    try {
+      const menu = ensureAphMenu();
+      if (!menu) {
+        aphDockOpenPalette();
+        return;
+      }
+      try {
+        if (typeof menu.openPopupAtScreen === "function" && e && e.screenX != null) {
+          menu.openPopupAtScreen(e.screenX, e.screenY, true);
+          return;
+        }
+      } catch (_e) {}
+      try {
+        if (typeof menu.openPopup === "function") {
+          if (btn) {
+            menu.openPopup(btn, "after_end", 0, 0, true, false, e);
+          } else {
+            menu.openPopup(null, "", 0, 0, true, false, e);
+          }
+          return;
+        }
+      } catch (_e) {}
+    } catch (e) {}
+    try {
+      aphDockOpenPalette();
+    } catch (_e) {}
+  }
+
+  function makeDockAph() {
+    let btn = null;
+    try {
+      btn = document.createElement("div");
+      btn.className = "aph-dock-aph";
+      btn.setAttribute("role", "button");
+      btn.setAttribute("tabindex", "0");
+      btn.textContent = "Aph";
+      btn.title = "Aph — menu · click for Aph actions · right-click for workspace actions";
+      try {
+        btn.addEventListener("click", (e) => {
+          try {
+            if (typeof e.stopPropagation === "function") {
+              e.stopPropagation();
+            }
+          } catch (_e) {}
+          try {
+            if (typeof e.preventDefault === "function") {
+              e.preventDefault();
+            }
+          } catch (_e) {}
+          openAphMenu(btn, e);
+        });
+      } catch (e) {}
+      try {
+        btn.addEventListener("keydown", (e) => {
+          try {
+            if (e && (e.key === "Enter" || e.key === " ")) {
+              if (typeof e.preventDefault === "function") {
+                e.preventDefault();
+              }
+              openAphMenu(btn, null);
+            }
+          } catch (_e) {}
+        });
+      } catch (e) {}
+      try {
+        btn.addEventListener("contextmenu", (e) => {
+          try {
+            if (typeof e.preventDefault === "function") {
+              e.preventDefault();
+            }
+            if (typeof e.stopPropagation === "function") {
+              e.stopPropagation();
+            }
+          } catch (_e) {}
+          try {
+            const menu = typeof ensureDockMenu === "function" ? ensureDockMenu() : null;
+            const id =
+              typeof current !== "undefined" && typeof isValidId === "function" && isValidId(current)
+                ? current
+                : "1";
+            if (menu) {
+              try {
+                menu.setAttribute("data-ws", id);
+              } catch (_e) {}
+              if (typeof menu.openPopupAtScreen === "function" && e) {
+                menu.openPopupAtScreen(e.screenX, e.screenY, true);
+                return;
+              }
+              if (typeof menu.openPopup === "function") {
+                menu.openPopup(btn, "after_start", 0, 0, true, false, e);
+                return;
+              }
+            }
+          } catch (_e) {}
+          aphDockOpenPalette();
+        });
+      } catch (e) {}
+    } catch (e) {
+      btn = null;
+    }
+    return btn;
+  }
+
   function renderDock() {
     try {
       const anchor = dockAnchor();
@@ -8211,6 +8552,16 @@
         const plus = makeDockPlus(lowestInactiveId(getActiveIds()));
         if (plus) {
           dock.appendChild(plus);
+        }
+      } catch (e) {}
+      // Aph key last (far end of the row). Skipped in drag mode — pills +
+      // plus are the only drop UI in play there.
+      try {
+        if (!dockDragActive) {
+          const aph = makeDockAph();
+          if (aph) {
+            dock.appendChild(aph);
+          }
         }
       } catch (e) {}
     } catch (e) {}
@@ -8689,6 +9040,19 @@
       }
     } catch (e) {}
     try {
+      const amenu = aphMenu();
+      if (amenu) {
+        if (typeof amenu.removeEventListener === "function") {
+          amenu.removeEventListener("popupshowing", onAphMenuShowing);
+        }
+        if (amenu.parentNode) {
+          amenu.parentNode.removeChild(amenu);
+        } else if (typeof amenu.remove === "function") {
+          amenu.remove();
+        }
+      }
+    } catch (e) {}
+    try {
       if (gBrowser && gBrowser.tabContainer) {
         gBrowser.tabContainer.removeEventListener("dragstart", onDockDragStart, true);
         gBrowser.tabContainer.removeEventListener("dragstart", onDockDragStart);
@@ -8730,6 +9094,205 @@
     initDock();
   } else {
     window.addEventListener("load", initDock, { once: true });
+  }
+  // Sidebar footer (gear) hide/show -------------------------------------
+  // sidebar-main's bottom bar (gear + empty space when tools=none) can be
+  // hidden to reclaim the strip: pref aph.sidebar.hideFooter, HIDDEN by
+  // default (an absent pref counts as hidden, so seed-once profiles that
+  // predate the pref hide too). The palette's Show/Hide Sidebar Footer
+  // command flips the pref; a pref observer applies it live. The Aph
+  // menu's "Customize Sidebar…" item stays the escape hatch.
+  //
+  // Mechanism: a host attribute + one-time shadow <style>, never an
+  // inline style on Lit-managed nodes (re-renders would wipe it, which
+  // is what the old MutationObserver existed to repair). Host attributes
+  // survive re-renders — they live outside the shadow root — and shadow
+  // CSS matches them via :host(). So hiding is a single attribute flip;
+  // there is nothing to re-apply and no standing observer. theme.css
+  // can't reach the shadow DOM, hence the injected style element.
+  // Everything fails silent (house style).
+  //
+  // NOTE: deliberately NOT exempting expand-on-hover. Stock's hover
+  // trigger is mouse-position-vs-launcher-bounds (MousePosTracker), not
+  // CSS :hover, and nothing here shrinks those bounds (the dock only adds
+  // height; the strip keeps its tabs) — carving out the mode would be
+  // complexity without a proven mechanism.
+  var SIDEBAR_FOOTER_PREF = "aph.sidebar.hideFooter";
+  const SIDEBAR_FOOTER_STYLE_ID = "aph-footer-style";
+  const SIDEBAR_FOOTER_ATTR = "data-aph-hide-footer";
+  let sidebarFooterPrefObserver = null;
+
+  function sidebarFooterHidden() {
+    try {
+      if (
+        typeof Services !== "undefined" &&
+        Services &&
+        Services.prefs &&
+        typeof Services.prefs.getBoolPref === "function"
+      ) {
+        return !!Services.prefs.getBoolPref(SIDEBAR_FOOTER_PREF);
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  function sidebarFooterHost() {
+    try {
+      if (typeof document === "undefined" || !document) {
+        return null;
+      }
+      if (typeof document.querySelector !== "function") {
+        return null;
+      }
+      return document.querySelector("sidebar-main") || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Inject once (guarded by id): :host([attr]) survives every Lit
+  // re-render because the style element itself is static shadow content,
+  // and the toggle below only touches the host attribute.
+  function ensureSidebarFooterStyle() {
+    try {
+      const host = sidebarFooterHost();
+      if (!host) {
+        return null;
+      }
+      const root = host.shadowRoot || null;
+      if (!root || typeof root.querySelector !== "function") {
+        return null;
+      }
+      let style = null;
+      try {
+        style =
+          typeof root.getElementById === "function"
+            ? root.getElementById(SIDEBAR_FOOTER_STYLE_ID)
+            : root.querySelector("#" + SIDEBAR_FOOTER_STYLE_ID);
+      } catch (e) {
+        style = null;
+      }
+      if (style) {
+        return style;
+      }
+      try {
+        style = document.createElement("style");
+      } catch (e) {
+        return null;
+      }
+      if (!style) {
+        return null;
+      }
+      try {
+        style.id = SIDEBAR_FOOTER_STYLE_ID;
+        style.textContent =
+          ':host([' + SIDEBAR_FOOTER_ATTR + ']) .buttons-wrapper{display:none !important;}';
+      } catch (e) {}
+      try {
+        root.appendChild(style);
+      } catch (e) {
+        return null;
+      }
+      return style;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function applySidebarFooter() {
+    try {
+      ensureSidebarFooterStyle();
+    } catch (e) {}
+    try {
+      const host = sidebarFooterHost();
+      if (!host || typeof host.toggleAttribute !== "function") {
+        return false;
+      }
+      const hidden = sidebarFooterHidden();
+      try {
+        host.toggleAttribute(SIDEBAR_FOOTER_ATTR, hidden);
+      } catch (e) {
+        return false;
+      }
+      return hidden;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function cleanupSidebarFooter() {
+    try {
+      if (
+        sidebarFooterPrefObserver &&
+        typeof Services !== "undefined" &&
+        Services &&
+        Services.prefs &&
+        typeof Services.prefs.removeObserver === "function"
+      ) {
+        Services.prefs.removeObserver(SIDEBAR_FOOTER_PREF, sidebarFooterPrefObserver);
+      }
+    } catch (e) {}
+    sidebarFooterPrefObserver = null;
+    // Leave no trace: drop the attribute and the injected style.
+    try {
+      const host = sidebarFooterHost();
+      if (host && typeof host.removeAttribute === "function") {
+        try {
+          host.removeAttribute(SIDEBAR_FOOTER_ATTR);
+        } catch (e) {}
+      }
+      const root = (host && host.shadowRoot) || null;
+      if (root) {
+        let style = null;
+        try {
+          style =
+            typeof root.getElementById === "function"
+              ? root.getElementById(SIDEBAR_FOOTER_STYLE_ID)
+              : root.querySelector("#" + SIDEBAR_FOOTER_STYLE_ID);
+        } catch (e) {}
+        try {
+          if (style && style.parentNode && typeof style.parentNode.removeChild === "function") {
+            style.parentNode.removeChild(style);
+          } else if (style && typeof style.remove === "function") {
+            style.remove();
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
+  function initSidebarFooter() {
+    try {
+      applySidebarFooter();
+    } catch (e) {}
+    try {
+      if (
+        typeof Services !== "undefined" &&
+        Services &&
+        Services.prefs &&
+        typeof Services.prefs.addObserver === "function"
+      ) {
+        sidebarFooterPrefObserver = {
+          observe() {
+            try {
+              applySidebarFooter();
+            } catch (e) {}
+          },
+        };
+        Services.prefs.addObserver(SIDEBAR_FOOTER_PREF, sidebarFooterPrefObserver);
+      }
+    } catch (e) {
+      sidebarFooterPrefObserver = null;
+    }
+    try {
+      window.addEventListener("unload", cleanupSidebarFooter, { once: true });
+    } catch (e) {}
+  }
+
+  if (document.readyState === "complete") {
+    initSidebarFooter();
+  } else {
+    window.addEventListener("load", initSidebarFooter, { once: true });
   }
   // Open a clean disposable container tab in the current workspace. Falls
   // back to a normal tab if the identity service is unavailable.
@@ -9046,6 +9609,172 @@
     }
   }
 
+  // Owned-tab base URL machinery, shared by 75-pinreset.js (pinned tabs)
+  // and 76-starred.js (starred tabs). Both features are the same machine
+  // with different nouns: a per-tab stored URL (SessionStore custom value,
+  // survives restore free), validated editing, container-aware loading,
+  // and a right-click menu. Kind-specific state (pin capture, star flag +
+  // close-button swap) and menu shapes stay in their own files; everything
+  // byte-identical lives here. Same-bundle scope: 55-exclusive.js owns
+  // tabSpec (used for the live-URL fallback), 65-dock.js owns the XUL
+  // menu factory.
+  //
+  // Reject javascript: URLs; hostful http(s) and about: pages are fine.
+  function isValidBaseURL(url) {
+    try {
+      const u = new URL(String(url || ""));
+      if (u.protocol === "javascript:") {
+        return false;
+      }
+      return !!u.host || u.protocol.indexOf("about:") === 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function getStoredURL(tab, key) {
+    try {
+      if (!tab) {
+        return "";
+      }
+      let v = null;
+      try {
+        v = SessionStore.getCustomTabValue(tab, key);
+      } catch (e) {
+        v = null;
+      }
+      return typeof v === "string" && v ? v : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Returns true when stored. Invalid URLs are rejected (previous value
+  // kept) so a typo in the edit dialog can never brick the reset target.
+  // noteErr receives failure codes for Browser-Console diagnosis.
+  function setStoredURL(tab, key, url, noteErr) {
+    try {
+      if (!tab || !isValidBaseURL(url)) {
+        return false;
+      }
+      SessionStore.setCustomTabValue(tab, key, String(url));
+      return true;
+    } catch (e) {
+      try {
+        if (typeof noteErr === "function") {
+          noteErr("set-threw");
+        }
+      } catch (err) {}
+      return false;
+    }
+  }
+
+  function systemPrincipal() {
+    try {
+      return Services.scriptSecurityManager.getSystemPrincipal();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function loadBaseURL(browser, url, noteErr) {
+    const principal = systemPrincipal();
+    let noted = false;
+    const note = (code) => {
+      noted = true;
+      try {
+        if (typeof noteErr === "function") {
+          noteErr(code);
+        }
+      } catch (err) {}
+    };
+    try {
+      if (browser && typeof browser.fixupAndLoadURIString === "function") {
+        browser.fixupAndLoadURIString(url, { triggeringPrincipal: principal });
+        return true;
+      }
+    } catch (e) {
+      note("fixup-threw");
+    }
+    // Fallback for browsers without the fixup helper wired up.
+    try {
+      if (browser && typeof browser.loadURI === "function" && Services && Services.io) {
+        browser.loadURI(Services.io.newURI(url), { triggeringPrincipal: principal });
+        return true;
+      }
+    } catch (e) {
+      note("loadURI-threw");
+    }
+    if (!noted) {
+      note("no-loader");
+    }
+    return false;
+  }
+
+  // Resolve the right-clicked tab, mirroring stock tab-context-menu.js and
+  // the archive.js pattern: triggerNode may carry the tab directly (.tab)
+  // or contain it; fall back to the selected tab.
+  function contextClickedTab(e) {
+    try {
+      const popup = e && e.target;
+      const node = (popup && popup.triggerNode) || document.popupNode || null;
+      if (node) {
+        const direct =
+          node.tab ||
+          (typeof node.closest === "function" ? node.closest("tab") : null);
+        if (direct) {
+          return direct;
+        }
+      }
+      if (gBrowser && gBrowser.selectedTab) {
+        return gBrowser.selectedTab;
+      }
+    } catch (err) {}
+    return null;
+  }
+
+  // Detach every tracked menu item; returns [] for `items = takeDown...`.
+  function takeDownMenuItems(items) {
+    try {
+      for (const it of items || []) {
+        try {
+          if (it && it.parentNode) {
+            it.parentNode.removeChild(it);
+          } else if (it && typeof it.remove === "function") {
+            it.remove();
+          }
+        } catch (err) {}
+      }
+    } catch (err) {}
+    return [];
+  }
+
+  function promptBaseURL(tab, initial, dialogTitle, promptTitle, setURL) {
+    const commit = (v) => {
+      try {
+        const value = String(v == null ? "" : v).trim();
+        if (value && typeof setURL === "function") {
+          setURL(tab, value);
+        }
+      } catch (err) {}
+    };
+    try {
+      if (window.AphPalette && typeof window.AphPalette.prompt === "function") {
+        window.AphPalette.prompt({
+          title: dialogTitle,
+          initial: initial || "",
+          onCommit: commit,
+        });
+        return;
+      }
+    } catch (err) {}
+    // Palette unavailable (tests, minimal chrome): stock prompt fallback.
+    try {
+      if (typeof window.prompt === "function") {
+        commit(window.prompt(promptTitle, initial || ""));
+      }
+    } catch (err) {}
+  }
   // Zen-style pinned-tab URLs: every pinned tab owns a "pinned URL"
   // (captured at pin time, editable). Right-click offers "Reset to Pinned
   // Page" + "Set Pinned Page…". Values persist via SessionStore custom
@@ -9061,60 +9790,20 @@
   // House style stays silent in prod; this keeps the silence debuggable.
   let pinLastError = "";
 
-  function pinSpec(tab) {
+  function pinNoteErr(code) {
     try {
-      const uri = tab && tab.linkedBrowser && tab.linkedBrowser.currentURI;
-      const spec = uri && uri.spec;
-      return typeof spec === "string" ? spec : "";
-    } catch (e) {
-      return "";
-    }
-  }
-
-  function isPinnableURL(url) {
-    try {
-      const u = new URL(String(url || ""));
-      if (u.protocol === "javascript:") {
-        return false;
-      }
-      return !!u.host || u.protocol.indexOf("about:") === 0;
-    } catch (e) {
-      return false;
-    }
+      pinLastError = code;
+    } catch (err) {}
   }
 
   function getPinURL(tab) {
-    try {
-      if (!tab) {
-        return "";
-      }
-      let v = null;
-      try {
-        v = SessionStore.getCustomTabValue(tab, PIN_URL_KEY);
-      } catch (e) {
-        v = null;
-      }
-      return typeof v === "string" && v ? v : "";
-    } catch (e) {
-      return "";
-    }
+    return getStoredURL(tab, PIN_URL_KEY);
   }
 
   // Returns true when stored. Invalid URLs are rejected (previous value
   // kept) so a typo in the edit dialog can never brick the reset target.
   function setPinURL(tab, url) {
-    try {
-      if (!tab || !isPinnableURL(url)) {
-        return false;
-      }
-      SessionStore.setCustomTabValue(tab, PIN_URL_KEY, String(url));
-      return true;
-    } catch (e) {
-      try {
-        pinLastError = "set-threw";
-      } catch (err) {}
-      return false;
-    }
+    return setStoredURL(tab, PIN_URL_KEY, url, pinNoteErr);
   }
 
   function clearPinURL(tab) {
@@ -9134,49 +9823,10 @@
   // fall back to the live URL so reset/menu never dead-end on them.
   function effectivePinURL(tab) {
     try {
-      return getPinURL(tab) || pinSpec(tab);
+      return getPinURL(tab) || tabSpec(tab);
     } catch (e) {
       return "";
     }
-  }
-
-  function systemPrincipal() {
-    try {
-      return Services.scriptSecurityManager.getSystemPrincipal();
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function loadPinURL(browser, url) {
-    const principal = systemPrincipal();
-    try {
-      if (browser && typeof browser.fixupAndLoadURIString === "function") {
-        browser.fixupAndLoadURIString(url, { triggeringPrincipal: principal });
-        return true;
-      }
-    } catch (e) {
-      try {
-        pinLastError = "fixup-threw";
-      } catch (err) {}
-    }
-    // Fallback for browsers without the fixup helper wired up.
-    try {
-      if (browser && typeof browser.loadURI === "function" && Services && Services.io) {
-        browser.loadURI(Services.io.newURI(url), { triggeringPrincipal: principal });
-        return true;
-      }
-    } catch (e) {
-      try {
-        pinLastError = "loadURI-threw";
-      } catch (err) {}
-    }
-    try {
-      if (!pinLastError) {
-        pinLastError = "no-loader";
-      }
-    } catch (err) {}
-    return false;
   }
 
   // Returns true when navigation was kicked off.
@@ -9199,7 +9849,7 @@
         } catch (err) {}
         return false;
       }
-      return loadPinURL(browser, url);
+      return loadBaseURL(browser, url, pinNoteErr);
     } catch (e) {
       try {
         pinLastError = "reset-threw";
@@ -9222,7 +9872,7 @@
     try {
       if (tab.pinned) {
         if (!getPinURL(tab)) {
-          const spec = pinSpec(tab);
+          const spec = tabSpec(tab);
           if (spec) {
             SessionStore.setCustomTabValue(tab, PIN_URL_KEY, spec);
           }
@@ -9233,91 +9883,20 @@
     } catch (err) {}
   }
 
-  // Resolve the right-clicked tab, mirroring stock tab-context-menu.js and
-  // the archive.js pattern: triggerNode may carry the tab directly (.tab)
-  // or contain it; fall back to the selected tab.
-  function pinClickedTab(e) {
-    try {
-      const popup = e && e.target;
-      const node = (popup && popup.triggerNode) || document.popupNode || null;
-      if (node) {
-        const direct =
-          node.tab ||
-          (typeof node.closest === "function" ? node.closest("tab") : null);
-        if (direct) {
-          return direct;
-        }
-      }
-      if (gBrowser && gBrowser.selectedTab) {
-        return gBrowser.selectedTab;
-      }
-    } catch (err) {}
-    return null;
-  }
-
-  function makePinMenuItem(id, label, action) {
-    let item = null;
-    try {
-      // browser.xhtml is an XHTML document: document.createElement would
-      // build an HTML-namespaced dud inside the XUL menupopup (same
-      // gotcha as archive.js).
-      item =
-        typeof document.createXULElement === "function"
-          ? document.createXULElement("menuitem")
-          : document.createElement("menuitem");
-      item.id = id;
-      item.setAttribute("label", label);
-      if (typeof item.addEventListener === "function") {
-        item.addEventListener("command", action);
-      }
-    } catch (err) {
-      item = null;
-    }
-    return item;
-  }
-
   let pinMenuItems = [];
 
   function clearPinMenu() {
-    try {
-      for (const it of pinMenuItems) {
-        try {
-          if (it && it.parentNode) {
-            it.parentNode.removeChild(it);
-          } else if (it && typeof it.remove === "function") {
-            it.remove();
-          }
-        } catch (err) {}
-      }
-    } catch (err) {}
-    pinMenuItems = [];
+    pinMenuItems = takeDownMenuItems(pinMenuItems);
   }
 
   function promptPinURL(tab, initial) {
-    const commit = (v) => {
-      try {
-        const value = String(v == null ? "" : v).trim();
-        if (value) {
-          setPinURL(tab, value);
-        }
-      } catch (err) {}
-    };
-    try {
-      if (window.AphPalette && typeof window.AphPalette.prompt === "function") {
-        window.AphPalette.prompt({
-          title: "Set Pinned Page — Enter saves, Esc cancels",
-          initial: initial || "",
-          onCommit: commit,
-        });
-        return;
-      }
-    } catch (err) {}
-    // Palette unavailable (tests, minimal chrome): stock prompt fallback.
-    try {
-      if (typeof window.prompt === "function") {
-        commit(window.prompt("Set Pinned Page URL:", initial || ""));
-      }
-    } catch (err) {}
+    promptBaseURL(
+      tab,
+      initial,
+      "Set Pinned Page — Enter saves, Esc cancels",
+      "Set Pinned Page URL:",
+      setPinURL
+    );
   }
 
   function onPinMenuShowing(e) {
@@ -9327,12 +9906,12 @@
         return;
       }
       clearPinMenu();
-      const tab = pinClickedTab(e);
+      const tab = contextClickedTab(e);
       if (!tab || !tab.pinned) {
         return;
       }
       const stored = effectivePinURL(tab);
-      const reset = makePinMenuItem("aph-pinreset-reset", "Reset to Pinned Page", () => {
+      const reset = makeDockMenuItem("aph-pinreset-reset", "Reset to Pinned Page", () => {
         try {
           resetPinTab(tab);
         } catch (err) {}
@@ -9340,7 +9919,7 @@
       if (reset) {
         // Grey out when already there — nothing to do.
         try {
-          if (stored && stored === pinSpec(tab)) {
+          if (stored && stored === tabSpec(tab)) {
             reset.setAttribute("disabled", "true");
           }
         } catch (err) {}
@@ -9349,11 +9928,11 @@
           pinMenuItems.push(reset);
         } catch (err) {}
       }
-      const edit = makePinMenuItem("aph-pinreset-set", "Set Pinned Page…", () => {
+      const edit = makeDockMenuItem("aph-pinreset-set", "Set Pinned Page…", () => {
         try {
           // Live-first: Enter alone re-pins the current page (the common
           // "make this the base" case); stored is the fallback.
-          promptPinURL(tab, pinSpec(tab) || stored);
+          promptPinURL(tab, tabSpec(tab) || stored);
         } catch (err) {}
       });
       if (edit) {
@@ -9445,26 +10024,10 @@
   // House style stays silent in prod; this keeps the silence debuggable.
   let starLastError = "";
 
-  function starSpec(tab) {
+  function starNoteErr(code) {
     try {
-      const uri = tab && tab.linkedBrowser && tab.linkedBrowser.currentURI;
-      const spec = uri && uri.spec;
-      return typeof spec === "string" ? spec : "";
-    } catch (e) {
-      return "";
-    }
-  }
-
-  function isStarrableURL(url) {
-    try {
-      const u = new URL(String(url || ""));
-      if (u.protocol === "javascript:") {
-        return false;
-      }
-      return !!u.host || u.protocol.indexOf("about:") === 0;
-    } catch (e) {
-      return false;
-    }
+      starLastError = code;
+    } catch (err) {}
   }
 
   function isStarredTab(tab) {
@@ -9481,15 +10044,15 @@
       if (v === "1") {
         return true;
       }
-      // Restored before SSTabRestored re-applies: attribute backstop.
+      // Restored before SSTabRestored re-applies: attribute backstop. A
+      // present-but-false hasAttribute implies getAttribute is null, so a
+      // single branch covers both DOM and exotic tab-likes.
       try {
-        if (typeof tab.hasAttribute === "function" && tab.hasAttribute(STAR_ATTR)) {
-          return true;
+        if (typeof tab.hasAttribute === "function") {
+          return tab.hasAttribute(STAR_ATTR);
         }
-      } catch (e) {}
-      try {
-        if (typeof tab.getAttribute === "function" && tab.getAttribute(STAR_ATTR) === "1") {
-          return true;
+        if (typeof tab.getAttribute === "function") {
+          return tab.getAttribute(STAR_ATTR) === "1";
         }
       } catch (e) {}
       return false;
@@ -9499,37 +10062,13 @@
   }
 
   function getStarURL(tab) {
-    try {
-      if (!tab) {
-        return "";
-      }
-      let v = null;
-      try {
-        v = SessionStore.getCustomTabValue(tab, STAR_URL_KEY);
-      } catch (e) {
-        v = null;
-      }
-      return typeof v === "string" && v ? v : "";
-    } catch (e) {
-      return "";
-    }
+    return getStoredURL(tab, STAR_URL_KEY);
   }
 
   // Returns true when stored. Invalid URLs are rejected (previous value
   // kept) so a typo in the edit dialog can never brick the reset target.
   function setStarURL(tab, url) {
-    try {
-      if (!tab || !isStarrableURL(url)) {
-        return false;
-      }
-      SessionStore.setCustomTabValue(tab, STAR_URL_KEY, String(url));
-      return true;
-    } catch (e) {
-      try {
-        starLastError = "set-threw";
-      } catch (err) {}
-      return false;
-    }
+    return setStoredURL(tab, STAR_URL_KEY, url, starNoteErr);
   }
 
   function applyStarAttribute(tab) {
@@ -9579,46 +10118,10 @@
   // back to the live URL so reset/menu never dead-end on them.
   function effectiveStarURL(tab) {
     try {
-      return getStarURL(tab) || starSpec(tab);
+      return getStarURL(tab) || tabSpec(tab);
     } catch (e) {
       return "";
     }
-  }
-
-  function loadStarURL(browser, url) {
-    let principal = null;
-    try {
-      principal = systemPrincipal();
-    } catch (e) {
-      principal = null;
-    }
-    try {
-      if (browser && typeof browser.fixupAndLoadURIString === "function") {
-        browser.fixupAndLoadURIString(url, { triggeringPrincipal: principal });
-        return true;
-      }
-    } catch (e) {
-      try {
-        starLastError = "fixup-threw";
-      } catch (err) {}
-    }
-    // Fallback for browsers without the fixup helper wired up.
-    try {
-      if (browser && typeof browser.loadURI === "function" && Services && Services.io) {
-        browser.loadURI(Services.io.newURI(url), { triggeringPrincipal: principal });
-        return true;
-      }
-    } catch (e) {
-      try {
-        starLastError = "loadURI-threw";
-      } catch (err) {}
-    }
-    try {
-      if (!starLastError) {
-        starLastError = "no-loader";
-      }
-    } catch (err) {}
-    return false;
   }
 
   // Returns true when navigation was kicked off.
@@ -9644,7 +10147,7 @@
         } catch (err) {}
         return false;
       }
-      return loadStarURL(browser, url);
+      return loadBaseURL(browser, url, starNoteErr);
     } catch (e) {
       try {
         starLastError = "reset-threw";
@@ -9667,7 +10170,7 @@
         return false;
       }
       if (!getStarURL(tab)) {
-        const spec = starSpec(tab);
+        const spec = tabSpec(tab);
         if (spec) {
           try {
             SessionStore.setCustomTabValue(tab, STAR_URL_KEY, spec);
@@ -9746,90 +10249,22 @@
     } catch (err) {}
   }
 
-  // Resolve the right-clicked tab, mirroring 75-pinreset.js: triggerNode
-  // may carry the tab directly (.tab) or contain it; fall back to selected.
-  function starClickedTab(e) {
-    try {
-      const popup = e && e.target;
-      const node = (popup && popup.triggerNode) || document.popupNode || null;
-      if (node) {
-        const direct =
-          node.tab ||
-          (typeof node.closest === "function" ? node.closest("tab") : null);
-        if (direct) {
-          return direct;
-        }
-      }
-      if (gBrowser && gBrowser.selectedTab) {
-        return gBrowser.selectedTab;
-      }
-    } catch (err) {}
-    return null;
-  }
-
-  function makeStarMenuItem(id, label, action) {
-    let item = null;
-    try {
-      // browser.xhtml is an XHTML document: document.createElement would
-      // build an HTML-namespaced dud inside the XUL menupopup (same
-      // gotcha as archive.js / 75-pinreset.js).
-      item =
-        typeof document.createXULElement === "function"
-          ? document.createXULElement("menuitem")
-          : document.createElement("menuitem");
-      item.id = id;
-      item.setAttribute("label", label);
-      if (typeof item.addEventListener === "function") {
-        item.addEventListener("command", action);
-      }
-    } catch (err) {
-      item = null;
-    }
-    return item;
-  }
-
+  // Resolve the right-clicked tab (shared resolver: triggerNode may
+  // carry the tab directly (.tab) or contain it; falls back to selected).
   let starMenuItems = [];
 
   function clearStarMenu() {
-    try {
-      for (const it of starMenuItems) {
-        try {
-          if (it && it.parentNode) {
-            it.parentNode.removeChild(it);
-          } else if (it && typeof it.remove === "function") {
-            it.remove();
-          }
-        } catch (err) {}
-      }
-    } catch (err) {}
-    starMenuItems = [];
+    starMenuItems = takeDownMenuItems(starMenuItems);
   }
 
   function promptStarURL(tab, initial) {
-    const commit = (v) => {
-      try {
-        const value = String(v == null ? "" : v).trim();
-        if (value) {
-          setStarURL(tab, value);
-        }
-      } catch (err) {}
-    };
-    try {
-      if (window.AphPalette && typeof window.AphPalette.prompt === "function") {
-        window.AphPalette.prompt({
-          title: "Set Starred Page — Enter saves, Esc cancels",
-          initial: initial || "",
-          onCommit: commit,
-        });
-        return;
-      }
-    } catch (err) {}
-    // Palette unavailable (tests, minimal chrome): stock prompt fallback.
-    try {
-      if (typeof window.prompt === "function") {
-        commit(window.prompt("Set Starred Page URL:", initial || ""));
-      }
-    } catch (err) {}
+    promptBaseURL(
+      tab,
+      initial,
+      "Set Starred Page — Enter saves, Esc cancels",
+      "Set Starred Page URL:",
+      setStarURL
+    );
   }
 
   function onStarMenuShowing(e) {
@@ -9839,12 +10274,12 @@
         return;
       }
       clearStarMenu();
-      const tab = starClickedTab(e);
+      const tab = contextClickedTab(e);
       if (!tab || tab.pinned) {
         return;
       }
       const starred = isStarredTab(tab);
-      const toggle = makeStarMenuItem(
+      const toggle = makeDockMenuItem(
         "aph-star-toggle",
         starred ? "Unstar Tab" : "Star Tab",
         () => {
@@ -9863,7 +10298,7 @@
         return;
       }
       const stored = effectiveStarURL(tab);
-      const reset = makeStarMenuItem("aph-star-reset", "Reset to Starred Page", () => {
+      const reset = makeDockMenuItem("aph-star-reset", "Reset to Starred Page", () => {
         try {
           resetStarTab(tab);
         } catch (err) {}
@@ -9871,7 +10306,7 @@
       if (reset) {
         // Grey out when already there — nothing to do.
         try {
-          if (stored && stored === starSpec(tab)) {
+          if (stored && stored === tabSpec(tab)) {
             reset.setAttribute("disabled", "true");
           }
         } catch (err) {}
@@ -9880,11 +10315,11 @@
           starMenuItems.push(reset);
         } catch (err) {}
       }
-      const edit = makeStarMenuItem("aph-star-set", "Set Starred Page…", () => {
+      const edit = makeDockMenuItem("aph-star-set", "Set Starred Page…", () => {
         try {
           // Live-first: Enter alone re-stars the current page (the common
           // "make this the base" case); stored is the fallback.
-          promptStarURL(tab, starSpec(tab) || stored);
+          promptStarURL(tab, tabSpec(tab) || stored);
         } catch (err) {}
       });
       if (edit) {
@@ -10328,6 +10763,15 @@
               }
             }
           } catch (err) {}
+          // Re-show anything hidden early (reconcile/unify acting on the
+          // tagless default before extData landed) now that the tag
+          // settled — applyTreeVisibility owns the selected/tree/group
+          // guards, so this can't fight intentional hides.
+          try {
+            if (typeof applyTreeVisibility === "function") {
+              applyTreeVisibility();
+            }
+          } catch (err) {}
         }, 0);
       } catch (err) {}
     }
@@ -10364,6 +10808,15 @@
     }
     try {
       renderDock();
+    } catch (err) {}
+    // Settle visibility symmetrically: hide foreign strays AND re-show
+    // current-workspace tabs hidden early (before their tag landed).
+    // Without the re-show half, an early hide sticks until the next
+    // switch — the tab looks deleted.
+    try {
+      if (typeof applyTreeVisibility === "function") {
+        applyTreeVisibility();
+      }
     } catch (err) {}
   }
 
@@ -11430,6 +11883,11 @@
       cleanupDock();
     } catch (e) {}
     try {
+      if (typeof cleanupSidebarFooter === "function") {
+        cleanupSidebarFooter();
+      }
+    } catch (e) {}
+    try {
       if (
         window.__aphNewTabWrapped &&
         typeof origBrowserOpenTab === "function"
@@ -11592,7 +12050,6 @@
         listContainers,
         getWsContainer: getWsContainerId,
         describeContainer,
-        getAllBindings,
         getRoutes: getAllRoutes,
         setRoute,
         deleteRoute,
@@ -11612,6 +12069,8 @@
         getUnloadOnSwitch,
         renderDock,
         closeWorkspaceTabs,
+        applySidebarFooter:
+          typeof applySidebarFooter === "function" ? applySidebarFooter : () => false,
         getTreeLevel,
         getTreeParent: getTreeParentTab,
         getTreeChildren,

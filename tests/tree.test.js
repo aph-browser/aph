@@ -4,7 +4,7 @@
 // manual indent/outdent repair, rail element injection.
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { run, makeTab } = require("./helpers");
+const { run, makeTab, makeSessionStore, makeCi, makeChromeUtils, nullIdentityService } = require("./helpers");
 
 // Minimal fake-DOM surface for syncTreeChrome/syncTreeRails: real tabs
 // expose querySelector/appendChild; the plain mocks above deliberately
@@ -178,21 +178,7 @@ function makeEnv() {
         _updateCloseButtons() {},
       },
     },
-    SessionStore: {
-      getCustomTabValue: (t, k) => (tabVals.get(t) || {})[k],
-      setCustomTabValue: (t, k, v) => {
-        const o = tabVals.get(t) || {};
-        o[k] = v;
-        tabVals.set(t, o);
-      },
-      deleteCustomTabValue: (t, k) => {
-        const o = tabVals.get(t) || {};
-        delete o[k];
-        tabVals.set(t, o);
-      },
-      getCustomWindowValue: () => undefined,
-      setCustomWindowValue: () => {},
-    },
+    SessionStore: makeSessionStore(tabVals),
     Services: {
       prefs: {
         getStringPref: (k, d) => (k in prefStore ? prefStore[k] : d),
@@ -208,21 +194,8 @@ function makeEnv() {
       },
       obs: { addObserver() {}, removeObserver() {} },
     },
-    ChromeUtils: {
-      generateQI: () => () => {},
-      importESModule: () => ({
-        ContextualIdentityService: {
-          getPublicIdentityFromId: () => null,
-          getPublicIdentities: () => [],
-          create: () => { throw new Error("unused"); },
-          remove: () => {},
-        },
-      }),
-    },
-    Ci: {
-      nsIWebProgressListener: { LOCATION_CHANGE_SAME_DOCUMENT: 2 },
-      nsIWebProgress: { NOTIFY_LOCATION: 1 },
-    },
+    ChromeUtils: makeChromeUtils(nullIdentityService),
+    Ci: makeCi(),
   };
   sb.window.window = sb.window;
   const seed = makeTab(tabVals, { label: "seed", ws: "1", spec: "https://seed.example/" });

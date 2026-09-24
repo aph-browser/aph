@@ -277,9 +277,15 @@
     return false;
   }
 
-  function parkSelectedStarredTab() {
+  // Shared Ctrl+W park for owned-base-URL tabs (pins + stars): guards,
+  // drift-reset-in-place, then neighbor-select + discard. checkOwned(sel)
+  // returns a reason string when the tab isn't eligible, null when it is
+  // (each kind keeps its own check order); getTarget/doReset carry the
+  // kind's base-URL accessors with the usual typeof guards (50 loads
+  // before 75/76).
+  function parkSelectedOwnedTab(prefOn, checkOwned, getTarget, doReset) {
     try {
-      if (!getCtrlWParksStarred()) {
+      if (!prefOn()) {
         return { ok: false, reason: "disabled" };
       }
       let sel = null;
@@ -294,13 +300,9 @@
           return { ok: false, reason: "closing" };
         }
       } catch (e) {}
-      try {
-        if (sel.pinned) {
-          return { ok: false, reason: "pinned" };
-        }
-      } catch (e) {}
-      if (!isStarredForPark(sel)) {
-        return { ok: false, reason: "not-starred" };
+      const notOwned = checkOwned(sel);
+      if (notOwned) {
+        return { ok: false, reason: notOwned };
       }
       // Multiselection closes as a unit in stock — never half-park it.
       try {
@@ -341,19 +343,19 @@
           return { ok: false, reason: "newtab" };
         }
       } catch (e) {}
-      // Drifted star: reset to the starred base URL in place (stay
-      // selected, no unload) and claim the keystroke. Same ordering as
-      // pins: after the guards (unsaved work still prompts via stock,
-      // internal pages never navigate), before the neighbor check so a
-      // sole-tab star can still reset.
+      // Drifted base: reset to the base URL in place (stay selected, no
+      // unload) and claim the keystroke. Runs after the guards above so
+      // unsaved work still falls through to stock (which prompts) and
+      // internal pages never navigate; runs before the neighbor check so
+      // a sole-tab owned tab can still reset. Reset-then-discard in one
+      // press is deliberately avoided: the fresh navigation would race
+      // the discard (which tears down the load), so park happens on the
+      // next press, once at base.
       try {
-        const target =
-          typeof effectiveStarURL === "function" ? effectiveStarURL(sel) : "";
+        const target = getTarget(sel);
         if (target && spec && target !== spec) {
           try {
-            if (typeof resetStarTab === "function") {
-              resetStarTab(sel);
-            }
+            doReset(sel);
           } catch (_e) {}
           // Reset navigation must not re-trigger domain routing.
           try {
@@ -397,125 +399,48 @@
     }
   }
 
-  function parkSelectedPinnedTab() {
-    try {
-      if (!getCtrlWParksPinned()) {
-        return { ok: false, reason: "disabled" };
-      }
-      let sel = null;
-      try {
-        sel = gBrowser.selectedTab;
-      } catch (e) {}
-      if (!sel) {
-        return { ok: false, reason: "no-tab" };
-      }
-      try {
-        if (sel.closing) {
-          return { ok: false, reason: "closing" };
-        }
-      } catch (e) {}
-      try {
-        if (!sel.pinned) {
-          return { ok: false, reason: "not-pinned" };
-        }
-      } catch (e) {
-        return { ok: false, reason: "not-pinned" };
-      }
-      // Multiselection closes as a unit in stock — never half-park it.
-      try {
-        const multi = gBrowser.selectedTabs || gBrowser.multiselectedTabs || null;
-        if (Array.isArray(multi) && multi.length > 1) {
-          return { ok: false, reason: "multi" };
-        }
-      } catch (e) {}
-      // Already parked: let stock close (second press closes).
-      try {
-        if (typeof sel.hasAttribute === "function" && sel.hasAttribute("pending")) {
-          return { ok: false, reason: "pending" };
-        }
-      } catch (e) {}
-      // Unsaved work: non-force discard would not prompt, so fall through
-      // to stock close, which does.
-      try {
-        if (sel.linkedBrowser?.frameLoader?.tabParent?.hasBeforeUnload) {
-          return { ok: false, reason: "beforeunload" };
-        }
-      } catch (e) {}
-      let spec = null;
-      try {
-        spec = sel.linkedBrowser?.currentURI?.spec;
-      } catch (e) {}
-      if (typeof spec !== "string" || !spec) {
-        return { ok: false, reason: "unknown-url" };
-      }
-      if (
-        spec.startsWith("about:") ||
-        spec.startsWith("chrome:") ||
-        spec.startsWith("resource:")
-      ) {
-        return { ok: false, reason: "internal" };
-      }
-      try {
-        if (isNewTab(sel)) {
-          return { ok: false, reason: "newtab" };
-        }
-      } catch (e) {}
-      // Drifted pin: reset to the pinned base URL in place (stay selected,
-      // no unload) and claim the keystroke — the tab visibly snaps back
-      // instead of closing. Runs after the guards above so unsaved work
-      // still falls through to stock (which prompts) and internal pages
-      // never navigate; runs before the neighbor check so a sole-tab pin
-      // can still reset. Reset-then-discard in one press is deliberately
-      // avoided: the fresh navigation would race the discard (which tears
-      // down the load), so park happens on the next press, once at base.
-      try {
-        const target =
-          typeof effectivePinURL === "function" ? effectivePinURL(sel) : "";
-        if (target && spec && target !== spec) {
-          try {
-            if (typeof resetPinTab === "function") {
-              resetPinTab(sel);
-            }
-          } catch (_e) {}
-          // Reset navigation must not re-trigger domain routing.
-          try {
-            sel.__aphFresh = false;
-          } catch (_e) {}
-          return { ok: true, reset: true };
-        }
-      } catch (e) {}
-      const next = findParkNeighbor(sel);
-      if (!next) {
-        return { ok: false, reason: "only-tab" };
-      }
-      if (typeof gBrowser.discardBrowser !== "function") {
-        return { ok: false, reason: "no-api" };
-      }
-      try {
-        gBrowser.selectedTab = next;
-      } catch (e) {
-        return { ok: false, reason: "no-select" };
-      }
-      let discarded = false;
-      try {
-        // Stock returns false on refusal, undefined on success.
-        discarded = gBrowser.discardBrowser(sel) !== false;
-      } catch (e) {
-        discarded = false;
-      }
-      if (!discarded) {
+  function parkSelectedStarredTab() {
+    return parkSelectedOwnedTab(
+      getCtrlWParksStarred,
+      (sel) => {
         try {
-          gBrowser.selectedTab = sel;
-        } catch (_e) {}
-        return { ok: false, reason: "discard-refused" };
+          if (sel.pinned) {
+            return "pinned";
+          }
+        } catch (e) {}
+        if (!isStarredForPark(sel)) {
+          return "not-starred";
+        }
+        return null;
+      },
+      (sel) => (typeof effectiveStarURL === "function" ? effectiveStarURL(sel) : ""),
+      (sel) => {
+        if (typeof resetStarTab === "function") {
+          resetStarTab(sel);
+        }
       }
-      // Discarded reload must not re-trigger domain routing.
-      try {
-        sel.__aphFresh = false;
-      } catch (e) {}
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, reason: "error" };
-    }
+    );
+  }
+
+  function parkSelectedPinnedTab() {
+    return parkSelectedOwnedTab(
+      getCtrlWParksPinned,
+      (sel) => {
+        try {
+          if (!sel.pinned) {
+            return "not-pinned";
+          }
+        } catch (e) {
+          return "not-pinned";
+        }
+        return null;
+      },
+      (sel) => (typeof effectivePinURL === "function" ? effectivePinURL(sel) : ""),
+      (sel) => {
+        if (typeof resetPinTab === "function") {
+          resetPinTab(sel);
+        }
+      }
+    );
   }
 

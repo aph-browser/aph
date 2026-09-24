@@ -120,6 +120,52 @@
     } catch (e) {}
   }
 
+  // Switch animation: fade incoming tabs in after the synchronous
+  // hidden-attribute swap. A leave-side fade is impossible here — the whole
+  // switch commits in one task, so a leave frame would never paint — but
+  // the enter fade alone reads as a soft dissolve, and the indicator pulse
+  // above covers the "confirmation". Pins are global (never change) so
+  // they are excluded; tree-collapsed descendants were already re-hidden
+  // by applyTreeVisibility and stay out. Fail-silent throughout (test tabs
+  // have no classList, which just no-ops).
+  function animateIncomingTabs(tabs) {
+    let animated = null;
+    try {
+      for (const t of tabs || []) {
+        try {
+          if (!t || t.closing || t.pinned) {
+            continue;
+          }
+          if (t.hidden) {
+            continue;
+          }
+          if (typeof t.hasAttribute === "function" && t.hasAttribute("hidden")) {
+            continue;
+          }
+          if (!t.classList || typeof t.classList.add !== "function") {
+            continue;
+          }
+          t.classList.add("aph-ws-enter");
+          (animated = animated || []).push(t);
+        } catch (e) {}
+      }
+    } catch (e) {}
+    if (!animated) {
+      return;
+    }
+    try {
+      setTimeout(() => {
+        try {
+          for (const t of animated) {
+            try {
+              t.classList.remove("aph-ws-enter");
+            } catch (e) {}
+          }
+        } catch (e) {}
+      }, 200);
+    } catch (e) {}
+  }
+
   // Local-only switch: show `target` in this window. Cross-window policy
   // lives in switchTo (55-exclusive.js); callers that already resolved
   // ownership (startup de-dupe) use this directly. Returns "local"/"noop"
@@ -174,6 +220,11 @@
     anchorAllGroups();
     reconcile(target, tabs);
     pruneExtraNewTabs(target);
+    // Fresh snapshot: reconcile may have opened a tab for an empty
+    // workspace, which the stale list above would miss.
+    try {
+      animateIncomingTabs(Array.from(gBrowser.tabs));
+    } catch (e) {}
     // Pinned tabs match the viewed workspace (not their dormant tag), so
     // every switch re-syncs markers; unpinned matches are tag-stable and
     // the pass is a cheap no-op for them.
@@ -727,12 +778,9 @@
           tabs = explicit.filter((t) => t && !t.closing);
         }
       } else if (explicit && !explicit.closing) {
-        try {
-          const live = Array.from(gBrowser.tabs || []);
-          tabs = live.includes(explicit) ? [explicit] : [explicit];
-        } catch (e) {
-          tabs = [explicit];
-        }
+        // Single explicit tab (drag or caller): liveness filtering needs
+        // the strip, which may itself throw — either way it moves alone.
+        tabs = [explicit];
       }
     } catch (e) {}
     if (!tabs.length) {

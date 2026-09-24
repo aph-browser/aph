@@ -275,4 +275,43 @@ describe("restore tag safety (3->2 scramble)", () => {
     w.flushTimeouts();
     assert.equal(w.wsOf(t), "3", "settled WS3 tag survives the deferred tick");
   });
+
+  it("unifyGroup never hides tagless members (restore race re-shows)", () => {
+    const w = makeWorld();
+    w.api.switchTo("2");
+    const a = makeTab(w.tabVals, { label: "ga", ws: undefined, spec: "https://ga.example/" });
+    const b = makeTab(w.tabVals, { label: "gb", ws: undefined, spec: "https://gb.example/" });
+    w.tabVals.get(a).aphWs = undefined;
+    w.tabVals.get(b).aphWs = undefined;
+    w.sb.gBrowser.tabs.push(a, b);
+    const g = { tabs: [a, b], label: "", color: "", collapsed: false };
+    a.group = g;
+    b.group = g;
+    w.sb.gBrowser.tabGroups.push(g);
+    // Group event mid-restore (extData not landed): members are tagless.
+    w.fire("TabGroupCreate", a);
+    w.flushTimeouts();
+    assert.equal(a.hidden, false, "tagless group member must not hide early");
+    assert.equal(b.hidden, false, "tagless group member must not hide early");
+    // ExtData lands + settle: tags intact, still visible.
+    w.tabVals.get(a).aphWs = "2";
+    w.tabVals.get(b).aphWs = "2";
+    w.fire("SSTabRestored", a);
+    w.fire("SSTabRestored", b);
+    w.flushTimeouts();
+    assert.equal(w.wsOf(a), "2");
+    assert.equal(w.wsOf(b), "2");
+    assert.equal(a.hidden, false, "settled current-workspace tab must show");
+    assert.equal(b.hidden, false, "settled current-workspace tab must show");
+  });
+
+  it("switching never hides a tagless tab (settle path owns it)", () => {
+    const w = makeWorld();
+    const t = makeTab(w.tabVals, { label: "fresh", ws: undefined, spec: "https://fresh.example/" });
+    w.tabVals.get(t).aphWs = undefined;
+    w.sb.gBrowser.tabs.push(t);
+    w.api.switchTo("2");
+    assert.equal(t.hidden, false, "tagless tab must stay visible until its tag lands");
+    assert.equal(w.wsOf(t), undefined, "switch must not stamp the tagless tab either");
+  });
 });

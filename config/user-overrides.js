@@ -83,6 +83,11 @@ user_pref("aph.pins.ctrlWUnloads", true);
 // stock close-on-first-press.
 user_pref("aph.stars.ctrlWUnloads", true);
 
+// 17. Sidebar footer (settings gear): hidden by default to reclaim the
+// strip. The palette's Show/Hide Sidebar Footer command flips it live;
+// Customize Sidebar stays reachable via the Aph menu either way.
+user_pref("aph.sidebar.hideFooter", true);
+
 // 13. Default New Tab wallpaper: Celestial "eclipse-time-lapse" (dark).
 // NOTE: this pref stores the wallpaper *title*, not the record ID/UUID.
 // (title eclipse-time-lapse; attachment main-workspace/newtab-wallpapers-v2/55b678ff-15c3-49d5-bdbc-40f8413cfb8a.avif;

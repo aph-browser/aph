@@ -437,4 +437,40 @@ describe("inline dblclick editor", () => {
     assert.equal(api.getName(t), "");
     assert.equal(t.getAttribute("label"), "Real Page Title");
   });
+
+  it("never paints past the tab's own edge on narrow tabs", () => {
+    const env = makeSandbox();
+    loadRename(env);
+    const t = freshTab(env, "Real Page Title");
+    env.setSel(t);
+    // Narrow tab: label starts at 30, tab ends at 100.
+    t.getBoundingClientRect = () => ({ left: 10, top: 0, right: 100, bottom: 24, width: 90, height: 24 });
+    const { labelTarget } = labelSetup(env, t, { left: 30, top: 2, width: 50, height: 20 });
+    dblclick(env, labelTarget);
+    const input = env.appended[0];
+    // Legacy floor (120px) would run to 150 — clamped to 100-30-2 = 68.
+    assert.equal(input.style.width, "68px");
+    assert.ok(30 + parseFloat(input.style.width) <= 100, "stays inside the tab");
+  });
+
+  it("keeps the floor on roomy tabs and clamps on resync", () => {
+    const env = makeSandbox();
+    loadRename(env);
+    const t = freshTab(env, "Real Page Title");
+    env.setSel(t);
+    const tabRect = { left: 10, top: 0, right: 500, bottom: 24, width: 490, height: 24 };
+    t.getBoundingClientRect = () => tabRect;
+    const labelRect = { left: 30, top: 2, width: 50, height: 20 };
+    const { labelTarget } = labelSetup(env, t, labelRect);
+    dblclick(env, labelTarget);
+    const input = env.appended[0];
+    assert.equal(input.style.width, "120px");
+    // Tab shrinks under the open editor (crowded strip) — scroll resync
+    // must pull the editor back inside instead of tracking past the edge.
+    tabRect.right = 100;
+    tabRect.width = 90;
+    env.containerHandlers["scroll"]();
+    assert.equal(input.style.width, "68px");
+    assert.ok(30 + parseFloat(input.style.width) <= 100, "resync stays inside the tab");
+  });
 });

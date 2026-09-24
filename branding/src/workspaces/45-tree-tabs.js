@@ -573,29 +573,6 @@
     }
   }
 
-  // Last index (in gBrowser.tabs order) occupied by parent or any of its
-  // descendants. New children are inserted directly after it.
-  function lastTreeDescendantIndex(parentTab) {
-    try {
-      const tabs = Array.from(gBrowser.tabs || []);
-      let best = tabs.indexOf(parentTab);
-      if (best === -1) {
-        return -1;
-      }
-      for (const d of getTreeDescendants(parentTab)) {
-        try {
-          const i = tabs.indexOf(d);
-          if (i > best) {
-            best = i;
-          }
-        } catch (e) {}
-      }
-      return best;
-    } catch (e) {
-      return -1;
-    }
-  }
-
   // Move `tab` to final index `toIndex` (clamped) via the verified stock
   // mover: tabbrowser.moveTabTo(element, { tabIndex }) where tabIndex is
   // the desired FINAL index within gBrowser.tabs (Firefox 155 omni.ja,
@@ -1594,49 +1571,6 @@
     } catch (e) {
       return { error: "debug-threw" };
     }
-  }
-
-  // Swapped-in replacements (container repair, domain-route reopen) keep
-  // the original's tree slot: same parent, same workspace, same position.
-  function inheritTreeLink(replacement, original) {
-    try {
-      if (!replacement || !original || replacement === original) {
-        return;
-      }
-      ensureTreeId(replacement);
-      let ws = null;
-      try {
-        ws = getWs(original);
-      } catch (e) {}
-      if (isValidId(ws)) {
-        try {
-          setWs(replacement, ws);
-        } catch (e) {}
-      }
-      let pid = null;
-      try {
-        pid = rawTreeParentId(original);
-      } catch (e) {}
-      if (pid) {
-        const parentTab = findTabByTreeId(pid);
-        if (parentTab && parentTab !== replacement && !parentTab.closing) {
-          try {
-            setTreeParent(replacement, pid);
-          } catch (e) {}
-        } else {
-          clearTreeParent(replacement);
-        }
-      } else {
-        clearTreeParent(replacement);
-      }
-      try {
-        const tabs = Array.from(gBrowser.tabs || []);
-        const at = tabs.indexOf(original);
-        if (at !== -1) {
-          moveTreeTabTo(replacement, at);
-        }
-      } catch (e) {}
-    } catch (e) {}
   }
 
   // Closing a parent promotes direct children up one level in place

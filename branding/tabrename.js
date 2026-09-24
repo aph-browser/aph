@@ -202,6 +202,8 @@
   // second editor commits the first.
   const EDITOR_ID = "aph-tab-rename-input";
   const EDITOR_MIN_WIDTH = 120;
+  // Breathing room before the tab's own edge (close button, radius).
+  const EDITOR_EDGE_PAD = 2;
   let editor = null; // { input, tab } while open
 
   function labelBox(tab) {
@@ -219,6 +221,44 @@
       return r;
     } catch (e) {
       return null;
+    }
+  }
+
+  function tabBox(tab) {
+    try {
+      if (!tab || typeof tab.getBoundingClientRect !== "function") {
+        return null;
+      }
+      const r = tab.getBoundingClientRect();
+      if (!r || (r.width <= 0 && r.height <= 0)) {
+        return null;
+      }
+      return r;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Never paint past the tab's own edge: the 120px floor is for roomy
+  // tabs, but a narrow tab clamps to the run between label start and tab
+  // end (minus pad). No tab box (tests, exotic chrome) keeps the legacy
+  // floor so old behavior is the fallback, not a crash.
+  function editorWidth(labelR, tabR) {
+    try {
+      const want = Math.max(EDITOR_MIN_WIDTH, labelR.width);
+      if (tabR && isFinite(tabR.right) && isFinite(labelR.left)) {
+        const max = tabR.right - labelR.left - EDITOR_EDGE_PAD;
+        if (isFinite(max)) {
+          return Math.max(1, Math.min(want, max));
+        }
+      }
+      return want;
+    } catch (e) {
+      try {
+        return labelR.width;
+      } catch (_e) {
+        return EDITOR_MIN_WIDTH;
+      }
     }
   }
 
@@ -259,11 +299,15 @@
       closeEditor(false);
       return;
     }
+    let tabR = null;
+    try {
+      tabR = tabBox(editor.tab);
+    } catch (e) {}
     try {
       const s = editor.input.style;
       s.left = `${r.left}px`;
       s.top = `${r.top}px`;
-      s.width = `${Math.max(EDITOR_MIN_WIDTH, r.width)}px`;
+      s.width = `${editorWidth(r, tabR)}px`;
       s.height = `${r.height}px`;
     } catch (e) {}
   }
@@ -308,7 +352,11 @@
       s.zIndex = "2147483647";
       s.left = `${r.left}px`;
       s.top = `${r.top}px`;
-      s.width = `${Math.max(EDITOR_MIN_WIDTH, r.width)}px`;
+      let tabR = null;
+      try {
+        tabR = tabBox(tab);
+      } catch (e) {}
+      s.width = `${editorWidth(r, tabR)}px`;
       s.height = `${r.height}px`;
       try {
         input.value = getName(tab) || tab.label || "";

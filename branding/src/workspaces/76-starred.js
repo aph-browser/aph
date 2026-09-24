@@ -19,26 +19,10 @@
   // House style stays silent in prod; this keeps the silence debuggable.
   let starLastError = "";
 
-  function starSpec(tab) {
+  function starNoteErr(code) {
     try {
-      const uri = tab && tab.linkedBrowser && tab.linkedBrowser.currentURI;
-      const spec = uri && uri.spec;
-      return typeof spec === "string" ? spec : "";
-    } catch (e) {
-      return "";
-    }
-  }
-
-  function isStarrableURL(url) {
-    try {
-      const u = new URL(String(url || ""));
-      if (u.protocol === "javascript:") {
-        return false;
-      }
-      return !!u.host || u.protocol.indexOf("about:") === 0;
-    } catch (e) {
-      return false;
-    }
+      starLastError = code;
+    } catch (err) {}
   }
 
   function isStarredTab(tab) {
@@ -55,15 +39,15 @@
       if (v === "1") {
         return true;
       }
-      // Restored before SSTabRestored re-applies: attribute backstop.
+      // Restored before SSTabRestored re-applies: attribute backstop. A
+      // present-but-false hasAttribute implies getAttribute is null, so a
+      // single branch covers both DOM and exotic tab-likes.
       try {
-        if (typeof tab.hasAttribute === "function" && tab.hasAttribute(STAR_ATTR)) {
-          return true;
+        if (typeof tab.hasAttribute === "function") {
+          return tab.hasAttribute(STAR_ATTR);
         }
-      } catch (e) {}
-      try {
-        if (typeof tab.getAttribute === "function" && tab.getAttribute(STAR_ATTR) === "1") {
-          return true;
+        if (typeof tab.getAttribute === "function") {
+          return tab.getAttribute(STAR_ATTR) === "1";
         }
       } catch (e) {}
       return false;
@@ -73,37 +57,13 @@
   }
 
   function getStarURL(tab) {
-    try {
-      if (!tab) {
-        return "";
-      }
-      let v = null;
-      try {
-        v = SessionStore.getCustomTabValue(tab, STAR_URL_KEY);
-      } catch (e) {
-        v = null;
-      }
-      return typeof v === "string" && v ? v : "";
-    } catch (e) {
-      return "";
-    }
+    return getStoredURL(tab, STAR_URL_KEY);
   }
 
   // Returns true when stored. Invalid URLs are rejected (previous value
   // kept) so a typo in the edit dialog can never brick the reset target.
   function setStarURL(tab, url) {
-    try {
-      if (!tab || !isStarrableURL(url)) {
-        return false;
-      }
-      SessionStore.setCustomTabValue(tab, STAR_URL_KEY, String(url));
-      return true;
-    } catch (e) {
-      try {
-        starLastError = "set-threw";
-      } catch (err) {}
-      return false;
-    }
+    return setStoredURL(tab, STAR_URL_KEY, url, starNoteErr);
   }
 
   function applyStarAttribute(tab) {
@@ -153,46 +113,10 @@
   // back to the live URL so reset/menu never dead-end on them.
   function effectiveStarURL(tab) {
     try {
-      return getStarURL(tab) || starSpec(tab);
+      return getStarURL(tab) || tabSpec(tab);
     } catch (e) {
       return "";
     }
-  }
-
-  function loadStarURL(browser, url) {
-    let principal = null;
-    try {
-      principal = systemPrincipal();
-    } catch (e) {
-      principal = null;
-    }
-    try {
-      if (browser && typeof browser.fixupAndLoadURIString === "function") {
-        browser.fixupAndLoadURIString(url, { triggeringPrincipal: principal });
-        return true;
-      }
-    } catch (e) {
-      try {
-        starLastError = "fixup-threw";
-      } catch (err) {}
-    }
-    // Fallback for browsers without the fixup helper wired up.
-    try {
-      if (browser && typeof browser.loadURI === "function" && Services && Services.io) {
-        browser.loadURI(Services.io.newURI(url), { triggeringPrincipal: principal });
-        return true;
-      }
-    } catch (e) {
-      try {
-        starLastError = "loadURI-threw";
-      } catch (err) {}
-    }
-    try {
-      if (!starLastError) {
-        starLastError = "no-loader";
-      }
-    } catch (err) {}
-    return false;
   }
 
   // Returns true when navigation was kicked off.
@@ -218,7 +142,7 @@
         } catch (err) {}
         return false;
       }
-      return loadStarURL(browser, url);
+      return loadBaseURL(browser, url, starNoteErr);
     } catch (e) {
       try {
         starLastError = "reset-threw";
@@ -241,7 +165,7 @@
         return false;
       }
       if (!getStarURL(tab)) {
-        const spec = starSpec(tab);
+        const spec = tabSpec(tab);
         if (spec) {
           try {
             SessionStore.setCustomTabValue(tab, STAR_URL_KEY, spec);
@@ -320,90 +244,22 @@
     } catch (err) {}
   }
 
-  // Resolve the right-clicked tab, mirroring 75-pinreset.js: triggerNode
-  // may carry the tab directly (.tab) or contain it; fall back to selected.
-  function starClickedTab(e) {
-    try {
-      const popup = e && e.target;
-      const node = (popup && popup.triggerNode) || document.popupNode || null;
-      if (node) {
-        const direct =
-          node.tab ||
-          (typeof node.closest === "function" ? node.closest("tab") : null);
-        if (direct) {
-          return direct;
-        }
-      }
-      if (gBrowser && gBrowser.selectedTab) {
-        return gBrowser.selectedTab;
-      }
-    } catch (err) {}
-    return null;
-  }
-
-  function makeStarMenuItem(id, label, action) {
-    let item = null;
-    try {
-      // browser.xhtml is an XHTML document: document.createElement would
-      // build an HTML-namespaced dud inside the XUL menupopup (same
-      // gotcha as archive.js / 75-pinreset.js).
-      item =
-        typeof document.createXULElement === "function"
-          ? document.createXULElement("menuitem")
-          : document.createElement("menuitem");
-      item.id = id;
-      item.setAttribute("label", label);
-      if (typeof item.addEventListener === "function") {
-        item.addEventListener("command", action);
-      }
-    } catch (err) {
-      item = null;
-    }
-    return item;
-  }
-
+  // Resolve the right-clicked tab (shared resolver: triggerNode may
+  // carry the tab directly (.tab) or contain it; falls back to selected).
   let starMenuItems = [];
 
   function clearStarMenu() {
-    try {
-      for (const it of starMenuItems) {
-        try {
-          if (it && it.parentNode) {
-            it.parentNode.removeChild(it);
-          } else if (it && typeof it.remove === "function") {
-            it.remove();
-          }
-        } catch (err) {}
-      }
-    } catch (err) {}
-    starMenuItems = [];
+    starMenuItems = takeDownMenuItems(starMenuItems);
   }
 
   function promptStarURL(tab, initial) {
-    const commit = (v) => {
-      try {
-        const value = String(v == null ? "" : v).trim();
-        if (value) {
-          setStarURL(tab, value);
-        }
-      } catch (err) {}
-    };
-    try {
-      if (window.AphPalette && typeof window.AphPalette.prompt === "function") {
-        window.AphPalette.prompt({
-          title: "Set Starred Page — Enter saves, Esc cancels",
-          initial: initial || "",
-          onCommit: commit,
-        });
-        return;
-      }
-    } catch (err) {}
-    // Palette unavailable (tests, minimal chrome): stock prompt fallback.
-    try {
-      if (typeof window.prompt === "function") {
-        commit(window.prompt("Set Starred Page URL:", initial || ""));
-      }
-    } catch (err) {}
+    promptBaseURL(
+      tab,
+      initial,
+      "Set Starred Page — Enter saves, Esc cancels",
+      "Set Starred Page URL:",
+      setStarURL
+    );
   }
 
   function onStarMenuShowing(e) {
@@ -413,12 +269,12 @@
         return;
       }
       clearStarMenu();
-      const tab = starClickedTab(e);
+      const tab = contextClickedTab(e);
       if (!tab || tab.pinned) {
         return;
       }
       const starred = isStarredTab(tab);
-      const toggle = makeStarMenuItem(
+      const toggle = makeDockMenuItem(
         "aph-star-toggle",
         starred ? "Unstar Tab" : "Star Tab",
         () => {
@@ -437,7 +293,7 @@
         return;
       }
       const stored = effectiveStarURL(tab);
-      const reset = makeStarMenuItem("aph-star-reset", "Reset to Starred Page", () => {
+      const reset = makeDockMenuItem("aph-star-reset", "Reset to Starred Page", () => {
         try {
           resetStarTab(tab);
         } catch (err) {}
@@ -445,7 +301,7 @@
       if (reset) {
         // Grey out when already there — nothing to do.
         try {
-          if (stored && stored === starSpec(tab)) {
+          if (stored && stored === tabSpec(tab)) {
             reset.setAttribute("disabled", "true");
           }
         } catch (err) {}
@@ -454,11 +310,11 @@
           starMenuItems.push(reset);
         } catch (err) {}
       }
-      const edit = makeStarMenuItem("aph-star-set", "Set Starred Page…", () => {
+      const edit = makeDockMenuItem("aph-star-set", "Set Starred Page…", () => {
         try {
           // Live-first: Enter alone re-stars the current page (the common
           // "make this the base" case); stored is the fallback.
-          promptStarURL(tab, starSpec(tab) || stored);
+          promptStarURL(tab, tabSpec(tab) || stored);
         } catch (err) {}
       });
       if (edit) {

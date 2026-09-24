@@ -77,7 +77,129 @@ function makeTab(tabVals, o) {
   return t;
 }
 
-module.exports = { ROOT, load, run, makeTab, makeContentNode, makeTextNode };
+// Shared chrome-DOM/service stand-ins. Per-suite makeEnv skeletons keep
+// their own gBrowser/document/prefs shapes (behavior diverges there), but
+// these blocks are byte-identical across suites — define once here.
+
+// Light-DOM node stand-in with the attribute/event surface the bundles
+// touch (superset of the old per-file fakeNodes).
+function makeFakeNode(localName) {
+  const n = {
+    localName: localName || "div",
+    children: [],
+    _attrs: {},
+    style: {},
+    hidden: false,
+    textContent: "",
+    title: "",
+    className: "",
+    id: "",
+    parentNode: null,
+    _handlers: {},
+    _classes: new Set(),
+    appendChild(c) {
+      c.parentNode = n;
+      n.children.push(c);
+      return c;
+    },
+    removeChild(c) {
+      const i = n.children.indexOf(c);
+      if (i !== -1) n.children.splice(i, 1);
+      c.parentNode = null;
+      return c;
+    },
+    get firstChild() { return n.children[0] || null; },
+    setAttribute(k, v) { n._attrs[k] = String(v); },
+    getAttribute(k) { return k in n._attrs ? n._attrs[k] : null; },
+    removeAttribute(k) { delete n._attrs[k]; },
+    addEventListener(t, fn) { (n._handlers[t] = n._handlers[t] || []).push(fn); },
+    removeEventListener() {},
+    fire(t, ev) { for (const fn of n._handlers[t] || []) fn(ev || {}); },
+    querySelectorAll() { return []; },
+    querySelector() { return null; },
+    closest(sel) {
+      if (sel === ".aph-ws-pill" && n.className.split(" ").includes("aph-ws-pill")) return n;
+      if (sel === "tab" && n._isTab) return n;
+      if (sel === "#nav-bar") return null;
+      return null;
+    },
+  };
+  n.classList = {
+    add(c) { n._classes.add(c); },
+    remove(c) { n._classes.delete(c); },
+    contains(c) { return n._classes.has(c); },
+  };
+  return n;
+}
+
+// SessionStore tab/window values over a tabVals WeakMap. Window values
+// default to undefined (unowned); pass winVals to track claims.
+function makeSessionStore(tabVals, { winVals = null } = {}) {
+  return {
+    getCustomTabValue: (t, k) => (tabVals.get(t) || {})[k],
+    setCustomTabValue: (t, k, v) => {
+      const o = tabVals.get(t) || {};
+      o[k] = v;
+      tabVals.set(t, o);
+    },
+    deleteCustomTabValue: (t, k) => {
+      const o = tabVals.get(t) || {};
+      delete o[k];
+      tabVals.set(t, o);
+    },
+    getCustomWindowValue: (w, k) => (winVals && k === "aphWsCurrent" ? winVals.get(w) : undefined),
+    setCustomWindowValue: (w, k, v) => {
+      if (winVals && k === "aphWsCurrent") winVals.set(w, v);
+    },
+  };
+}
+
+function makeCi() {
+  return {
+    nsIWebProgressListener: { LOCATION_CHANGE_SAME_DOCUMENT: 2 },
+    nsIWebProgress: { NOTIFY_LOCATION: 1 },
+  };
+}
+
+// Container identity service stand-in (null = no containers bound).
+// Pass a richer mock (e.g. dock.test.js's identities) where needed.
+const nullIdentityService = {
+  getPublicIdentityFromId: () => null,
+  getPublicIdentities: () => [],
+  create: () => { throw new Error("unused"); },
+  remove: () => {},
+};
+
+function makeChromeUtils(identityService) {
+  return {
+    generateQI: () => () => {},
+    importESModule: () => ({ ContextualIdentityService: identityService }),
+  };
+}
+
+// Native tab-group stand-in (superset: closest + addTabs).
+function makeGroup(tabs, o) {
+  const g = {
+    tabs: tabs.slice(),
+    collapsed: !!(o && o.collapsed),
+    hidden: false,
+  };
+  for (const t of tabs) {
+    t.group = g;
+  }
+  g.closest = (sel) => (sel === "tab-group" ? g : null);
+  // Stock tabgroup.js addTabs fallback (append to group end).
+  g.addTabs = (arr) => {
+    for (const t of arr || []) {
+      if (!t || t.pinned) continue;
+      t.group = g;
+      if (!g.tabs.includes(t)) g.tabs.push(t);
+    }
+  };
+  return g;
+}
+
+module.exports = { ROOT, load, run, makeTab, makeContentNode, makeTextNode, makeFakeNode, makeSessionStore, makeCi, makeChromeUtils, nullIdentityService, makeGroup };
 
 // Minimal content-DOM stand-in for textpick-shared.js (duck-typed surface:
 // nodeType, tagName, parentNode/parentElement, innerText/textContent).

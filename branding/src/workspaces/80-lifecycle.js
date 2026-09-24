@@ -252,6 +252,15 @@
               }
             }
           } catch (err) {}
+          // Re-show anything hidden early (reconcile/unify acting on the
+          // tagless default before extData landed) now that the tag
+          // settled — applyTreeVisibility owns the selected/tree/group
+          // guards, so this can't fight intentional hides.
+          try {
+            if (typeof applyTreeVisibility === "function") {
+              applyTreeVisibility();
+            }
+          } catch (err) {}
         }, 0);
       } catch (err) {}
     }
@@ -288,6 +297,15 @@
     }
     try {
       renderDock();
+    } catch (err) {}
+    // Settle visibility symmetrically: hide foreign strays AND re-show
+    // current-workspace tabs hidden early (before their tag landed).
+    // Without the re-show half, an early hide sticks until the next
+    // switch — the tab looks deleted.
+    try {
+      if (typeof applyTreeVisibility === "function") {
+        applyTreeVisibility();
+      }
     } catch (err) {}
   }
 

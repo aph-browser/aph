@@ -130,18 +130,6 @@
     return id;
   }
 
-  function getAllBindings() {
-    const out = Object.create(null);
-    for (let i = 1; i <= 9; i++) {
-      const ws = String(i);
-      const id = getWsContainerId(ws);
-      if (id) {
-        out[ws] = { userContextId: id, ...(describeContainer(id) || {}) };
-      }
-    }
-    return out;
-  }
-
   // Per-tab container-line dimming: when a tab's container equals its
   // workspace's bound container, the native `.tab-context-line` is redundant
   // (the WS badge in updateIndicator already shows the binding). Matching

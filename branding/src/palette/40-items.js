@@ -213,6 +213,26 @@
     return out;
   }
 
+  // Sidebar footer (gear) toggle: pref aph.sidebar.hideFooter, hidden
+  // by default (an absent pref counts as hidden). The workspaces bundle
+  // observes the pref and hides sidebar-main's .buttons-wrapper live, so
+  // this command only flips the pref and repaints for the fresh title.
+  var SIDEBAR_FOOTER_PREF = "aph.sidebar.hideFooter";
+
+  function sidebarFooterHidden() {
+    try {
+      if (
+        typeof Services !== "undefined" &&
+        Services &&
+        Services.prefs &&
+        typeof Services.prefs.getBoolPref === "function"
+      ) {
+        return !!Services.prefs.getBoolPref(SIDEBAR_FOOTER_PREF);
+      }
+    } catch (e) {}
+    return true;
+  }
+
   function commands() {
     const api = ws();
     const cmds = [];
@@ -471,6 +491,67 @@
         run: () => {
           try {
             gURLBar.focus();
+          } catch (e) {}
+        },
+      },
+      {
+        // Toggle state prefix convention (✓/○): state visible without
+        // running anything. Applies to every Show/Hide toggle row.
+        title:
+          typeof sidebarFooterHidden === "function" && !sidebarFooterHidden()
+            ? "✓ Sidebar Footer (On)"
+            : "○ Sidebar Footer (Off)",
+        hint: "",
+        sub: "Sidebar settings gear · hidden by default · flips aph.sidebar.hideFooter",
+        keepOpen: true,
+        run: () => {
+          try {
+            if (
+              typeof Services !== "undefined" &&
+              Services &&
+              Services.prefs &&
+              typeof Services.prefs.setBoolPref === "function"
+            ) {
+              let cur = true;
+              try {
+                if (typeof sidebarFooterHidden === "function") {
+                  cur = sidebarFooterHidden();
+                }
+              } catch (e) {}
+              Services.prefs.setBoolPref(SIDEBAR_FOOTER_PREF, !cur);
+            }
+          } catch (e) {}
+          // Repaint so the row title flips Show ↔ Hide (otherwise the
+          // toggle looks dead: palette stays open with a stale title).
+          try {
+            if (typeof render === "function" && input) {
+              render(input.value);
+            }
+          } catch (e) {}
+        },
+      },
+      {
+        // Blind recovery: works from Ctrl+K with no sidebar visible.
+        // Closes the palette so the restored strip is seen immediately.
+        title: "Show Sidebar (Exit Hover Mode)",
+        hint: "",
+        sub: "Recovery when the strip won't expand · sets sidebar.visibility to always-show",
+        run: () => {
+          try {
+            if (
+              typeof Services !== "undefined" &&
+              Services &&
+              Services.prefs &&
+              typeof Services.prefs.setCharPref === "function"
+            ) {
+              Services.prefs.setCharPref("sidebar.visibility", "always-show");
+            }
+          } catch (e) {}
+          try {
+            const sc = window.SidebarController;
+            if (sc && typeof sc.updateToolbarButton === "function") {
+              sc.updateToolbarButton();
+            }
           } catch (e) {}
         },
       }

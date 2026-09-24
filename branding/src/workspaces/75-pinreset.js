@@ -13,60 +13,20 @@
   // House style stays silent in prod; this keeps the silence debuggable.
   let pinLastError = "";
 
-  function pinSpec(tab) {
+  function pinNoteErr(code) {
     try {
-      const uri = tab && tab.linkedBrowser && tab.linkedBrowser.currentURI;
-      const spec = uri && uri.spec;
-      return typeof spec === "string" ? spec : "";
-    } catch (e) {
-      return "";
-    }
-  }
-
-  function isPinnableURL(url) {
-    try {
-      const u = new URL(String(url || ""));
-      if (u.protocol === "javascript:") {
-        return false;
-      }
-      return !!u.host || u.protocol.indexOf("about:") === 0;
-    } catch (e) {
-      return false;
-    }
+      pinLastError = code;
+    } catch (err) {}
   }
 
   function getPinURL(tab) {
-    try {
-      if (!tab) {
-        return "";
-      }
-      let v = null;
-      try {
-        v = SessionStore.getCustomTabValue(tab, PIN_URL_KEY);
-      } catch (e) {
-        v = null;
-      }
-      return typeof v === "string" && v ? v : "";
-    } catch (e) {
-      return "";
-    }
+    return getStoredURL(tab, PIN_URL_KEY);
   }
 
   // Returns true when stored. Invalid URLs are rejected (previous value
   // kept) so a typo in the edit dialog can never brick the reset target.
   function setPinURL(tab, url) {
-    try {
-      if (!tab || !isPinnableURL(url)) {
-        return false;
-      }
-      SessionStore.setCustomTabValue(tab, PIN_URL_KEY, String(url));
-      return true;
-    } catch (e) {
-      try {
-        pinLastError = "set-threw";
-      } catch (err) {}
-      return false;
-    }
+    return setStoredURL(tab, PIN_URL_KEY, url, pinNoteErr);
   }
 
   function clearPinURL(tab) {
@@ -86,49 +46,10 @@
   // fall back to the live URL so reset/menu never dead-end on them.
   function effectivePinURL(tab) {
     try {
-      return getPinURL(tab) || pinSpec(tab);
+      return getPinURL(tab) || tabSpec(tab);
     } catch (e) {
       return "";
     }
-  }
-
-  function systemPrincipal() {
-    try {
-      return Services.scriptSecurityManager.getSystemPrincipal();
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function loadPinURL(browser, url) {
-    const principal = systemPrincipal();
-    try {
-      if (browser && typeof browser.fixupAndLoadURIString === "function") {
-        browser.fixupAndLoadURIString(url, { triggeringPrincipal: principal });
-        return true;
-      }
-    } catch (e) {
-      try {
-        pinLastError = "fixup-threw";
-      } catch (err) {}
-    }
-    // Fallback for browsers without the fixup helper wired up.
-    try {
-      if (browser && typeof browser.loadURI === "function" && Services && Services.io) {
-        browser.loadURI(Services.io.newURI(url), { triggeringPrincipal: principal });
-        return true;
-      }
-    } catch (e) {
-      try {
-        pinLastError = "loadURI-threw";
-      } catch (err) {}
-    }
-    try {
-      if (!pinLastError) {
-        pinLastError = "no-loader";
-      }
-    } catch (err) {}
-    return false;
   }
 
   // Returns true when navigation was kicked off.
@@ -151,7 +72,7 @@
         } catch (err) {}
         return false;
       }
-      return loadPinURL(browser, url);
+      return loadBaseURL(browser, url, pinNoteErr);
     } catch (e) {
       try {
         pinLastError = "reset-threw";
@@ -174,7 +95,7 @@
     try {
       if (tab.pinned) {
         if (!getPinURL(tab)) {
-          const spec = pinSpec(tab);
+          const spec = tabSpec(tab);
           if (spec) {
             SessionStore.setCustomTabValue(tab, PIN_URL_KEY, spec);
           }
@@ -185,91 +106,20 @@
     } catch (err) {}
   }
 
-  // Resolve the right-clicked tab, mirroring stock tab-context-menu.js and
-  // the archive.js pattern: triggerNode may carry the tab directly (.tab)
-  // or contain it; fall back to the selected tab.
-  function pinClickedTab(e) {
-    try {
-      const popup = e && e.target;
-      const node = (popup && popup.triggerNode) || document.popupNode || null;
-      if (node) {
-        const direct =
-          node.tab ||
-          (typeof node.closest === "function" ? node.closest("tab") : null);
-        if (direct) {
-          return direct;
-        }
-      }
-      if (gBrowser && gBrowser.selectedTab) {
-        return gBrowser.selectedTab;
-      }
-    } catch (err) {}
-    return null;
-  }
-
-  function makePinMenuItem(id, label, action) {
-    let item = null;
-    try {
-      // browser.xhtml is an XHTML document: document.createElement would
-      // build an HTML-namespaced dud inside the XUL menupopup (same
-      // gotcha as archive.js).
-      item =
-        typeof document.createXULElement === "function"
-          ? document.createXULElement("menuitem")
-          : document.createElement("menuitem");
-      item.id = id;
-      item.setAttribute("label", label);
-      if (typeof item.addEventListener === "function") {
-        item.addEventListener("command", action);
-      }
-    } catch (err) {
-      item = null;
-    }
-    return item;
-  }
-
   let pinMenuItems = [];
 
   function clearPinMenu() {
-    try {
-      for (const it of pinMenuItems) {
-        try {
-          if (it && it.parentNode) {
-            it.parentNode.removeChild(it);
-          } else if (it && typeof it.remove === "function") {
-            it.remove();
-          }
-        } catch (err) {}
-      }
-    } catch (err) {}
-    pinMenuItems = [];
+    pinMenuItems = takeDownMenuItems(pinMenuItems);
   }
 
   function promptPinURL(tab, initial) {
-    const commit = (v) => {
-      try {
-        const value = String(v == null ? "" : v).trim();
-        if (value) {
-          setPinURL(tab, value);
-        }
-      } catch (err) {}
-    };
-    try {
-      if (window.AphPalette && typeof window.AphPalette.prompt === "function") {
-        window.AphPalette.prompt({
-          title: "Set Pinned Page — Enter saves, Esc cancels",
-          initial: initial || "",
-          onCommit: commit,
-        });
-        return;
-      }
-    } catch (err) {}
-    // Palette unavailable (tests, minimal chrome): stock prompt fallback.
-    try {
-      if (typeof window.prompt === "function") {
-        commit(window.prompt("Set Pinned Page URL:", initial || ""));
-      }
-    } catch (err) {}
+    promptBaseURL(
+      tab,
+      initial,
+      "Set Pinned Page — Enter saves, Esc cancels",
+      "Set Pinned Page URL:",
+      setPinURL
+    );
   }
 
   function onPinMenuShowing(e) {
@@ -279,12 +129,12 @@
         return;
       }
       clearPinMenu();
-      const tab = pinClickedTab(e);
+      const tab = contextClickedTab(e);
       if (!tab || !tab.pinned) {
         return;
       }
       const stored = effectivePinURL(tab);
-      const reset = makePinMenuItem("aph-pinreset-reset", "Reset to Pinned Page", () => {
+      const reset = makeDockMenuItem("aph-pinreset-reset", "Reset to Pinned Page", () => {
         try {
           resetPinTab(tab);
         } catch (err) {}
@@ -292,7 +142,7 @@
       if (reset) {
         // Grey out when already there — nothing to do.
         try {
-          if (stored && stored === pinSpec(tab)) {
+          if (stored && stored === tabSpec(tab)) {
             reset.setAttribute("disabled", "true");
           }
         } catch (err) {}
@@ -301,11 +151,11 @@
           pinMenuItems.push(reset);
         } catch (err) {}
       }
-      const edit = makePinMenuItem("aph-pinreset-set", "Set Pinned Page…", () => {
+      const edit = makeDockMenuItem("aph-pinreset-set", "Set Pinned Page…", () => {
         try {
           // Live-first: Enter alone re-pins the current page (the common
           // "make this the base" case); stored is the fallback.
-          promptPinURL(tab, pinSpec(tab) || stored);
+          promptPinURL(tab, tabSpec(tab) || stored);
         } catch (err) {}
       });
       if (edit) {

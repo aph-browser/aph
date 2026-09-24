@@ -162,6 +162,11 @@
       cleanupDock();
     } catch (e) {}
     try {
+      if (typeof cleanupSidebarFooter === "function") {
+        cleanupSidebarFooter();
+      }
+    } catch (e) {}
+    try {
       if (
         window.__aphNewTabWrapped &&
         typeof origBrowserOpenTab === "function"
@@ -324,7 +329,6 @@
         listContainers,
         getWsContainer: getWsContainerId,
         describeContainer,
-        getAllBindings,
         getRoutes: getAllRoutes,
         setRoute,
         deleteRoute,
@@ -344,6 +348,8 @@
         getUnloadOnSwitch,
         renderDock,
         closeWorkspaceTabs,
+        applySidebarFooter:
+          typeof applySidebarFooter === "function" ? applySidebarFooter : () => false,
         getTreeLevel,
         getTreeParent: getTreeParentTab,
         getTreeChildren,
