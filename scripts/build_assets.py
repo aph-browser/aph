@@ -38,7 +38,6 @@ BUNDLES: dict[str, list[str]] = {
         "workspaces/20-domain-routes.js",
         "workspaces/30-names-tags.js",
         "workspaces/40-visibility-groups.js",
-        "workspaces/45-tree-tabs.js",
         "workspaces/50-unload.js",
         "workspaces/55-exclusive.js",
         "workspaces/60-indicator-switch.js",
@@ -56,6 +55,8 @@ BUNDLES: dict[str, list[str]] = {
     ],
     "command-palette.js": [
         "palette/00-core-open.js",
+        "palette/05-modes.js",
+        "palette/06-frecency.js",
         "palette/10-workspace-accessors.js",
         "palette/20-nav.js",
         "palette/30-fuzzy.js",

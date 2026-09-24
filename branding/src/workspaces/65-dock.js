@@ -74,8 +74,8 @@
     }
   }
 
-  // What will a drop move? Base tabs from resolveDockDragTabs plus linked
-  // tree descendants (sendTabTo auto-carry). Used for drop tooltips.
+  // What will a drop move? Base tabs from resolveDockDragTabs
+  // (sendTabTo moves the selection). Used for drop tooltips.
   function dockDropPreview() {
     try {
       const base = resolveDockDragTabs();
@@ -89,30 +89,10 @@
           seen.add(t);
         }
       }
-      try {
-        for (const t of Array.from(seen)) {
-          let kids = [];
-          try {
-            kids =
-              typeof getTreeDescendants === "function"
-                ? getTreeDescendants(t)
-                : [];
-          } catch (e) {
-            kids = [];
-          }
-          for (const k of kids || []) {
-            if (k && !k.closing) {
-              seen.add(k);
-            }
-          }
-        }
-      } catch (e) {}
       const count = seen.size;
       let kind = base.length > 1 ? `${base.length} tabs` : "tab";
       if (wasGroup) {
         kind = `group (${count} tab${count === 1 ? "" : "s"})`;
-      } else if (count > base.length) {
-        kind = `tree (${count} tabs)`;
       } else if (base.length > 1) {
         kind = `${count} tabs`;
       } else {
@@ -449,7 +429,7 @@
           }
         }
       } catch (e) {}
-      // During a tab drag the tooltip previews the move (tree/group aware).
+      // During a tab drag the tooltip previews the move (group aware).
       try {
         if (isRemote && !isCurrent && !dockDragActive) {
           pill.title = `${title} — open on another window (click to focus)`;
@@ -1636,8 +1616,7 @@
   // the dragged tab itself, expanded to the live multiselection only when
   // the dragged tab belongs to it (stock strip-drag semantics). Reading
   // selection alone is wrong — the user can drag an unselected tab while
-  // something else is selected. Trees ride along via sendTabTo's
-  // auto-carry; whole groups stay joined via preservation.
+  // something else is selected. Whole groups stay joined via preservation.
   function resolveDockDragTabs() {
     try {
       if (dockDragGroup) {

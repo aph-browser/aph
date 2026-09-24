@@ -13,6 +13,373 @@
     return false;
   }
 
+  // --- Sections / tagging / per-open cache -------------------------------
+  function tag(it, kind, section) {
+    try {
+      if (it && !it.kind) {
+        it.kind = kind;
+      }
+      if (it && !it.section) {
+        it.section = section;
+      }
+      if (it && !it.icon) {
+        try {
+          it.icon = (typeof KIND_ICONS !== "undefined" && KIND_ICONS[kind]) || "";
+        } catch (_e) {}
+      }
+    } catch (e) {}
+    return it;
+  }
+
+  function tagPool(pool, kind, section) {
+    try {
+      for (const it of pool || []) {
+        tag(it, kind, section);
+      }
+    } catch (e) {}
+    return pool;
+  }
+
+  function isWorkspaceCommandTitle(title) {
+    try {
+      return /^(Switch to |Send (Active|Group|\d+ Tabs)|Route |Bind |Rename )/i.test(
+        String(title || "")
+      );
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function splitWorkspaceCommands(cmds) {
+    const ws = [];
+    const rest = [];
+    try {
+      for (const c of cmds || []) {
+        if (isWorkspaceCommandTitle(c && c.title)) {
+          tag(c, "workspace", "Workspaces");
+          ws.push(c);
+        } else {
+          tag(c, "command", "Commands");
+          rest.push(c);
+        }
+      }
+    } catch (e) {}
+    return { ws, rest };
+  }
+
+  function getCachedCommands() {
+    try {
+      if (!cachedCommands) {
+        const base = commands() || [];
+        let extra = [];
+        try {
+          extra = tabActions() || [];
+        } catch (e) {}
+        cachedCommands = [...base, ...extra];
+        tagPool(cachedCommands, "command", "Commands");
+        // tabActions() already tagged action/Commands — restore that tag.
+        try {
+          for (const it of extra) {
+            it.kind = "action";
+            it.section = "Commands";
+            if (!it.icon) {
+              it.icon = KIND_ICONS.action;
+            }
+          }
+        } catch (e) {}
+      }
+      return cachedCommands;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function getCachedTabs() {
+    try {
+      if (!cachedTabs) {
+        cachedTabs = openTabs() || [];
+        tagPool(cachedTabs, "tab", "Tabs");
+      }
+      return cachedTabs;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function invalidatePaletteCache() {
+    try {
+      cachedCommands = null;
+      cachedTabs = null;
+    } catch (e) {}
+  }
+
+  // --- Clipboard + URL helpers (Copy URL / Markdown / Clean) --------------
+  function copyStringToClipboard(str) {
+    const s = String(str == null ? "" : str);
+    if (!s) {
+      return false;
+    }
+    try {
+      if (typeof Cc !== "undefined" && typeof Ci !== "undefined" && Cc && Ci) {
+        try {
+          const helper = Cc["@mozilla.org/widget/clipboardhelper;1"].getService(
+            Ci.nsIClipboardHelper
+          );
+          if (helper && typeof helper.copyString === "function") {
+            helper.copyString(s);
+            return true;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    try {
+      if (
+        window &&
+        window.navigator &&
+        window.navigator.clipboard &&
+        typeof window.navigator.clipboard.writeText === "function"
+      ) {
+        window.navigator.clipboard.writeText(s);
+        return true;
+      }
+    } catch (e) {}
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = s;
+      (document.body || document.documentElement).appendChild(ta);
+      try {
+        ta.select();
+      } catch (_e) {}
+      let ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch (_e) {}
+      try {
+        ta.remove();
+      } catch (_e) {}
+      if (ok) {
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function currentTabURL() {
+    try {
+      return gBrowser.selectedTab?.linkedBrowser?.currentURI?.spec || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function currentTabTitle() {
+    try {
+      return (
+        (gBrowser.selectedTab && gBrowser.selectedTab.label) ||
+        currentTabURL() ||
+        "Untitled"
+      );
+    } catch (e) {
+      return "Untitled";
+    }
+  }
+
+  // Strip tracking garbage: utm_*, fbclid, gclid/gclsrc, dclid, msclkid,
+  // mc_* (mailchimp), _hs* (hubspot), igshid, si, ref/ref_*, sc_*. Keeps
+  // the rest of the query + hash intact. Never throws; returns input.
+  function cleanURLForCopy(url) {
+    const input = String(url || "");
+    if (!input) {
+      return input;
+    }
+    try {
+      const u = new URL(input);
+      const drop = (k) => {
+        const key = String(k || "");
+        if (!key) {
+          return false;
+        }
+        if (/^utm_/i.test(key)) {
+          return true;
+        }
+        if (/^(fbclid|gclid|gclsrc|dclid|msclkid|igshid|si)$/i.test(key)) {
+          return true;
+        }
+        if (/^(mc_|_hs|ref_|sc_)/i.test(key)) {
+          return true;
+        }
+        if (/^ref$/i.test(key)) {
+          return true;
+        }
+        return false;
+      };
+      try {
+        const keys = [];
+        u.searchParams.forEach((_, k) => keys.push(k));
+        for (const k of keys) {
+          if (drop(k)) {
+            u.searchParams.delete(k);
+          }
+        }
+      } catch (e) {}
+      let out = u.toString();
+      // Tidy "?&" leftovers (URL keeps "?" when empty — drop it).
+      out = out.replace(/\?$/, "");
+      return out;
+    } catch (e) {
+      // Non-absolute URL fallback: strip query manually.
+      try {
+        const qi = input.indexOf("?");
+        if (qi === -1) {
+          return input;
+        }
+        const base = input.slice(0, qi);
+        const hashIdx = input.indexOf("#");
+        const hash = hashIdx !== -1 ? input.slice(hashIdx) : "";
+        const qs = input.slice(qi + 1, hashIdx !== -1 ? hashIdx : undefined);
+        const kept = qs.split("&").filter((p) => {
+          const k = String(p || "").split("=")[0] || "";
+          return !/^utm_/i.test(k) && !/^(fbclid|gclid|ref)$/i.test(k);
+        });
+        return base + (kept.length ? `?${kept.join("&")}` : "") + hash;
+      } catch (_e) {
+        return input;
+      }
+    }
+  }
+
+  function markdownForTab(title, url) {
+    try {
+      const t = String(title || "Untitled").replace(/[\[\]]/g, (c) => `\\${c}`);
+      return `[${t}](${String(url || "")})`;
+    } catch (e) {
+      return String(url || "");
+    }
+  }
+
+  // Extra tab ops for the current tab (surfaced alongside commands).
+  // Guarded everywhere: absent gBrowser APIs just hide the row.
+  function tabActions() {
+    const out = [];
+    try {
+      let tab = null;
+      try {
+        tab = (gBrowser && gBrowser.selectedTab) || null;
+      } catch (e) {}
+      if (!tab) {
+        return out;
+      }
+      const url = currentTabURL();
+      const title = currentTabTitle();
+      if (url && /^https?:\/\//i.test(url)) {
+        out.push({
+          title: "Copy URL",
+          hint: "",
+          sub: url,
+          run: () => copyStringToClipboard(url),
+        });
+        out.push({
+          title: "Copy URL as Markdown",
+          hint: "",
+          sub: markdownForTab(title, url),
+          run: () => copyStringToClipboard(markdownForTab(title, url)),
+        });
+        out.push({
+          title: "Clean URL",
+          hint: "",
+          sub: "Strips utm_*, fbclid, gclid + tracking junk, then copies",
+          run: () => copyStringToClipboard(cleanURLForCopy(url)),
+        });
+      }
+      let pinned = false;
+      try {
+        pinned = !!tab.pinned;
+      } catch (e) {}
+      out.push({
+        title: pinned ? "Unpin Tab" : "Pin Tab",
+        hint: "",
+        sub: pinned ? "Returns the tab to the normal strip" : "Pins are global across workspaces",
+        run: () => {
+          try {
+            if (pinned) {
+              if (gBrowser.unpinTab) {
+                gBrowser.unpinTab(tab);
+              } else if (gBrowser.unpinSelectedTabs) {
+                gBrowser.unpinSelectedTabs();
+              }
+            } else if (gBrowser.pinTab) {
+              gBrowser.pinTab(tab);
+            }
+          } catch (e) {}
+          invalidatePaletteCache();
+        },
+      });
+      let muted = false;
+      try {
+        muted =
+          !!(tab.linkedBrowser && tab.linkedBrowser.audioMuted) ||
+          !!tab.muted ||
+          !!(tab.linkedBrowser && tab.linkedBrowser.muted);
+      } catch (e) {}
+      out.push({
+        title: muted ? "Unmute Tab" : "Mute Tab",
+        hint: "",
+        sub: muted ? "Restores audio for this tab" : "Silences this tab",
+        run: () => {
+          try {
+            if (typeof tab.toggleMuteAudio === "function") {
+              tab.toggleMuteAudio();
+            } else if (gBrowser.toggleMuteAudioOnTab) {
+              gBrowser.toggleMuteAudioOnTab(tab);
+            } else if (gBrowser.toggleMuteAudio) {
+              gBrowser.toggleMuteAudio();
+            } else if (tab.linkedBrowser && typeof tab.linkedBrowser.mute === "function") {
+              muted ? tab.linkedBrowser.unmute() : tab.linkedBrowser.mute();
+            }
+          } catch (e) {}
+          invalidatePaletteCache();
+        },
+      });
+      try {
+        const tabs = (gBrowser && gBrowser.tabs) || [];
+        const others = Array.from(tabs).filter((t) => t && t !== tab && !t.closing && !t.pinned);
+        if (others.length) {
+          out.push({
+            title: `Close Other Tabs (${others.length})`,
+            hint: "",
+            sub: "Keeps the current + pinned tabs",
+            run: () => {
+              try {
+                for (const t of others) {
+                  try {
+                    if (gBrowser.removeTab) {
+                      gBrowser.removeTab(t, { animate: false });
+                    }
+                  } catch (_e) {}
+                }
+              } catch (e) {}
+              invalidatePaletteCache();
+            },
+          });
+        }
+      } catch (e) {}
+      out.push({
+        title: "Unload Current Tab",
+        hint: "",
+        sub: "Discards the tab to save memory · click reloads",
+        run: () => {
+          try {
+            if (gBrowser.discardBrowser) {
+              gBrowser.discardBrowser(tab);
+            }
+          } catch (e) {}
+          invalidatePaletteCache();
+        },
+      });
+    } catch (e) {}
+    return tagPool(out, "action", "Commands");
+  }
+
   function bindCommands(api) {
     const out = [];
     try {
@@ -250,43 +617,13 @@
       cmds.push({
         title: sendTabTitle(api, n),
         hint: `Ctrl+Alt+${n}`,
-        sub: "Moves the selection · linked tree children ride along · whole groups stay joined",
+        sub: "Moves the selection · whole groups stay joined",
         run: () => api && api.sendTabTo(n),
       });
     }
-    // Tree / group moves only surface when the selection owns that
+    // Group moves only surface when the selection owns that
     // structure (keeps the empty-query list clean; fuzzy queries still
     // match them like every other command row).
-    try {
-      const family = sendTreeFamilySize(api);
-      let baseCount = 0;
-      try {
-        const multi =
-          (gBrowser && (gBrowser.selectedTabs || gBrowser.multiselectedTabs)) ||
-          null;
-        baseCount =
-          Array.isArray(multi) && multi.length > 1 ? multi.length : 1;
-      } catch (e) {}
-      if (family > baseCount && api && (api.sendTreeTo || api.sendTabTo)) {
-        for (let i = 1; i <= 9; i++) {
-          const n = String(i);
-          cmds.push({
-            title: sendTreeTitle(api, n, family),
-            hint: `Ctrl+Alt+Shift+${n}`,
-            sub: "Moves the tab plus all linked descendants together · hierarchy kept",
-            run: () => {
-              try {
-                if (api.sendTreeTo) {
-                  api.sendTreeTo(n);
-                } else {
-                  api.sendTabTo(n);
-                }
-              } catch (e) {}
-            },
-          });
-        }
-      }
-    } catch (e) {}
     try {
       const gsize = sendGroupSize();
       if (gsize > 1 && api && (api.sendGroupTo || api.sendTabTo)) {
@@ -425,30 +762,6 @@
         },
       },
       ...starCommands(),
-      {
-        title: "Indent Tab (Make Child of Tab Above)",
-        hint: "",
-        sub: "Manual tree repair · selected tabs become children of the tab above",
-        run: () => {
-          try {
-            if (api && api.indentTreeTab) {
-              api.indentTreeTab();
-            }
-          } catch (e) {}
-        },
-      },
-      {
-        title: "Outdent Tab (Promote One Level)",
-        hint: "",
-        sub: "Manual tree repair · selected tabs promote to their grandparent",
-        run: () => {
-          try {
-            if (api && api.outdentTreeTab) {
-              api.outdentTreeTab();
-            }
-          } catch (e) {}
-        },
-      },
       {
         title: "Reload",
         hint: "Ctrl+R",
@@ -621,14 +934,43 @@
           badge.push("starred");
         }
       } catch (e) {}
+      try {
+        let muted = false;
+        let playing = false;
+        try {
+          muted =
+            !!(t.linkedBrowser && (t.linkedBrowser.audioMuted || t.linkedBrowser.muted)) ||
+            !!t.muted;
+        } catch (_e) {}
+        try {
+          playing = !!(t.soundPlaying || t.audible);
+        } catch (_e) {}
+        if (muted) {
+          badge.push("muted");
+        } else if (playing) {
+          badge.push("🔊 playing");
+        }
+      } catch (e) {}
       let url = "";
       try {
         url = t.linkedBrowser.currentURI.spec || "";
+      } catch (e) {}
+      let iconURL = "";
+      try {
+        iconURL =
+          (t.image && String(t.image)) ||
+          (typeof t.getAttribute === "function" && (t.getAttribute("image") || "")) ||
+          "";
       } catch (e) {}
       return {
         title: label,
         sub: url,
         hint: badge.join(" · "),
+        kind: "tab",
+        section: "Tabs",
+        icon: (typeof KIND_ICONS !== "undefined" && KIND_ICONS.tab) || "",
+        iconURL,
+        tabRef: t,
         run: () => {
           try {
             // Workspace-safe: a tab from another workspace must pull us
@@ -748,77 +1090,304 @@
       });
   }
 
-  function allItems(filter) {
-    const raw = (filter || "").trim();
-    const pool = [...commands(), ...openTabs()];
-    if (!raw) {
-      return pool.slice(0, 50);
-    }
-    // Domain routes live outside the default view (empty query stays
-    // clean) but join the pool for any real query.
+  // Kind weight: keeps short tab-action rows ("Copy URL") from outranking
+  // real commands ("Copy Text From Page…") on prefix ties.
+  function kindWeight(it) {
     try {
-      const api = ws();
-      if (api && api.getRoutes) {
+      if (it && it.kind === "action") {
+        return -30;
+      }
+    } catch (e) {}
+    return 0;
+  }
+
+  function sectionRank(section) {
+    try {
+      const i = SECTION_ORDER.indexOf(section);
+      return i === -1 ? 99 : i;
+    } catch (e) {
+      return 99;
+    }
+  }
+
+  // Score a pool with multi-token matching + frecency, then group by
+  // section (SECTION_ORDER) with per-section caps. Stable within sections.
+  function scoreAndGroup(pool, q) {
+    const ql = (q || "").toLowerCase();
+    const scored = [];
+    (pool || []).forEach((it, i) => {
+      let m = null;
+      try {
+        m = typeof matchTokens === "function" ? matchTokens(it, ql) : matchItem(it, ql);
+      } catch (e) {}
+      if (m) {
+        let boost = 0;
+        try {
+          boost = typeof frecBoost === "function" ? frecBoost(it) : 0;
+        } catch (e) {}
+        scored.push({
+          it,
+          score: m.score + kindWeight(it) + boost,
+          order: i,
+          ti: m.ti,
+          si: m.si,
+          hi: m.hi,
+        });
+      }
+    });
+    // Exact-prefix lock (muscle memory invariant): when the query is an
+    // exact prefix of the title ("yo" on "YouTube"), that row outranks
+    // every non-prefix row in its section no matter what frecency says.
+    // Previously this held only by score arithmetic (1000-tier vs boosts)
+    // and could tie on very long titles — now it is structural. Frecency
+    // still orders rows *within* the prefix / non-prefix partitions.
+    const isPrefixHit = (s) => {
+      try {
+        if (!ql) {
+          return false;
+        }
+        return String((s.it && s.it.title) || "").toLowerCase().startsWith(ql);
+      } catch (e) {
+        return false;
+      }
+    };
+    // Group by section, sort within each group, concat in SECTION_ORDER.
+    const bySection = new Map();
+    for (const s of scored) {
+      const sec = (s.it && s.it.section) || "Commands";
+      if (!bySection.has(sec)) {
+        bySection.set(sec, []);
+      }
+      bySection.get(sec).push(s);
+    }
+    for (const arr of bySection.values()) {
+      arr.sort((a, b) => {
+        const pa = isPrefixHit(a) ? 0 : 1;
+        const pb = isPrefixHit(b) ? 0 : 1;
+        if (pa !== pb) {
+          return pa - pb;
+        }
+        return b.score - a.score || a.order - b.order;
+      });
+    }
+    const orderedSections = [...bySection.keys()].sort(
+      (a, b) => sectionRank(a) - sectionRank(b)
+    );
+    const out = [];
+    for (const sec of orderedSections) {
+      const arr = bySection.get(sec).slice(0, SECTION_CAP);
+      for (const s of arr) {
+        s.it._hl = { t: new Set(s.ti), s: new Set(s.si), h: new Set(s.hi) };
+        out.push(s.it);
+        if (out.length >= TOTAL_CAP) {
+          break;
+        }
+      }
+      if (out.length >= TOTAL_CAP) {
+        break;
+      }
+    }
+    return out;
+  }
+
+  function tagPlacesRows(rows) {
+    try {
+      for (const r of rows || []) {
+        if (!r) {
+          continue;
+        }
+        if (r.hint === "Bookmark") {
+          tag(r, "bookmark", "Bookmarks");
+        } else if (r.hint === "History") {
+          tag(r, "history", "History");
+        } else if (r.hint === "Archive") {
+          tag(r, "archive", "Archive");
+        }
+        if (!r.icon) {
+          try {
+            r.icon = KIND_ICONS[r.kind] || "";
+          } catch (_e) {}
+        }
+      }
+    } catch (e) {}
+    return rows;
+  }
+
+  function workspacePool(cmds, api, q) {
+    const out = [];
+    try {
+      for (const c of cmds || []) {
+        if (isWorkspaceCommandTitle(c && c.title)) {
+          out.push(c);
+        }
+      }
+      if (api && api.getRoutes && q) {
         for (const r of ruleRows(api)) {
-          pool.push(r);
+          out.push(tag(r, "workspace", "Workspaces"));
         }
         if (api.setRoute) {
           const host = currentHost();
           if (host) {
             for (const c of routeCommands(api, host)) {
-              pool.push(c);
+              out.push(tag(c, "workspace", "Workspaces"));
+            }
+          }
+        }
+      } else if (api && api.getRoutes && !q) {
+        for (const r of ruleRows(api)) {
+          out.push(tag(r, "workspace", "Workspaces"));
+        }
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  function allItems(filter) {
+    const parsed = typeof parseMode === "function" ? parseMode(filter) : { mode: "all", q: (filter || "").trim() };
+    const mode = parsed.mode || "all";
+    const raw = parsed.q || "";
+    const q = raw.toLowerCase();
+    const api = ws();
+    const cmds = getCachedCommands();
+    const tabs = getCachedTabs();
+
+    // Help mode: static cheat-sheet, filterable.
+    if (mode === "help") {
+      const all = typeof helpItems === "function" ? helpItems() : [];
+      if (!q) {
+        return all;
+      }
+      return scoreAndGroup(all, q);
+    }
+
+    // Empty query: curated home per mode (stays clean, no places/archive).
+    // Commands float by frecency so the home view learns your habits;
+    // tabs stay MRU-first from openTabs().
+    if (!raw) {
+      if (mode === "all") {
+        let top = [];
+        try {
+          top = [...cmds]
+            .map((it, i) => ({
+              it,
+              i,
+              b: typeof frecBoost === "function" ? frecBoost(it) : 0,
+            }))
+            .sort((a, b) => b.b - a.b || a.i - b.i)
+            .slice(0, 20)
+            .map((s) => s.it);
+        } catch (e) {
+          top = cmds.slice(0, 20);
+        }
+        const home = [...tabs.slice(0, 12), ...top].slice(0, 30);
+        for (const it of home) {
+          it._hl = { t: new Set(), s: new Set(), h: new Set() };
+        }
+        return home;
+      }
+      if (mode === "commands") {
+        const out = cmds.slice(0, 30);
+        for (const it of out) {
+          it._hl = { t: new Set(), s: new Set(), h: new Set() };
+        }
+        return out;
+      }
+      if (mode === "tabs") {
+        const out = tabs.slice(0, 30);
+        for (const it of out) {
+          it._hl = { t: new Set(), s: new Set(), h: new Set() };
+        }
+        return out;
+      }
+      if (mode === "workspaces") {
+        const pool = workspacePool(cmds, api, "");
+        const out = pool.slice(0, 30);
+        for (const it of out) {
+          it._hl = { t: new Set(), s: new Set(), h: new Set() };
+        }
+        return out;
+      }
+      // bookmarks/history/archive with no query: nothing (needs 2+ chars).
+      return [];
+    }
+
+    // Non-empty: mode-scoped pools.
+    if (mode === "tabs") {
+      return scoreAndGroup(tabs, q);
+    }
+    if (mode === "commands") {
+      return scoreAndGroup(cmds, q);
+    }
+    if (mode === "workspaces") {
+      return scoreAndGroup(workspacePool(cmds, api, raw), q);
+    }
+    if (mode === "bookmarks" || mode === "history") {
+      try {
+        if (typeof aphPlacesRowsForQuery === "function") {
+          const rows = tagPlacesRows(aphPlacesRowsForQuery(raw));
+          const want = mode === "bookmarks" ? "Bookmark" : "History";
+          return rows.filter((r) => r && r.hint === want).slice(0, 20);
+        }
+      } catch (e) {}
+      return [];
+    }
+    if (mode === "archive") {
+      try {
+        if (typeof aphArchivePoolItems === "function") {
+          const pool = tagPlacesRows(aphArchivePoolItems(raw));
+          return scoreAndGroup(pool, q);
+        }
+      } catch (e) {}
+      return [];
+    }
+
+    // mode === "all": unified pool (legacy behavior, now section-grouped).
+    const pool = [...cmds, ...tabs];
+    try {
+      if (api && api.getRoutes) {
+        for (const r of ruleRows(api)) {
+          pool.push(tag(r, "workspace", "Workspaces"));
+        }
+        if (api.setRoute) {
+          const host = currentHost();
+          if (host) {
+            for (const c of routeCommands(api, host)) {
+              pool.push(tag(c, "workspace", "Workspaces"));
             }
           }
         }
       }
     } catch (e) {}
-    // Saved archive entries join the pool the same way (newest-first,
-    // capped); fuzzy scoring ranks and highlights them with the rest.
     try {
       if (typeof aphArchivePoolItems === "function") {
         for (const r of aphArchivePoolItems(raw)) {
-          pool.push(r);
+          pool.push(tag(r, "archive", "Archive"));
         }
       }
     } catch (e) {}
-    const q = raw.toLowerCase();
-    const scored = [];
-    pool.forEach((it, i) => {
-      const m = matchItem(it, q);
-      if (m) {
-        scored.push({ it, score: m.score, order: i, ti: m.ti, si: m.si, hi: m.hi });
-      }
-    });
-    // Stable: higher score first, pool order breaks ties.
-    scored.sort((a, b) => b.score - a.score || a.order - b.order);
-    const out = scored.slice(0, 50).map((s) => {
-      s.it._hl = { t: new Set(s.ti), s: new Set(s.si), h: new Set(s.hi) };
-      return s.it;
-    });
-    // Places bookmarks/history join non-empty queries after fuzzy matches
-    // (already filtered by Places searchTerms, frecency-ordered). They sit
-    // above the search fallback so a known page beats a fresh search.
+    const out = scoreAndGroup(pool, q);
+    // Places bookmarks/history join after fuzzy matches (already filtered
+    // by Places searchTerms, frecency-ordered). Above the search fallback.
     try {
       if (typeof aphPlacesRowsForQuery === "function") {
-        for (const r of aphPlacesRowsForQuery(raw)) {
+        for (const r of tagPlacesRows(aphPlacesRowsForQuery(raw))) {
           out.push(r);
-          if (out.length >= 60) {
+          if (out.length >= TOTAL_CAP) {
             break;
           }
         }
       }
     } catch (e) {}
-    const fb = navFallback(raw);
-    if (fb) {
-      // Direct URL navigation wins over fuzzy matches: typing "github.com"
-      // means Go to, not a command that happens to fuzzy-match. Search
-      // fallbacks stay at the bottom — they're the last resort.
-      if (isLikelyURL(raw)) {
-        out.unshift(fb);
-      } else {
-        out.push(fb);
+    try {
+      const fb = navFallback(raw);
+      if (fb) {
+        if (isLikelyURL(raw)) {
+          out.unshift(tag(fb, "go", "Go"));
+        } else {
+          out.push(tag(fb, "search", "Search"));
+        }
       }
-    }
+    } catch (e) {}
     return out;
   }
 

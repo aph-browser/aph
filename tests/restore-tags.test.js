@@ -1,7 +1,7 @@
 // Restore-time tag safety (branding/workspaces.js): a tab whose SessionStore
 // extData hasn't landed yet (isTabRestoring, tagless) must never be stamped
 // or retagged to the current workspace — that freeze is the 3->2 restore
-// scramble. Covers TabOpen, group anchoring, tree healing, init, and the
+// scramble. Covers TabOpen, group anchoring, init, and the
 // deferred SSTabRestored stamp.
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
@@ -160,26 +160,6 @@ describe("restore tag safety (3->2 scramble)", () => {
     w.tabVals.get(c).aphWs = "3";
     w.flushTimeouts();
     assert.equal(w.wsOf(c), "3", "settled WS3 tag survives the deferred unify");
-  });
-
-  it("healTreeLinks keeps an edge whose child tag hasn't landed", () => {
-    const w = makeWorld();
-    const parent = makeTab(w.tabVals, { label: "p", ws: "3", spec: "https://p.example/" });
-    const child = makeTab(w.tabVals, { label: "k", ws: undefined, spec: "https://k.example/" });
-    w.sb.gBrowser.tabs.push(parent, child);
-    // Mint stable ids through the API, then orphan the child's tag to
-    // simulate extData lag (getWs would default it to "1").
-    w.tabVals.get(parent).aphTreeId = "tree-p";
-    w.tabVals.get(child).aphTreeId = "tree-k";
-    w.tabVals.get(child).aphTreeParent = "tree-p";
-    w.tabVals.get(parent).aphWs = "3";
-    w.tabVals.get(child).aphWs = undefined;
-    w.api.healTreeLinks();
-    assert.equal(
-      (w.tabVals.get(child) || {}).aphTreeParent,
-      "tree-p",
-      "tagless edge must not heal to Level 0"
-    );
   });
 
   it("init never stamps pre-existing restoring tabs", () => {

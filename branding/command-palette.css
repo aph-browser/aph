@@ -1,38 +1,78 @@
-/* Aph command palette theme (MVP). Dark centered overlay. */
+/* Aph command palette — Raycast-class overlay. Centered, grouped, animated. */
 #aph-palette-overlay {
   position: fixed !important;
   inset: 0 !important;
   background: rgba(0, 0, 0, 0.45) !important;
+  backdrop-filter: blur(6px) saturate(1.1) !important;
+  -webkit-backdrop-filter: blur(6px) saturate(1.1) !important;
   z-index: 9999 !important;
   display: flex !important;
   justify-content: center !important;
   align-items: flex-start !important;
-  padding-top: 12vh !important;
+  padding-top: 11vh !important;
+  animation: aph-palette-fade 140ms ease-out !important;
 }
 #aph-palette-overlay[hidden] {
   display: none !important;
 }
-/* Theme-driven surfaces: follow the active theme's panel colors (Sun
-   light -> cream panel + dark brown text, Sun dark -> dark browns).
-   Fallbacks preserve Aph's dark overlay when no theme provides them. */
+/* NOTE: no !important inside @keyframes — parsers drop important
+   keyframe declarations, which silently kills the animation. */
+@keyframes aph-palette-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* Deliberate charcoal surface (Linear/Raycast-style): Cool Midnight
+   Charcoal #161722 — 92% pitch black with a whisper of deep navy, never
+   pure flat grey (which reads muddy/unstyled). Always-dark overlay like
+   Spotlight, so text is pinned light for guaranteed contrast; theme
+   accents (selection, marks, urlbar border) still shine through. */
+#aph-palette-overlay {
+  --aph-palette-bg: #161722;
+  --aph-palette-fg: #e8e8ec;
+}
 #aph-palette {
-  width: 560px !important;
-  max-width: 90vw !important;
-  max-height: 60vh !important;
+  width: 640px !important;
+  max-width: 92vw !important;
+  max-height: 70vh !important;
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
-  background: var(--panel-background-color, var(--aph-bg-elevated, #202028)) !important;
-  color: var(--panel-text-color, var(--aph-fg, #e8e8ec)) !important;
-  border: 1px solid var(--panel-border-color, rgba(255, 255, 255, 0.12)) !important;
-  border-radius: var(--aph-radius-xl, 10px) !important;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55) !important;
+  background: var(--aph-palette-bg) !important;
+  color: var(--aph-palette-fg) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: var(--aph-radius-xl, 12px) !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 2px 12px rgba(0, 0, 0, 0.35) !important;
   font: inherit !important;
+}
+#aph-palette.aph-palette-anim {
+  animation: aph-palette-pop 160ms cubic-bezier(0.2, 0.9, 0.3, 1.2) !important;
+  transform-origin: top center !important;
+}
+@keyframes aph-palette-pop {
+  from { opacity: 0; transform: translateY(-10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* Animated exit: backdrop fades, panel sinks + shrinks, then JS sets
+   hidden (see close() in 60-control.js, ~130ms timer). */
+#aph-palette-overlay.aph-palette-closing {
+  animation: aph-palette-fade-out 120ms ease-in forwards !important;
+}
+@keyframes aph-palette-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+#aph-palette.aph-palette-closing {
+  animation: aph-palette-pop-out 130ms ease-in forwards !important;
+  transform-origin: top center !important;
+}
+@keyframes aph-palette-pop-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-8px) scale(0.98); }
 }
 #aph-palette-input {
   width: 100% !important;
   box-sizing: border-box !important;
-  padding: 12px 14px !important;
+  padding: 13px 15px !important;
   font-size: 15px !important;
   color: inherit !important;
   background: transparent !important;
@@ -50,14 +90,36 @@
 }
 #aph-palette-list {
   overflow-y: auto !important;
-  max-height: calc(60vh - 48px) !important;
+  max-height: calc(70vh - 96px) !important;
   padding: 6px !important;
+  overscroll-behavior: contain !important;
+}
+.aph-palette-section {
+  padding: 8px 10px 3px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  opacity: 0.5 !important;
 }
 .aph-palette-item {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 9px !important;
   padding: 8px 10px !important;
-  border-radius: var(--aph-radius-md, 6px) !important;
+  border-radius: var(--aph-radius-md, 8px) !important;
   cursor: pointer !important;
   line-height: 1.3 !important;
+  border: 1px solid transparent !important;
+  transition: background 90ms ease-out, border-color 90ms ease-out, transform 90ms ease-out !important;
+}
+/* DOM-recycled rows toggle `hidden` in place — this must beat the
+   !important display rules below or pooled slots never hide. */
+#aph-palette [hidden] {
+  display: none !important;
+}
+.aph-palette-item:hover {
+  background: color-mix(in srgb, var(--toolbarbutton-background-color-hover, rgba(255, 255, 255, 0.12)) 55%, transparent) !important;
 }
 .aph-palette-item.selected {
   /* Theme-driven selection: Sun light -> #FDE8B5 gold tint, Sun dark ->
@@ -66,9 +128,45 @@
     --toolbarbutton-background-color-hover,
     rgba(255, 255, 255, 0.12)
   ) !important;
+  border-color: color-mix(in srgb, var(--aph-urlbar-accent, rgba(125, 190, 255, 0.5)) 45%, transparent) !important;
+}
+.aph-palette-icon,
+.aph-palette-icon-img {
+  flex: 0 0 auto !important;
+  width: 22px !important;
+  height: 22px !important;
+  margin-top: 1px !important;
+  border-radius: 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 13px !important;
+  background: color-mix(in srgb, currentColor 10%, transparent) !important;
+  opacity: 0.9 !important;
+}
+.aph-palette-icon-img {
+  object-fit: contain !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  padding: 2px !important;
+  box-sizing: border-box !important;
+}
+.aph-palette-avatar {
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
+}
+.aph-palette-body {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
 }
 .aph-palette-title {
   font-size: 14px !important;
+  /* One-scan rule: titles never wrap and never push metadata — truncate
+     with an ellipsis like .aph-palette-sub already does. */
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
 }
 .aph-palette-hint {
   float: right !important;
@@ -83,11 +181,62 @@
   overflow: hidden !important;
   text-overflow: ellipsis !important;
 }
+.aph-palette-key {
+  flex: 0 0 auto !important;
+  font-size: 10px !important;
+  opacity: 0 !important;
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent) !important;
+  border-radius: 4px !important;
+  padding: 1px 5px !important;
+  margin-top: 2px !important;
+}
+.aph-palette-item.selected .aph-palette-key {
+  opacity: 0.6 !important;
+}
+.aph-palette-empty {
+  padding: 22px 16px !important;
+  text-align: center !important;
+  opacity: 0.65 !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+#aph-palette-footer {
+  padding: 7px 12px !important;
+  font-size: 11.5px !important;
+  opacity: 0.6 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  background: color-mix(in srgb, currentColor 4%, transparent) !important;
+}
 /* Fuzzy-match highlight: why this row matched the query.
    Explicit theme highlight first, else the same hover gold as the
    selected row above (Sun never sets toolbar_field_highlight). */
 .aph-palette-mark {
   background: var(--lwt-toolbar-field-highlight, var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28))) !important;
-  border-radius: 2px !important;
+  border-radius: 3px !important;
+  padding: 0 1px !important;
   color: inherit !important;
+}
+@media (max-width: 560px) {
+  #aph-palette {
+    width: 94vw !important;
+  }
+  #aph-palette-overlay {
+    padding-top: 6vh !important;
+  }
+  .aph-palette-key {
+    display: none !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #aph-palette-overlay,
+  #aph-palette-overlay.aph-palette-closing,
+  #aph-palette.aph-palette-anim,
+  #aph-palette.aph-palette-closing,
+  .aph-palette-item {
+    animation: none !important;
+    transition: none !important;
+  }
 }

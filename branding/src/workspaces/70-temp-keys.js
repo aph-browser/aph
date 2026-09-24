@@ -1,22 +1,11 @@
   // Open a clean disposable container tab in the current workspace. Falls
   // back to a normal tab if the identity service is unavailable.
-  // Manual birth: always a Level 0 root.
   function openTempTab(url = "about:newtab") {
     const ws = isValidId(current) ? current : "1";
     if (!IdentityService) {
       try {
         const t = gBrowser.addTrustedTab(url);
         setWs(t, ws);
-        try {
-          if (typeof clearTreeParent === "function") {
-            clearTreeParent(t);
-          }
-        } catch (_e) {}
-        try {
-          if (typeof ensureTreeId === "function") {
-            ensureTreeId(t);
-          }
-        } catch (_e) {}
         gBrowser.selectedTab = t;
         focusUrlBar();
       } catch (e) {}
@@ -31,21 +20,6 @@
       } catch (e) {}
       tempContainers.add(identity.userContextId);
       setWs(tab, ws);
-      try {
-        if (typeof clearTreeParent === "function") {
-          clearTreeParent(tab);
-        }
-      } catch (_e) {}
-      try {
-        if (typeof ensureTreeId === "function") {
-          ensureTreeId(tab);
-        }
-      } catch (_e) {}
-      try {
-        if (typeof renderTree === "function") {
-          renderTree();
-        }
-      } catch (_e) {}
       aphShowTab(tab);
       gBrowser.selectedTab = tab;
       focusUrlBar();
@@ -236,30 +210,6 @@
       } catch (err) {}
       return;
     }
-    // Ctrl+Alt+Left/Right folds the selected tab(s) one tree level
-    // out/in (manual tree repair via keyboard; no-arg calls use the live
-    // selection, multiselection included). Physical codes: Right always
-    // deepens, even in RTL (mirroring applies to paint, not to keys). No
-    // editable-target guard: arrows never produce characters, and the
-    // AltGraph early-return above already shields AltGr compositions.
-    // (Some graphics drivers steal Ctrl+Alt+arrows for screen rotation;
-    // disable that OS hotkey if the browser never sees the press.)
-    if (e.ctrlKey && !e.shiftKey && !e.metaKey && e.code === "ArrowRight") {
-      e.preventDefault();
-      e.stopPropagation();
-      try {
-        indentTreeTab();
-      } catch (err) {}
-      return;
-    }
-    if (e.ctrlKey && !e.shiftKey && !e.metaKey && e.code === "ArrowLeft") {
-      e.preventDefault();
-      e.stopPropagation();
-      try {
-        outdentTreeTab();
-      } catch (err) {}
-      return;
-    }
     // Alt+Shift cycling: brackets always, arrows outside editable text
     // (Alt+Shift+Left/Right selects words while typing), Tab toggles MRU.
     // e.code, not e.key: Shift turns "[" into "{".
@@ -294,17 +244,16 @@
       return;
     }
     if (e.ctrlKey) {
+      // Ctrl+Alt+Shift+digit is unbound — fall
+      // through to stock instead of preventing default.
+      if (e.shiftKey) {
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
-      // Ctrl+Alt+Shift+digit moves the whole tree explicitly; plain
-      // Ctrl+Alt+digit moves the selection (auto-carrying descendants and
-      // preserving whole groups via sendTabTo).
+      // Ctrl+Alt+digit moves the selection (preserving whole groups).
       try {
-        if (e.shiftKey && typeof sendTreeTo === "function") {
-          sendTreeTo(d);
-        } else {
-          sendTabTo(d);
-        }
+        sendTabTo(d);
       } catch (err) {}
     } else if (e.shiftKey) {
       e.preventDefault();

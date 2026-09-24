@@ -299,7 +299,7 @@
   // Adopt one whole source group with membership intact. Native path first
   // (adoptTabGroup preserves id/label/color, like group-header drags);
   // fallback adopts members adjacently and rebuilds the group. Registers
-  // every old->new pair in `link` for tree relinking. Returns moved count.
+  // every old->new pair in `link` for workspace adopt/tag relinking. Returns moved count.
   function pullWholeGroup(group, members, target, link) {
     let label = "";
     let color = "";
@@ -332,11 +332,6 @@
         setWs(nt, target);
       } catch (e) {}
       try {
-        if (typeof ensureTreeId === "function") {
-          ensureTreeId(nt);
-        }
-      } catch (e) {}
-      try {
         if (typeof syncTabChrome === "function") {
           syncTabChrome(nt);
         }
@@ -358,7 +353,7 @@
           } catch (e) {}
           // Order-preserving adoption: pair by position. On mismatch pair
           // what we can; unmapped arrivals keep the handler's (correct-by-
-          // claim-order) tag as plain roots.
+          // claim-order) tag as plain tagged tabs.
           const n = Math.min(members.length, news.length);
           let ok = 0;
           for (let i = 0; i < n; i++) {
@@ -405,11 +400,6 @@
             setWs(nt, target);
           } catch (e) {}
           try {
-            if (typeof ensureTreeId === "function") {
-              ensureTreeId(nt);
-            }
-          } catch (e) {}
-          try {
             if (typeof syncTabChrome === "function") {
               syncTabChrome(nt);
             }
@@ -437,7 +427,7 @@
 
   // Pull every unpinned tab tagged `target` from all other windows here.
   // Groups move as units (membership/label/color/collapse preserved);
-  // trees relink within the pulled set and strand as roots otherwise. The
+  // tabs keep workspace tags; no relinking. The
   // destination's adopted-tab handler stamps arrivals to its current
   // workspace (drag-drop semantics), so the tag is set explicitly on the
   // RETURNED tab afterwards — never trust the stamp. Visibility settles in
@@ -497,59 +487,6 @@
         candSet.add(t);
       }
     }
-    // Tree snapshot on live source elements. Resolved manually against the
-    // candidate set (not getTreeParentTab: its id lookup scans the LOCAL
-    // strip, but parents still live in the source window). Same validity
-    // rules: no self-parent, same group state (nesting invariant).
-    const oldParentOf = new Map();
-    try {
-      const idOf = new Map();
-      for (const t of candSet) {
-        try {
-          const id = typeof rawTreeId === "function" ? rawTreeId(t) : null;
-          if (id) {
-            idOf.set(t, id);
-          }
-        } catch (e) {}
-      }
-      const byId = new Map();
-      for (const [t, id] of idOf) {
-        if (!byId.has(id)) {
-          byId.set(id, t);
-        }
-      }
-      for (const t of candSet) {
-        let p = null;
-        try {
-          const pid = typeof rawTreeParentId === "function" ? rawTreeParentId(t) : null;
-          if (pid) {
-            let self = null;
-            try {
-              self = idOf.get(t) || null;
-            } catch (e) {}
-            if (self !== pid) {
-              const cand = byId.get(pid) || null;
-              if (cand && cand !== t && !cand.closing) {
-                let gt = null;
-                let gc = null;
-                try {
-                  gt = t.group || null;
-                } catch (e) {}
-                try {
-                  gc = cand.group || null;
-                } catch (e) {}
-                if (gt === gc) {
-                  p = cand;
-                }
-              }
-            }
-          }
-        } catch (e) {}
-        try {
-          oldParentOf.set(t, p);
-        } catch (e) {}
-      }
-    } catch (e) {}
     const oldToNew = new Map();
     let moved = 0;
     const adoptSingleInto = (t) => {
@@ -564,11 +501,6 @@
         moved++;
         try {
           setWs(nt, target);
-        } catch (e) {}
-        try {
-          if (typeof ensureTreeId === "function") {
-            ensureTreeId(nt);
-          }
         } catch (e) {}
         try {
           if (typeof syncTabChrome === "function") {
@@ -630,55 +562,6 @@
         } catch (e) {}
       }
     }
-    // Relink trees within the pulled set; stranded edges become roots.
-    // Group state decides validity (same rule as everywhere): regrouped
-    // families share their group, lone arrivals are ungrouped.
-    for (const [oldT, newT] of oldToNew) {
-      try {
-        const op = oldParentOf.get(oldT) || null;
-        const np = op ? oldToNew.get(op) : null;
-        let ok = false;
-        if (np) {
-          try {
-            const same =
-              typeof sameTreeGroup === "function" ? sameTreeGroup(newT, np) : true;
-            if (same) {
-              let pid = null;
-              try {
-                pid =
-                  typeof ensureTreeId === "function" ? ensureTreeId(np) : null;
-              } catch (e) {}
-              if (!pid) {
-                try {
-                  pid = typeof rawTreeId === "function" ? rawTreeId(np) : null;
-                } catch (e) {}
-              }
-              if (pid) {
-                setTreeParent(newT, pid);
-                ok = true;
-              }
-            }
-          } catch (e) {}
-        }
-        if (!ok) {
-          try {
-            if (typeof clearTreeParent === "function") {
-              clearTreeParent(newT);
-            }
-          } catch (e) {}
-        }
-      } catch (e) {}
-    }
-    try {
-      if (typeof renderTree === "function") {
-        renderTree();
-      }
-    } catch (e) {}
-    try {
-      if (typeof applyTreeVisibility === "function") {
-        applyTreeVisibility();
-      }
-    } catch (e) {}
     return moved;
   }
 

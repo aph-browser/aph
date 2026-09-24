@@ -1,4 +1,4 @@
-// Dock drag-to-workspace guards (65-dock.js): tab/tree/group drags expand
+// Dock drag-to-workspace guards (65-dock.js): tab/group drags expand
 // the dock to all 9 workspaces, plus accepts drops to a fresh workspace,
 // current workspace rejects, and native tab payloads fall back to selection.
 const { describe, it } = require("node:test");

@@ -163,21 +163,17 @@ describe("send visual refresh", () => {
     assert.ok(dockPills(env).includes("2"), "target pill appears");
   });
 
-  it("sending a tree carries descendants and refreshes the strip", () => {
+  it("sending moves exactly the passed set and refreshes the strip", () => {
     const env = makeEnv();
     const p = addTab(env, { label: "p", ws: "1", selected: true, spec: "https://p.example.com/" });
     const k = addTab(env, { label: "k", ws: "1", spec: "https://k.example.com/" });
     run("workspaces.js", env.sb);
     const api = env.sb.window.AphWorkspaces;
-    // Link k under p via stored ids (same mechanism as the tree module).
-    env.sb.SessionStore.setCustomTabValue(p, "aphTreeId", "sv-p");
-    env.sb.SessionStore.setCustomTabValue(k, "aphTreeId", "sv-k");
-    env.sb.SessionStore.setCustomTabValue(k, "aphTreeParent", "sv-p");
     api.sendTabTo("3", [p]);
     assert.equal(wsOf(p), "3");
-    assert.equal(wsOf(k), "3", "descendant carried");
+    assert.equal(wsOf(k), "1", "unpassed neighbor stays");
     assert.equal(p.hidden, true);
-    assert.equal(k.hidden, true);
+    assert.equal(k.hidden, false);
     assert.ok(dockPills(env).includes("3"));
   });
 });

@@ -97,18 +97,11 @@
 
   // First visible candidate wins; first collapsed one is the fallback.
   // Single pass over [remembered, ...tabs] — order-preserving.
-  // Tree-collapsed descendants are skipped (never auto-select a tab the
-  // user folded away); the TabSelect path expands ancestors instead.
   function resolveTargetTab(target, tabs) {
     const candidates = [lastSelected[target], ...tabs];
     let fallback = null;
     for (const t of candidates) {
       if (t && !t.closing && tabs.includes(t) && getWs(t) === target) {
-        try {
-          if (typeof isTreeHiddenByCollapse === "function" && isTreeHiddenByCollapse(t) && !t.selected) {
-            continue;
-          }
-        } catch (e) {}
         if (!t.group?.collapsed || t.selected) {
           return t;
         }
@@ -316,18 +309,6 @@
         }
       } catch (e) {}
     }
-    // Workspace visibility wins first; the tree then re-hides descendants
-    // of collapsed parents in the target workspace.
-    try {
-      if (typeof applyTreeVisibility === "function") {
-        applyTreeVisibility();
-      }
-    } catch (e) {}
-    try {
-      if (typeof renderTree === "function") {
-        renderTree();
-      }
-    } catch (e) {}
     try {
       const sel = gBrowser.selectedTab;
       lastSelected[target] =

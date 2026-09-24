@@ -49,24 +49,6 @@
             gBrowser.ungroupTab(rep);
           } catch (e) {}
           setWs(rep, target);
-          // Routed replacements land as Level 0 roots in the target
-          // workspace (workspace-scoped trees never span workspaces).
-          // The original's removal promotes any children left behind.
-          try {
-            if (typeof clearTreeParent === "function") {
-              clearTreeParent(rep);
-            }
-          } catch (e) {}
-          try {
-            if (typeof ensureTreeId === "function") {
-              ensureTreeId(rep);
-            }
-          } catch (e) {}
-          try {
-            if (typeof renderTree === "function") {
-              renderTree();
-            }
-          } catch (e) {}
           if (selected && target !== current) {
             switchTo(target);
           }
@@ -115,15 +97,6 @@
         }
         // Reopen failed — fall through to a plain retag.
       }
-      // Cross-workspace move detaches to a Level 0 root (children stay
-      // behind, promoted in place); same-workspace retags keep the link.
-      try {
-        if (typeof getWs === "function" && typeof detachTreeForWorkspaceSend === "function") {
-          if (getWs(tab) !== target) {
-            detachTreeForWorkspaceSend(tab);
-          }
-        }
-      } catch (e) {}
       setWs(tab, target);
       if (selected && target !== current) {
         switchTo(target);
@@ -240,10 +213,9 @@
       if (!isYoungTab(tab) || !isFirstContentTab(tab)) {
         return false;
       }
-      // A followed link is deliberate — background-created install tabs
-      // have no opener.
+      // Followed links carry a stock openerTab — never silence those.
       try {
-        if (typeof resolveTreeOpener === "function" && resolveTreeOpener(tab, null)) {
+        if (tab.openerTab) {
           return false;
         }
       } catch (e) {}

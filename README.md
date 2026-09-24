@@ -13,7 +13,7 @@ Website: <https://aph-browser.github.io/> · [Releases](https://github.com/aph-b
 - **Workspaces 1–9** (`Alt+Shift+1..9`, `]/[` to cycle, `Tab` for last-used): exclusive model — one workspace renders in at most one window. Switching to a dormant workspace pulls its tabs to you; one that's live elsewhere focus-jumps instead.
 - **Command palette** with workspace actions, tab search, bookmarks/history, and archive search.
 - **Tab archive** with auto-sweep, container + workspace restore, and staleness tracking.
-- **Tree tabs** (automatic 2-level hierarchy), **native tab groups** inside workspaces, **per-workspace container bindings**, **starred tabs**, and **tab unloading**.
+- **Native tab groups** inside workspaces, **per-workspace container bindings**, **starred tabs**, and **tab unloading**.
 - **Privacy defaults**: telemetry, health reports, Normandy, and activity-stream telemetry off (see `config/user.js`); your edits persist (seed-once, below).
 
 ## Install

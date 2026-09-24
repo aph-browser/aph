@@ -284,8 +284,6 @@ function makeLiveWorld({ breakWindowValues = false } = {}) {
   }
 
   const tagOf = (t) => (tabVals.get(t) || {}).aphWs;
-  const treeIdOf = (t) => (tabVals.get(t) || {}).aphTreeId || null;
-  const treeParentOf = (t) => (tabVals.get(t) || {}).aphTreeParent || null;
   function quitApp() {
     services.obs.notifyObservers(null, "quit-application-granted", "");
   }
@@ -306,7 +304,7 @@ function makeLiveWorld({ breakWindowValues = false } = {}) {
     ctx.sb.gBrowser.tabGroups.push(g);
     return g;
   }
-  return { spawn, live, notified, tabVals, winVals, tagOf, sessionStore, treeIdOf, treeParentOf, makeGroup, quitApp, seedClosed, closedOf };
+  return { spawn, live, notified, tabVals, winVals, tagOf, sessionStore, makeGroup, quitApp, seedClosed, closedOf };
 }
 
 describe("exclusive workspaces", () => {
@@ -492,9 +490,6 @@ describe("exclusive workspaces", () => {
     const [home, a, b, d1, d2] = win1.sb.gBrowser.tabs;
     w.makeGroup(win1, { label: "Pair", color: "blue", members: [a, b] });
     w.makeGroup(win1, { label: "Sleepers", color: "green", members: [d1, d2] });
-    w.sessionStore.setCustomTabValue(a, "aphTreeId", "tree-a");
-    w.sessionStore.setCustomTabValue(b, "aphTreeId", "tree-b");
-    w.sessionStore.setCustomTabValue(b, "aphTreeParent", "tree-a");
     // Ctrl+N: lands WS1 (lowest unowned) but must not touch WS1's sleepers.
     const win2 = w.spawn({
       tabs: [{ label: "fresh", ws: "1", selected: true, spec: "about:newtab" }],
@@ -505,10 +500,9 @@ describe("exclusive workspaces", () => {
     assert.equal(a.group && a.group.label, "Pair");
     assert.equal(a.group.tabs.length, 2);
     assert.equal(d1.group && d1.group.label, "Sleepers");
-    assert.equal(w.treeParentOf(b), "tree-a", "indenting intact");
   });
 
-  it("summoning a workspace preserves groups and trees", () => {
+  it("summoning a workspace preserves groups", () => {
     const w = makeLiveWorld();
     const win1 = w.spawn({
       ws: "2",
@@ -523,9 +517,6 @@ describe("exclusive workspaces", () => {
     const [, a, b, c, d] = win1.sb.gBrowser.tabs;
     const g = w.makeGroup(win1, { label: "Work", color: "blue", collapsed: true, members: [c, d] });
     g.collapsed = true;
-    w.sessionStore.setCustomTabValue(a, "aphTreeId", "st-a");
-    w.sessionStore.setCustomTabValue(b, "aphTreeId", "st-b");
-    w.sessionStore.setCustomTabValue(b, "aphTreeParent", "st-a");
     const win2 = w.spawn({
       ws: "1",
       tabs: [{ label: "h2", ws: "1", selected: true, spec: "https://h2.example.com/" }],
@@ -540,12 +531,9 @@ describe("exclusive workspaces", () => {
     const nc = byLabel(win2, "c");
     const nd = byLabel(win2, "d");
     assert.ok(na && nb && nc && nd, "all members arrive");
-    // Ungrouped tree survives.
+    // Ungrouped tabs arrive ungrouped.
     assert.equal(na.group, null);
     assert.equal(nb.group, null);
-    assert.ok(w.treeIdOf(na), "arrivals own tree ids");
-    assert.equal(w.treeParentOf(nb), w.treeIdOf(na), "tree edge preserved");
-    assert.equal(w.treeParentOf(na), null, "parent is a root");
     // Grouped pair survives with chrome intact (focus lands on `a`, so the
     // Work group is never the focused one and keeps its collapse).
     assert.ok(nc.group && nc.group === nd.group, "group preserved");

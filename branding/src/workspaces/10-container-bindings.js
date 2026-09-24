@@ -336,21 +336,6 @@
         gBrowser.ungroupTab(t);
       } catch (e) {}
       setWs(t, ws);
-      try {
-        if (typeof clearTreeParent === "function") {
-          clearTreeParent(t);
-        }
-      } catch (e) {}
-      try {
-        if (typeof ensureTreeId === "function") {
-          ensureTreeId(t);
-        }
-      } catch (e) {}
-      try {
-        if (typeof renderTree === "function") {
-          renderTree();
-        }
-      } catch (e) {}
       aphShowTab(t);
       gBrowser.selectedTab = t;
       focusUrlBar();
@@ -364,7 +349,6 @@
   // Unlike openBoundTab (which uses the workspace's bound container), the
   // container is chosen by the caller — used by the tab archive to restore
   // full context (workspace + container). Returns the tab, unselected.
-  // Archive restores land as Level 0 roots (no opener in this window).
   function openInWorkspace(url, wsArg, userContextId) {
     const target = isValidId(wsArg) ? wsArg : isValidId(current) ? current : "1";
     try {
@@ -376,21 +360,6 @@
         gBrowser.ungroupTab(t);
       } catch (e) {}
       setWs(t, target);
-      try {
-        if (typeof clearTreeParent === "function") {
-          clearTreeParent(t);
-        }
-      } catch (e) {}
-      try {
-        if (typeof ensureTreeId === "function") {
-          ensureTreeId(t);
-        }
-      } catch (e) {}
-      try {
-        if (typeof renderTree === "function") {
-          renderTree();
-        }
-      } catch (e) {}
       return t;
     } catch (e) {
       return null;
@@ -466,16 +435,6 @@
           if (gBrowser.selectedTab !== tab) {
             // Background tab — leave it alone, tag normally.
             stampTab(tab);
-            try {
-              if (typeof treeAttachFromOpener === "function") {
-                treeAttachFromOpener(tab, null);
-              }
-            } catch (_e) {}
-            try {
-              if (typeof renderTree === "function") {
-                renderTree();
-              }
-            } catch (_e) {}
             return;
           }
           if (rawWs(tab) || (tab.userContextId || 0) !== 0) {
@@ -485,30 +444,10 @@
           if (uri !== "about:newtab" && uri !== "about:home") {
             // Navigated away meanwhile (link load, popup) — tag normally.
             stampTab(tab);
-            try {
-              if (typeof treeAttachFromOpener === "function") {
-                treeAttachFromOpener(tab, null);
-              }
-            } catch (_e) {}
-            try {
-              if (typeof renderTree === "function") {
-                renderTree();
-              }
-            } catch (_e) {}
             return;
           }
           if (!isValidId(current) || getWsContainerId(current) !== armed) {
             stampTab(tab);
-            try {
-              if (typeof treeAttachFromOpener === "function") {
-                treeAttachFromOpener(tab, null);
-              }
-            } catch (_e) {}
-            try {
-              if (typeof renderTree === "function") {
-                renderTree();
-              }
-            } catch (_e) {}
             return;
           }
           const replacement = gBrowser.addTrustedTab("about:newtab", { userContextId: armed });
@@ -516,22 +455,6 @@
             gBrowser.ungroupTab(replacement);
           } catch (e) {}
           setWs(replacement, current);
-          // Manual new-tab swaps stay Level 0 roots.
-          try {
-            if (typeof clearTreeParent === "function") {
-              clearTreeParent(replacement);
-            }
-          } catch (e) {}
-          try {
-            if (typeof ensureTreeId === "function") {
-              ensureTreeId(replacement);
-            }
-          } catch (e) {}
-          try {
-            if (typeof renderTree === "function") {
-              renderTree();
-            }
-          } catch (e) {}
           aphShowTab(replacement);
           try {
             gBrowser.selectedTab = replacement;

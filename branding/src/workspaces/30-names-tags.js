@@ -84,8 +84,8 @@
   }
 
   // True while SessionStore still owns the tab (bulk restore in flight).
-  // Custom tab values (aphWs, tree links) arrive via extData around
-  // SSTabRestored — any stamp/retag/tree-attach before this clears must
+  // Custom tab values (aphWs) arrive via extData around
+  // SSTabRestored — any stamp/retag before this clears must
   // wait, or a tagless restored tab is permanently stamped to whatever
   // workspace happens to be current (the 3->2 restore scramble). All
   // restore-unsafe writers funnel through this guard.
@@ -120,7 +120,7 @@
   // Last-viewed stamp for auto-archive staleness: SessionStore custom tab
   // value LAST_VIEWED_KEY, ms epoch as a string (same persistence as
   // workspace tags, so stamps survive restarts and restored tabs keep
-  // their pre-restart viewed time). Stamped on TabSelect (45) and TabOpen
+  // their pre-restart viewed time). Stamped on TabSelect and TabOpen
   // (80); never on SSTabRestored (restore must not look like viewing).
   // archive.js reads it at sweep time (key duplicated there by design —
   // same pattern as "aphStarred" in 50/76).
@@ -139,8 +139,8 @@
   // that births, retags, restores, pins, or reveals a tab funnels marker
   // state through here, so no marker depends on remembering every path.
   // Covers the bound-container match (10) and the star marker + close
-  // tooltip (76). Tree levels and visibility stay bulk (renderTree /
-  // reconcile) and are called alongside at the same entries.
+  // tooltip (76). Visibility stays bulk (reconcile) and is called
+  // alongside at the same entries.
   function syncTabChrome(tab) {
     try {
       if (typeof syncTabBindingMatch === "function") {

@@ -2,7 +2,7 @@
 // - dock drop moves the dragged tab(s), not whatever is selected
 // - strip multiselect drag moves as a block (ride-along, span-skipping)
 // - TabMove/TabClose keep group headers synced; group events robust
-// - tree visibility never fights a collapsed native group.
+// - strip moves never disturb collapsed native groups.
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { run, makeTab, makeGroup, makeSessionStore, makeCi, makeChromeUtils, nullIdentityService } = require("./helpers");
@@ -101,7 +101,7 @@ function makeEnv() {
     ChromeUtils: makeChromeUtils(nullIdentityService),
     Ci: makeCi(),
   };
-  // Seed like tree.test.js so init's forced switchTo doesn't birth a "new"
+  // Seed so init's forced switchTo doesn't birth a "new"
   // tab into the empty strip (reconcile never strands a tabless window).
   const seed = makeTab(tabVals, { label: "seed", ws: "1", spec: "https://seed.example/" });
   tabs.push(seed);
@@ -193,16 +193,13 @@ describe("dock drag target (sendTabTo explicit set)", () => {
 });
 
 describe("strip multiselect drag", () => {
-  it("drags sibling leaves as a block without detaching each other", () => {
+  it("drags selected tabs as a block keeping order and tags", () => {
     const env = makeEnv();
-    const p = env.addTab("p");
     const c1 = env.addTab("c1");
     const c2 = env.addTab("c2");
     const other = env.addTab("other");
-    env.api.attachTreeChild(c1, p);
-    env.api.attachTreeChild(c2, p);
-    assert.deepEqual(env.order(), ["seed", "p", "c1", "c2", "other"]);
-    // Select both children and drag them together past the outsider.
+    assert.deepEqual(env.order(), ["seed", "c1", "c2", "other"]);
+    // Select both and drag them together past the outsider.
     env.select(c1);
     env.setSelectedTabs([c1, c2]);
     const cur1 = env.tabs.indexOf(c1);
@@ -213,47 +210,9 @@ describe("strip multiselect drag", () => {
     env.fire("TabMove", c1);
     env.fire("TabMove", c2);
     env.flushTimeouts();
-    // Both left the parent block together: both detach (not one kept).
-    assert.equal(env.api.getTreeLevel(c1), 0);
-    assert.equal(env.api.getTreeLevel(c2), 0);
-  });
-
-  it("selected parent + child ride together without double-carry", () => {
-    const env = makeEnv();
-    const p = env.addTab("p");
-    const c1 = env.addTab("c1");
-    const tail = env.addTab("tail");
-    env.api.attachTreeChild(c1, p);
-    env.select(p);
-    env.setSelectedTabs([p, c1]);
-    // Stock moves both as a block to the end; fire moves for each.
-    env.tabs.splice(env.tabs.indexOf(p), 1);
-    env.tabs.splice(env.tabs.indexOf(c1), 1);
-    env.tabs.push(p, c1);
-    env.fire("TabMove", p);
-    env.fire("TabMove", c1);
-    env.flushTimeouts();
-    assert.deepEqual(env.order(), ["seed", "tail", "p", "c1"]);
-    assert.equal(env.api.getTreeLevel(c1), 1);
-    assert.equal(env.api.getTreeParent(c1), p);
-  });
-
-  it("findEnclosingTreeParent ignores fellow dragged tabs", () => {
-    const env = makeEnv();
-    const p = env.addTab("p");
-    const c1 = env.addTab("c1");
-    env.api.attachTreeChild(c1, p);
-    const x = env.addTab("x");
-    const y = env.addTab("y");
-    // Drop x+y together between p and c1: x should still adopt under p
-    // (y is a fellow traveler, not a settled block member).
-    env.setSelectedTabs([x, y]);
-    env.tabs.splice(env.tabs.indexOf(x), 1);
-    env.tabs.splice(env.tabs.indexOf(y), 1);
-    env.tabs.splice(env.tabs.indexOf(p) + 1, 0, x, y);
-    env.fire("TabMove", x);
-    env.flushTimeouts();
-    assert.equal(env.api.getTreeParent(x), p);
+    assert.deepEqual(env.order(), ["seed", "other", "c1", "c2"]);
+    assert.equal(env.tabVals.get(c1).aphWs, "1");
+    assert.equal(env.tabVals.get(c2).aphWs, "1");
   });
 });
 
@@ -300,31 +259,30 @@ describe("group event robustness", () => {
     assert.equal(g.hidden, true);
   });
 
-  it("TabMove schedules group sync without breaking tree links", () => {
+  it("TabMove schedules group sync keeping membership", () => {
     const env = makeEnv();
     const p = env.addTab("p");
     const c1 = env.addTab("c1");
-    env.api.attachTreeChild(c1, p);
     const g = makeGroup([p, c1]);
     env.sb.gBrowser.tabGroups.push(g);
     const nBefore = env.timeouts.length;
     env.userMove(c1, 0);
     assert.ok(env.timeouts.length >= nBefore, "deferred sync scheduled");
     assert.equal(g.hidden, false);
+    assert.equal(c1.group, g, "moved tab keeps its group");
   });
 });
 
-describe("collapsed native groups vs tree visibility", () => {
-  it("applyTreeVisibility never unhides collapsed-group members", () => {
+describe("collapsed native groups and strip moves", () => {
+  it("manual strip moves keep group membership and tags", () => {
     const env = makeEnv();
     const a = env.addTab("a");
     const b = env.addTab("b");
     const g = makeGroup([a, b], { collapsed: true });
     env.sb.gBrowser.tabGroups.push(g);
-    env.select(a);
-    b.setAttribute("hidden", "true");
-    assert.equal(b.hidden, true);
-    env.api.applyTreeVisibility();
-    assert.equal(b.hidden, true, "collapsed group member stays hidden");
+    env.userMove(b, 0);
+    assert.deepEqual(env.order(), ["b", "seed", "a"]);
+    assert.equal(b.group, g);
+    assert.equal(env.tabVals.get(b).aphWs, "1");
   });
 });

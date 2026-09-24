@@ -6,12 +6,9 @@
  * elsewhere focus-jump on request (V1 has no steal). Window close merges
  * unpinned tabs back into a survivor (pins die with the window, stock).
  * Ctrl+Alt+1..9 sends the selection there (stay here, focus next —
- * linked tree children ride along, whole native groups stay joined),
- * Ctrl+Alt+Shift+1..9 sends the whole tree explicitly.
- * Tab context menu offers Move Tab(s) / Move Tree / Move Group to Workspace
+ * whole native groups stay joined).
+ * Tab context menu offers Move Tab(s) / Move Group to Workspace
  * submenus; the dock accepts tab and group-header drops the same way.
- * Tree repair: Ctrl+Alt+Right indents the selected tab(s) under the tab
- * above, Ctrl+Alt+Left outdents (palette + tab context menu do the same).
  * Tags persist via SessionStore; pinned tabs are global (never hidden —
  * stock Firefox assumes hidden pinned tabs never exist and vertical-tab
  * drag/drop breaks when they do); native tab groups

@@ -113,6 +113,73 @@
     return "";
   }
 
+  // Display-only URL cleanup for row subs: "host › clean path". Drops the
+  // protocol, www., tracking query junk and trailing slash; over-long
+  // paths truncate. Presentation only — navigation, clipboard and the
+  // matcher's raw sub data are untouched (see configureRow, which only
+  // uses this when no sub-highlight needs to align).
+  function displayURL(url) {
+    const input = String(url || "");
+    if (!input) {
+      return "";
+    }
+    const t = input.trim();
+    if (!/^https?:\/\//i.test(t)) {
+      return t.length > 72 ? `${t.slice(0, 72)}…` : t;
+    }
+    let host = "";
+    let path = "";
+    let suffix = "";
+    try {
+      const u = new URL(t);
+      host = (u.hostname || "").toLowerCase().replace(/^www\./, "");
+      path = String(u.pathname || "");
+      if (u.search && u.search.length > 1) {
+        suffix += " …";
+      }
+      if (u.hash && u.hash.length > 1) {
+        suffix += " #";
+      }
+    } catch (e) {
+      // No URL global (tests) or unparseable: manual parse, same shape
+      // as hostOfURL()'s fallback below.
+      try {
+        const m = t.match(/^https?:\/\/([^/:?#]+)([^?#]*)(\?[^#]*)?(#.*)?$/i);
+        if (m) {
+          host = (m[1] || "").toLowerCase().replace(/^www\./, "");
+          path = m[2] || "";
+          if (m[3] && m[3].length > 1) {
+            suffix += " …";
+          }
+          if (m[4] && m[4].length > 1) {
+            suffix += " #";
+          }
+        }
+      } catch (_e) {}
+    }
+    if (!host) {
+      return t.length > 72 ? `${t.slice(0, 72)}…` : t;
+    }
+    if (path === "/" || !path) {
+      path = "";
+    } else {
+      if (path.endsWith("/")) {
+        path = path.slice(0, -1);
+      }
+      try {
+        path = decodeURIComponent(path);
+      } catch (e) {}
+      if (path.startsWith("/")) {
+        path = path.slice(1);
+      }
+    }
+    let out = host + (path ? ` › ${path}` : "") + suffix;
+    if (out.length > 72) {
+      out = `${out.slice(0, 72)}…`;
+    }
+    return out;
+  }
+
   // Always present for non-empty input so Enter never dead-ends: a "Go to"
   // entry for URL-like input (surfaced first by allItems), else a
   // DuckDuckGo search (surfaced last).

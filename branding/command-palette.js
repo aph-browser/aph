@@ -19,13 +19,321 @@
   let overlay = null;
   let input = null;
   let list = null;
+  let footer = null;
   let items = [];
   let selected = 0;
   // Rename prompt mode: {title, initial, onCommit} — the input becomes a
   // text field and Enter commits instead of running a row.
   let prompt = null;
+  // Pending close-animation timer (cancelled when the palette reopens).
+  let closeTimer = null;
+  // Sacred return-of-focus: element that held focus before open() stole it
+  // (page input, editor, video player). Restored on hide so Esc never dumps
+  // focus to <body> or the urlbar. Cleared after restore.
+  let returnFocusTo = null;
+  // Last committed query (choose() via Enter). Empty-ArrowUp recalls it,
+  // terminal-history style. Session-only, never persisted.
+  let lastCommittedQuery = "";
+  // DOM recycling pools: rows/headers/empty-state are created once and
+  // reconfigured in place per paint() — no per-keystroke teardown, no GC
+  // spikes. Detached (not destroyed) between paints via list child moves.
+  let rowPool = [];
+  let headerPool = [];
+  let emptyEl = null;
   const PLACEHOLDER = "Type a command, tab, bookmark, history, archive, URL, or search…";
+  // Per-open caches: commands()/openTabs() are rebuilt once per open() so
+  // per-keystroke work is scoring only (<50ms on huge sessions).
+  let cachedCommands = null;
+  let cachedTabs = null;
+  // Command frecency: {title: {uses, last}} — in-memory + persisted to a
+  // pref as JSON (capped). Sync only, best-effort, never breaks the palette.
+  var APH_FRECENCY_PREF = "aph.palette.frecency";
+  var APH_FRECENCY_MAX = 100;
+  let frecMap = null;
+  // Section order for grouped rendering (Go first, Search last — matches
+  // the old unshift/push navFallback contract).
+  const SECTION_ORDER = ["Go", "Tabs", "Commands", "Workspaces", "Bookmarks", "History", "Archive", "Help", "Search"];
+  const SECTION_CAP = 12;
+  const TOTAL_CAP = 80;
+  // Kind -> icon glyph (text, no external assets in chrome context).
+  const KIND_ICONS = {
+    go: "→",
+    tab: "◐",
+    command: "⌘",
+    workspace: "⛁",
+    bookmark: "★",
+    history: "🕘",
+    archive: "▣",
+    help: "?",
+    search: "⌕",
+    action: "⚡",
+  };
+  const MODE_PLACEHOLDERS = {
+    all: PLACEHOLDER,
+    commands: "Type a command…  (Esc clears, ? lists modes)",
+    tabs: "Type a tab title or URL…  (@ tabs only)",
+    workspaces: "Type a workspace, route, or bind…  (# workspaces only)",
+    bookmarks: "Search bookmarks…  (b: prefix)",
+    history: "Search history…  (h: prefix)",
+    archive: "Search archived tabs…  (a: prefix)",
+    help: "Pick a mode to learn…",
+  };
 
+  // --- Prefix modes (VSCode/Raycast style) -------------------------------
+  // ">" commands · "@" tabs · "#" workspaces/routes/binds · "?" help ·
+  // "b:" bookmarks · "h:" history · "a:" archive. Bare text = unified
+  // search across everything. Single-char modes only trigger on the very
+  // first character so normal queries ("apple", "history of…") never break.
+  // Returns {mode, q} where q is the de-prefixed query (trimmed).
+  function parseMode(raw) {
+    const s = (raw || "").trim();
+    if (!s) {
+      return { mode: "all", q: "" };
+    }
+    const first = s[0];
+    if (first === ">" || first === "@" || first === "#" || first === "?") {
+      return { mode: modeForPrefix(first), q: s.slice(1).trim() };
+    }
+    // Extended "x:" modes — only when a colon follows a short key.
+    const m = s.match(/^([a-zA-Z])\s*:\s*(.*)$/);
+    if (m) {
+      const k = m[1].toLowerCase();
+      if (k === "b") {
+        return { mode: "bookmarks", q: (m[2] || "").trim() };
+      }
+      if (k === "h") {
+        return { mode: "history", q: (m[2] || "").trim() };
+      }
+      if (k === "a") {
+        return { mode: "archive", q: (m[2] || "").trim() };
+      }
+    }
+    return { mode: "all", q: s };
+  }
+
+  function modeForPrefix(p) {
+    if (p === ">") {
+      return "commands";
+    }
+    if (p === "@") {
+      return "tabs";
+    }
+    if (p === "#") {
+      return "workspaces";
+    }
+    return "help";
+  }
+
+  function modePrefix(mode) {
+    if (mode === "commands") {
+      return ">";
+    }
+    if (mode === "tabs") {
+      return "@";
+    }
+    if (mode === "workspaces") {
+      return "#";
+    }
+    if (mode === "bookmarks") {
+      return "b:";
+    }
+    if (mode === "history") {
+      return "h:";
+    }
+    if (mode === "archive") {
+      return "a:";
+    }
+    if (mode === "help") {
+      return "?";
+    }
+    return "";
+  }
+
+  function placeholderFor(mode) {
+    try {
+      return MODE_PLACEHOLDERS[mode] || PLACEHOLDER;
+    } catch (e) {
+      return PLACEHOLDER;
+    }
+  }
+
+  // Static help rows — the "?" mode. keepOpen so users can read then type.
+  function helpItems() {
+    const rows = [
+      [">", "Commands", "All palette commands · e.g. >bind, >new tab"],
+      ["@", "Tabs", "Open tabs only · e.g. @github · Ctrl+W closes highlighted tab"],
+      ["#", "Workspaces", "Switch / send / routes / binds · e.g. #work, #route"],
+      ["b:", "Bookmarks", "Bookmark search only · e.g. b:github"],
+      ["h:", "History", "History search only · e.g. h:docs"],
+      ["a:", "Archive", "Archived tabs only · e.g. a:report · Enter restores"],
+      ["?", "Help", "This cheat-sheet"],
+      ["Tab", "Autocomplete", "Fills the selected row title into the input"],
+      ["Alt+1–9", "Quick pick", "Runs the Nth visible row"],
+      ["Alt+Enter", "Temp container", "Opens URLs / restores archive without consuming"],
+      ["Ctrl+N/P", "Navigate", "Move selection up/down without arrow keys"],
+      ["Ctrl+W", "Close tab", "Closes the highlighted tab · palette stays open"],
+      ["Shift+Enter", "Temp alias", "Same as Alt+Enter"],
+    ];
+    return rows.map(([key, title, sub]) => ({
+      title: `${key}  ${title}`,
+      sub,
+      hint: "Help",
+      kind: "help",
+      section: "Help",
+      icon: KIND_ICONS.help,
+      run: () => {
+        try {
+          if (input) {
+            input.value = key.length <= 2 ? key : "";
+            render(input.value);
+            try {
+              input.focus();
+            } catch (_e) {}
+          }
+        } catch (e) {}
+      },
+      keepOpen: true,
+    }));
+  }
+
+  // Footer hint per mode (rendered in #aph-palette-footer).
+  function footerHintFor(mode, count) {
+    const n = `${count} result${count === 1 ? "" : "s"}`;
+    switch (mode) {
+      case "tabs":
+        return `${n} · ↑↓/Ctrl+N/P · Enter switch · Ctrl+W close · Esc clear`;
+      case "commands":
+        return `${n} · ↑↓ navigate · Enter run · Tab complete · Esc clear`;
+      case "workspaces":
+        return `${n} · Enter switch / send / apply route · Esc clear`;
+      case "bookmarks":
+      case "history":
+      case "archive":
+        return `${n} · Enter open / restore · Alt+Enter temp · Esc clear`;
+      case "help":
+        return `Enter inserts prefix · Esc closes`;
+      default:
+        return `${n} · ↑↓ navigate · Enter open · Alt+Enter temp · ? modes`;
+    }
+  }
+  // --- Command frecency (sync, best-effort) ------------------------------
+  // Frequently + recently used commands float up. Persisted as JSON in a
+  // pref so it survives restarts; in-memory only when Services is absent
+  // (tests). recordFrecency() is called from choose(); frecBoost() is
+  // added to the fuzzy score in allItems().
+  function loadFrecency() {
+    if (frecMap) {
+      return frecMap;
+    }
+    frecMap = {};
+    try {
+      if (
+        typeof Services !== "undefined" &&
+        Services &&
+        Services.prefs &&
+        typeof Services.prefs.getCharPref === "function"
+      ) {
+        let raw = "";
+        try {
+          raw = Services.prefs.getCharPref(APH_FRECENCY_PREF);
+        } catch (e) {
+          raw = "";
+        }
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === "object") {
+            frecMap = parsed;
+          }
+        }
+      }
+    } catch (e) {
+      frecMap = frecMap || {};
+    }
+    return frecMap;
+  }
+
+  function saveFrecency() {
+    try {
+      if (
+        typeof Services === "undefined" ||
+        !Services ||
+        !Services.prefs ||
+        typeof Services.prefs.setCharPref !== "function"
+      ) {
+        return;
+      }
+      const map = frecMap || {};
+      const keys = Object.keys(map);
+      // Cap: keep most-recently used.
+      if (keys.length > APH_FRECENCY_MAX) {
+        keys
+          .sort((a, b) => (map[a].last || 0) - (map[b].last || 0))
+          .slice(0, keys.length - APH_FRECENCY_MAX)
+          .forEach((k) => {
+            delete map[k];
+          });
+      }
+      try {
+        Services.prefs.setCharPref(APH_FRECENCY_PREF, JSON.stringify(map));
+      } catch (e) {}
+    } catch (e) {}
+  }
+
+  function frecIdFor(it) {
+    try {
+      // Stable enough: command titles are static except counts
+      // ("Archive N Tabs" normalizes to "Archive Tab").
+      const t = String((it && it.title) || "");
+      return t.replace(/\b\d+ Tabs\b/, "Tab").replace(/\b\d+\b/g, "#");
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // +0..150: 5 points per use (cap 100) + recency decay (50 max, halves
+  // after ~3 days). Tabs/places/archive get at most the usage part — the
+  // recency kick is commands-only so MRU tabs keep their own order.
+  function frecBoost(it) {
+    try {
+      const map = loadFrecency();
+      const id = frecIdFor(it);
+      if (!id || !map[id]) {
+        return 0;
+      }
+      const e = map[id];
+      const uses = Math.min(100, (e.uses || 0) * 5);
+      let recency = 0;
+      try {
+        const age = Date.now() - (e.last || 0);
+        if (age < 0) {
+          recency = 0;
+        } else if (age < 86400000) {
+          recency = 50;
+        } else if (age < 3 * 86400000) {
+          recency = 25;
+        } else if (age < 7 * 86400000) {
+          recency = 10;
+        }
+      } catch (_e) {}
+      const isCmd = it && (it.kind === "command" || it.section === "Commands" || it.section === "Workspaces");
+      return uses + (isCmd ? recency : 0);
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function recordFrecency(it) {
+    try {
+      const id = frecIdFor(it);
+      if (!id) {
+        return;
+      }
+      const map = loadFrecency();
+      const prev = map[id] || { uses: 0, last: 0 };
+      map[id] = { uses: (prev.uses || 0) + 1, last: Date.now() };
+      saveFrecency();
+    } catch (e) {}
+  }
   function ws() {
     return window.AphWorkspaces || null;
   }
@@ -88,8 +396,8 @@
   }
 
   // "Send Active Tab to …", or "Send N Tabs to …" when a multiselection is
-  // pending (sendTabTo moves the whole selection, auto-carrying linked
-  // tree descendants and preserving whole native groups).
+  // pending (sendTabTo moves the whole selection, preserving whole
+  // native groups).
   function sendTabTitle(api, n) {
     try {
       const m = (gBrowser.selectedTabs || gBrowser.multiselectedTabs || []).length;
@@ -98,58 +406,6 @@
       }
     } catch (e) {}
     return `Send Active Tab to ${wsFull(api, n)}`;
-  }
-
-  function sendTreeFamilySize(api) {
-    try {
-      if (!api) {
-        return 0;
-      }
-      let sel = null;
-      try {
-        sel = gBrowser && gBrowser.selectedTab;
-      } catch (e) {}
-      if (!sel || sel.closing) {
-        return 0;
-      }
-      // Multiselection family: selected tabs plus their descendants.
-      let base = [sel];
-      try {
-        const multi =
-          (gBrowser && (gBrowser.selectedTabs || gBrowser.multiselectedTabs)) ||
-          null;
-        if (Array.isArray(multi) && multi.length > 1 && multi.includes(sel)) {
-          base = multi.filter((t) => t && !t.closing);
-        }
-      } catch (e) {}
-      const seen = new Set();
-      for (const t of base) {
-        if (t) {
-          seen.add(t);
-        }
-      }
-      try {
-        for (const t of Array.from(seen)) {
-          let kids = [];
-          try {
-            kids =
-              typeof api.getTreeDescendants === "function"
-                ? api.getTreeDescendants(t)
-                : [];
-          } catch (e) {
-            kids = [];
-          }
-          for (const k of kids || []) {
-            if (k && !k.closing) {
-              seen.add(k);
-            }
-          }
-        }
-      } catch (e) {}
-      return seen.size;
-    } catch (e) {
-      return 0;
-    }
   }
 
   function sendGroupSize() {
@@ -164,16 +420,6 @@
     } catch (e) {
       return 0;
     }
-  }
-
-  function sendTreeTitle(api, n, family) {
-    try {
-      const f = family || sendTreeFamilySize(api);
-      if (f > 1) {
-        return `Send Tree (${f} Tabs) to ${wsFull(api, n)}`;
-      }
-    } catch (e) {}
-    return `Send Tree to ${wsFull(api, n)}`;
   }
 
   function sendGroupTitle(api, n, size) {
@@ -299,6 +545,73 @@
       }
     } catch (e) {}
     return "";
+  }
+
+  // Display-only URL cleanup for row subs: "host › clean path". Drops the
+  // protocol, www., tracking query junk and trailing slash; over-long
+  // paths truncate. Presentation only — navigation, clipboard and the
+  // matcher's raw sub data are untouched (see configureRow, which only
+  // uses this when no sub-highlight needs to align).
+  function displayURL(url) {
+    const input = String(url || "");
+    if (!input) {
+      return "";
+    }
+    const t = input.trim();
+    if (!/^https?:\/\//i.test(t)) {
+      return t.length > 72 ? `${t.slice(0, 72)}…` : t;
+    }
+    let host = "";
+    let path = "";
+    let suffix = "";
+    try {
+      const u = new URL(t);
+      host = (u.hostname || "").toLowerCase().replace(/^www\./, "");
+      path = String(u.pathname || "");
+      if (u.search && u.search.length > 1) {
+        suffix += " …";
+      }
+      if (u.hash && u.hash.length > 1) {
+        suffix += " #";
+      }
+    } catch (e) {
+      // No URL global (tests) or unparseable: manual parse, same shape
+      // as hostOfURL()'s fallback below.
+      try {
+        const m = t.match(/^https?:\/\/([^/:?#]+)([^?#]*)(\?[^#]*)?(#.*)?$/i);
+        if (m) {
+          host = (m[1] || "").toLowerCase().replace(/^www\./, "");
+          path = m[2] || "";
+          if (m[3] && m[3].length > 1) {
+            suffix += " …";
+          }
+          if (m[4] && m[4].length > 1) {
+            suffix += " #";
+          }
+        }
+      } catch (_e) {}
+    }
+    if (!host) {
+      return t.length > 72 ? `${t.slice(0, 72)}…` : t;
+    }
+    if (path === "/" || !path) {
+      path = "";
+    } else {
+      if (path.endsWith("/")) {
+        path = path.slice(0, -1);
+      }
+      try {
+        path = decodeURIComponent(path);
+      } catch (e) {}
+      if (path.startsWith("/")) {
+        path = path.slice(1);
+      }
+    }
+    let out = host + (path ? ` › ${path}` : "") + suffix;
+    if (out.length > 72) {
+      out = `${out.slice(0, 72)}…`;
+    }
+    return out;
   }
 
   // Always present for non-empty input so Enter never dead-ends: a "Go to"
@@ -431,13 +744,44 @@
     return { score, indices };
   }
 
+  // Highlight discipline: only "clean" hits get marks — a contiguous run
+  // (prefix / substring) or every hit on a word start (acronym "nt" →
+  // "New Tab"). Scattered subsequence matches still rank and select, but
+  // render as plain text instead of visual static, so the highlight always
+  // answers "why did this row appear?".
+  function isCleanHit(indices, text) {
+    try {
+      if (!indices || !indices.length) {
+        return false;
+      }
+      if (indices.length === 1) {
+        return true;
+      }
+      let contiguous = true;
+      for (let k = 1; k < indices.length; k++) {
+        if (indices[k] !== indices[0] + k) {
+          contiguous = false;
+          break;
+        }
+      }
+      if (contiguous) {
+        return true;
+      }
+      const lower = String(text || "").toLowerCase();
+      const isB = (i) => i === 0 || /[^a-z0-9]/.test(lower[i - 1] || "");
+      return indices.every(isB);
+    } catch (e) {
+      return false;
+    }
+  }
+
   // Best of title / sub / hint (sub and hint count slightly less, so a
   // title hit outranks metadata); keeps all index sets so paint() can
   // highlight each field that matched.
   function matchItem(it, q) {
-    const tm = fuzzyScore(q, it.title || "");
-    const sm = it.sub ? fuzzyScore(q, it.sub) : null;
-    const hm = it.hint ? fuzzyScore(q, it.hint) : null;
+    const tm = fuzzyScoreTypo(q, it.title || "");
+    const sm = it.sub ? fuzzyScoreTypo(q, it.sub) : null;
+    const hm = it.hint ? fuzzyScoreTypo(q, it.hint) : null;
     if (!tm && !sm && !hm) {
       return null;
     }
@@ -448,10 +792,81 @@
     );
     return {
       score,
-      ti: tm ? tm.indices : [],
-      si: sm ? sm.indices : [],
-      hi: hm ? hm.indices : [],
+      ti: tm && isCleanHit(tm.indices, it.title) ? tm.indices : [],
+      si: sm && isCleanHit(sm.indices, it.sub) ? sm.indices : [],
+      hi: hm && isCleanHit(hm.indices, it.hint) ? hm.indices : [],
     };
+  }
+
+  // Typo-tolerant wrapper: direct fuzzyScore first; on miss with q>=4,
+  // retry single adjacent transpositions ("nwe" -> "new") with a -120
+  // penalty. Sync, bounded (n-1 variants), no DP blowup.
+  function fuzzyScoreTypo(query, text) {
+    const direct = fuzzyScore(query, text);
+    if (direct) {
+      return direct;
+    }
+    try {
+      const q = (query || "").toLowerCase();
+      if (q.length < 3 || q.length > 40) {
+        return null;
+      }
+      if (/\s/.test(q)) {
+        return null;
+      }
+      let best = null;
+      for (let i = 0; i < q.length - 1; i++) {
+        if (q[i] === q[i + 1]) {
+          continue;
+        }
+        const swapped = q.slice(0, i) + q[i + 1] + q[i] + q.slice(i + 2);
+        const m = fuzzyScore(swapped, text);
+        if (m && (!best || m.score > best.score)) {
+          best = m;
+        }
+      }
+      if (best) {
+        return { score: best.score - 120, indices: best.indices };
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  // Multi-word: every whitespace-separated token must match (AND); scores
+  // sum, highlight index sets union. Single-token queries use matchItem
+  // directly so existing tier ordering is untouched.
+  function matchTokens(it, q) {
+    const raw = (q || "").toLowerCase().trim();
+    if (!raw) {
+      return { score: 0, ti: [], si: [], hi: [] };
+    }
+    const tokens = raw.split(/\s+/).filter(Boolean);
+    if (tokens.length <= 1) {
+      return matchItem(it, raw);
+    }
+    let total = 0;
+    const ti = [];
+    const si = [];
+    const hi = [];
+    for (const tok of tokens) {
+      const m = matchItem(it, tok);
+      if (!m) {
+        return null;
+      }
+      total += m.score;
+      for (const i of m.ti) {
+        ti.push(i);
+      }
+      for (const i of m.si) {
+        si.push(i);
+      }
+      for (const i of m.hi) {
+        hi.push(i);
+      }
+    }
+    // Slight bonus for matching more tokens (exact multi-word intent).
+    total += tokens.length * 5;
+    return { score: total, ti, si, hi };
   }
 
   // --- Bookmarks / history search ---------------------------------------
@@ -927,6 +1342,373 @@
     return false;
   }
 
+  // --- Sections / tagging / per-open cache -------------------------------
+  function tag(it, kind, section) {
+    try {
+      if (it && !it.kind) {
+        it.kind = kind;
+      }
+      if (it && !it.section) {
+        it.section = section;
+      }
+      if (it && !it.icon) {
+        try {
+          it.icon = (typeof KIND_ICONS !== "undefined" && KIND_ICONS[kind]) || "";
+        } catch (_e) {}
+      }
+    } catch (e) {}
+    return it;
+  }
+
+  function tagPool(pool, kind, section) {
+    try {
+      for (const it of pool || []) {
+        tag(it, kind, section);
+      }
+    } catch (e) {}
+    return pool;
+  }
+
+  function isWorkspaceCommandTitle(title) {
+    try {
+      return /^(Switch to |Send (Active|Group|\d+ Tabs)|Route |Bind |Rename )/i.test(
+        String(title || "")
+      );
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function splitWorkspaceCommands(cmds) {
+    const ws = [];
+    const rest = [];
+    try {
+      for (const c of cmds || []) {
+        if (isWorkspaceCommandTitle(c && c.title)) {
+          tag(c, "workspace", "Workspaces");
+          ws.push(c);
+        } else {
+          tag(c, "command", "Commands");
+          rest.push(c);
+        }
+      }
+    } catch (e) {}
+    return { ws, rest };
+  }
+
+  function getCachedCommands() {
+    try {
+      if (!cachedCommands) {
+        const base = commands() || [];
+        let extra = [];
+        try {
+          extra = tabActions() || [];
+        } catch (e) {}
+        cachedCommands = [...base, ...extra];
+        tagPool(cachedCommands, "command", "Commands");
+        // tabActions() already tagged action/Commands — restore that tag.
+        try {
+          for (const it of extra) {
+            it.kind = "action";
+            it.section = "Commands";
+            if (!it.icon) {
+              it.icon = KIND_ICONS.action;
+            }
+          }
+        } catch (e) {}
+      }
+      return cachedCommands;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function getCachedTabs() {
+    try {
+      if (!cachedTabs) {
+        cachedTabs = openTabs() || [];
+        tagPool(cachedTabs, "tab", "Tabs");
+      }
+      return cachedTabs;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function invalidatePaletteCache() {
+    try {
+      cachedCommands = null;
+      cachedTabs = null;
+    } catch (e) {}
+  }
+
+  // --- Clipboard + URL helpers (Copy URL / Markdown / Clean) --------------
+  function copyStringToClipboard(str) {
+    const s = String(str == null ? "" : str);
+    if (!s) {
+      return false;
+    }
+    try {
+      if (typeof Cc !== "undefined" && typeof Ci !== "undefined" && Cc && Ci) {
+        try {
+          const helper = Cc["@mozilla.org/widget/clipboardhelper;1"].getService(
+            Ci.nsIClipboardHelper
+          );
+          if (helper && typeof helper.copyString === "function") {
+            helper.copyString(s);
+            return true;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    try {
+      if (
+        window &&
+        window.navigator &&
+        window.navigator.clipboard &&
+        typeof window.navigator.clipboard.writeText === "function"
+      ) {
+        window.navigator.clipboard.writeText(s);
+        return true;
+      }
+    } catch (e) {}
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = s;
+      (document.body || document.documentElement).appendChild(ta);
+      try {
+        ta.select();
+      } catch (_e) {}
+      let ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch (_e) {}
+      try {
+        ta.remove();
+      } catch (_e) {}
+      if (ok) {
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function currentTabURL() {
+    try {
+      return gBrowser.selectedTab?.linkedBrowser?.currentURI?.spec || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function currentTabTitle() {
+    try {
+      return (
+        (gBrowser.selectedTab && gBrowser.selectedTab.label) ||
+        currentTabURL() ||
+        "Untitled"
+      );
+    } catch (e) {
+      return "Untitled";
+    }
+  }
+
+  // Strip tracking garbage: utm_*, fbclid, gclid/gclsrc, dclid, msclkid,
+  // mc_* (mailchimp), _hs* (hubspot), igshid, si, ref/ref_*, sc_*. Keeps
+  // the rest of the query + hash intact. Never throws; returns input.
+  function cleanURLForCopy(url) {
+    const input = String(url || "");
+    if (!input) {
+      return input;
+    }
+    try {
+      const u = new URL(input);
+      const drop = (k) => {
+        const key = String(k || "");
+        if (!key) {
+          return false;
+        }
+        if (/^utm_/i.test(key)) {
+          return true;
+        }
+        if (/^(fbclid|gclid|gclsrc|dclid|msclkid|igshid|si)$/i.test(key)) {
+          return true;
+        }
+        if (/^(mc_|_hs|ref_|sc_)/i.test(key)) {
+          return true;
+        }
+        if (/^ref$/i.test(key)) {
+          return true;
+        }
+        return false;
+      };
+      try {
+        const keys = [];
+        u.searchParams.forEach((_, k) => keys.push(k));
+        for (const k of keys) {
+          if (drop(k)) {
+            u.searchParams.delete(k);
+          }
+        }
+      } catch (e) {}
+      let out = u.toString();
+      // Tidy "?&" leftovers (URL keeps "?" when empty — drop it).
+      out = out.replace(/\?$/, "");
+      return out;
+    } catch (e) {
+      // Non-absolute URL fallback: strip query manually.
+      try {
+        const qi = input.indexOf("?");
+        if (qi === -1) {
+          return input;
+        }
+        const base = input.slice(0, qi);
+        const hashIdx = input.indexOf("#");
+        const hash = hashIdx !== -1 ? input.slice(hashIdx) : "";
+        const qs = input.slice(qi + 1, hashIdx !== -1 ? hashIdx : undefined);
+        const kept = qs.split("&").filter((p) => {
+          const k = String(p || "").split("=")[0] || "";
+          return !/^utm_/i.test(k) && !/^(fbclid|gclid|ref)$/i.test(k);
+        });
+        return base + (kept.length ? `?${kept.join("&")}` : "") + hash;
+      } catch (_e) {
+        return input;
+      }
+    }
+  }
+
+  function markdownForTab(title, url) {
+    try {
+      const t = String(title || "Untitled").replace(/[\[\]]/g, (c) => `\\${c}`);
+      return `[${t}](${String(url || "")})`;
+    } catch (e) {
+      return String(url || "");
+    }
+  }
+
+  // Extra tab ops for the current tab (surfaced alongside commands).
+  // Guarded everywhere: absent gBrowser APIs just hide the row.
+  function tabActions() {
+    const out = [];
+    try {
+      let tab = null;
+      try {
+        tab = (gBrowser && gBrowser.selectedTab) || null;
+      } catch (e) {}
+      if (!tab) {
+        return out;
+      }
+      const url = currentTabURL();
+      const title = currentTabTitle();
+      if (url && /^https?:\/\//i.test(url)) {
+        out.push({
+          title: "Copy URL",
+          hint: "",
+          sub: url,
+          run: () => copyStringToClipboard(url),
+        });
+        out.push({
+          title: "Copy URL as Markdown",
+          hint: "",
+          sub: markdownForTab(title, url),
+          run: () => copyStringToClipboard(markdownForTab(title, url)),
+        });
+        out.push({
+          title: "Clean URL",
+          hint: "",
+          sub: "Strips utm_*, fbclid, gclid + tracking junk, then copies",
+          run: () => copyStringToClipboard(cleanURLForCopy(url)),
+        });
+      }
+      let pinned = false;
+      try {
+        pinned = !!tab.pinned;
+      } catch (e) {}
+      out.push({
+        title: pinned ? "Unpin Tab" : "Pin Tab",
+        hint: "",
+        sub: pinned ? "Returns the tab to the normal strip" : "Pins are global across workspaces",
+        run: () => {
+          try {
+            if (pinned) {
+              if (gBrowser.unpinTab) {
+                gBrowser.unpinTab(tab);
+              } else if (gBrowser.unpinSelectedTabs) {
+                gBrowser.unpinSelectedTabs();
+              }
+            } else if (gBrowser.pinTab) {
+              gBrowser.pinTab(tab);
+            }
+          } catch (e) {}
+          invalidatePaletteCache();
+        },
+      });
+      let muted = false;
+      try {
+        muted =
+          !!(tab.linkedBrowser && tab.linkedBrowser.audioMuted) ||
+          !!tab.muted ||
+          !!(tab.linkedBrowser && tab.linkedBrowser.muted);
+      } catch (e) {}
+      out.push({
+        title: muted ? "Unmute Tab" : "Mute Tab",
+        hint: "",
+        sub: muted ? "Restores audio for this tab" : "Silences this tab",
+        run: () => {
+          try {
+            if (typeof tab.toggleMuteAudio === "function") {
+              tab.toggleMuteAudio();
+            } else if (gBrowser.toggleMuteAudioOnTab) {
+              gBrowser.toggleMuteAudioOnTab(tab);
+            } else if (gBrowser.toggleMuteAudio) {
+              gBrowser.toggleMuteAudio();
+            } else if (tab.linkedBrowser && typeof tab.linkedBrowser.mute === "function") {
+              muted ? tab.linkedBrowser.unmute() : tab.linkedBrowser.mute();
+            }
+          } catch (e) {}
+          invalidatePaletteCache();
+        },
+      });
+      try {
+        const tabs = (gBrowser && gBrowser.tabs) || [];
+        const others = Array.from(tabs).filter((t) => t && t !== tab && !t.closing && !t.pinned);
+        if (others.length) {
+          out.push({
+            title: `Close Other Tabs (${others.length})`,
+            hint: "",
+            sub: "Keeps the current + pinned tabs",
+            run: () => {
+              try {
+                for (const t of others) {
+                  try {
+                    if (gBrowser.removeTab) {
+                      gBrowser.removeTab(t, { animate: false });
+                    }
+                  } catch (_e) {}
+                }
+              } catch (e) {}
+              invalidatePaletteCache();
+            },
+          });
+        }
+      } catch (e) {}
+      out.push({
+        title: "Unload Current Tab",
+        hint: "",
+        sub: "Discards the tab to save memory · click reloads",
+        run: () => {
+          try {
+            if (gBrowser.discardBrowser) {
+              gBrowser.discardBrowser(tab);
+            }
+          } catch (e) {}
+          invalidatePaletteCache();
+        },
+      });
+    } catch (e) {}
+    return tagPool(out, "action", "Commands");
+  }
+
   function bindCommands(api) {
     const out = [];
     try {
@@ -1164,43 +1946,13 @@
       cmds.push({
         title: sendTabTitle(api, n),
         hint: `Ctrl+Alt+${n}`,
-        sub: "Moves the selection · linked tree children ride along · whole groups stay joined",
+        sub: "Moves the selection · whole groups stay joined",
         run: () => api && api.sendTabTo(n),
       });
     }
-    // Tree / group moves only surface when the selection owns that
+    // Group moves only surface when the selection owns that
     // structure (keeps the empty-query list clean; fuzzy queries still
     // match them like every other command row).
-    try {
-      const family = sendTreeFamilySize(api);
-      let baseCount = 0;
-      try {
-        const multi =
-          (gBrowser && (gBrowser.selectedTabs || gBrowser.multiselectedTabs)) ||
-          null;
-        baseCount =
-          Array.isArray(multi) && multi.length > 1 ? multi.length : 1;
-      } catch (e) {}
-      if (family > baseCount && api && (api.sendTreeTo || api.sendTabTo)) {
-        for (let i = 1; i <= 9; i++) {
-          const n = String(i);
-          cmds.push({
-            title: sendTreeTitle(api, n, family),
-            hint: `Ctrl+Alt+Shift+${n}`,
-            sub: "Moves the tab plus all linked descendants together · hierarchy kept",
-            run: () => {
-              try {
-                if (api.sendTreeTo) {
-                  api.sendTreeTo(n);
-                } else {
-                  api.sendTabTo(n);
-                }
-              } catch (e) {}
-            },
-          });
-        }
-      }
-    } catch (e) {}
     try {
       const gsize = sendGroupSize();
       if (gsize > 1 && api && (api.sendGroupTo || api.sendTabTo)) {
@@ -1339,30 +2091,6 @@
         },
       },
       ...starCommands(),
-      {
-        title: "Indent Tab (Make Child of Tab Above)",
-        hint: "",
-        sub: "Manual tree repair · selected tabs become children of the tab above",
-        run: () => {
-          try {
-            if (api && api.indentTreeTab) {
-              api.indentTreeTab();
-            }
-          } catch (e) {}
-        },
-      },
-      {
-        title: "Outdent Tab (Promote One Level)",
-        hint: "",
-        sub: "Manual tree repair · selected tabs promote to their grandparent",
-        run: () => {
-          try {
-            if (api && api.outdentTreeTab) {
-              api.outdentTreeTab();
-            }
-          } catch (e) {}
-        },
-      },
       {
         title: "Reload",
         hint: "Ctrl+R",
@@ -1535,14 +2263,43 @@
           badge.push("starred");
         }
       } catch (e) {}
+      try {
+        let muted = false;
+        let playing = false;
+        try {
+          muted =
+            !!(t.linkedBrowser && (t.linkedBrowser.audioMuted || t.linkedBrowser.muted)) ||
+            !!t.muted;
+        } catch (_e) {}
+        try {
+          playing = !!(t.soundPlaying || t.audible);
+        } catch (_e) {}
+        if (muted) {
+          badge.push("muted");
+        } else if (playing) {
+          badge.push("🔊 playing");
+        }
+      } catch (e) {}
       let url = "";
       try {
         url = t.linkedBrowser.currentURI.spec || "";
+      } catch (e) {}
+      let iconURL = "";
+      try {
+        iconURL =
+          (t.image && String(t.image)) ||
+          (typeof t.getAttribute === "function" && (t.getAttribute("image") || "")) ||
+          "";
       } catch (e) {}
       return {
         title: label,
         sub: url,
         hint: badge.join(" · "),
+        kind: "tab",
+        section: "Tabs",
+        icon: (typeof KIND_ICONS !== "undefined" && KIND_ICONS.tab) || "",
+        iconURL,
+        tabRef: t,
         run: () => {
           try {
             // Workspace-safe: a tab from another workspace must pull us
@@ -1662,77 +2419,304 @@
       });
   }
 
-  function allItems(filter) {
-    const raw = (filter || "").trim();
-    const pool = [...commands(), ...openTabs()];
-    if (!raw) {
-      return pool.slice(0, 50);
-    }
-    // Domain routes live outside the default view (empty query stays
-    // clean) but join the pool for any real query.
+  // Kind weight: keeps short tab-action rows ("Copy URL") from outranking
+  // real commands ("Copy Text From Page…") on prefix ties.
+  function kindWeight(it) {
     try {
-      const api = ws();
-      if (api && api.getRoutes) {
+      if (it && it.kind === "action") {
+        return -30;
+      }
+    } catch (e) {}
+    return 0;
+  }
+
+  function sectionRank(section) {
+    try {
+      const i = SECTION_ORDER.indexOf(section);
+      return i === -1 ? 99 : i;
+    } catch (e) {
+      return 99;
+    }
+  }
+
+  // Score a pool with multi-token matching + frecency, then group by
+  // section (SECTION_ORDER) with per-section caps. Stable within sections.
+  function scoreAndGroup(pool, q) {
+    const ql = (q || "").toLowerCase();
+    const scored = [];
+    (pool || []).forEach((it, i) => {
+      let m = null;
+      try {
+        m = typeof matchTokens === "function" ? matchTokens(it, ql) : matchItem(it, ql);
+      } catch (e) {}
+      if (m) {
+        let boost = 0;
+        try {
+          boost = typeof frecBoost === "function" ? frecBoost(it) : 0;
+        } catch (e) {}
+        scored.push({
+          it,
+          score: m.score + kindWeight(it) + boost,
+          order: i,
+          ti: m.ti,
+          si: m.si,
+          hi: m.hi,
+        });
+      }
+    });
+    // Exact-prefix lock (muscle memory invariant): when the query is an
+    // exact prefix of the title ("yo" on "YouTube"), that row outranks
+    // every non-prefix row in its section no matter what frecency says.
+    // Previously this held only by score arithmetic (1000-tier vs boosts)
+    // and could tie on very long titles — now it is structural. Frecency
+    // still orders rows *within* the prefix / non-prefix partitions.
+    const isPrefixHit = (s) => {
+      try {
+        if (!ql) {
+          return false;
+        }
+        return String((s.it && s.it.title) || "").toLowerCase().startsWith(ql);
+      } catch (e) {
+        return false;
+      }
+    };
+    // Group by section, sort within each group, concat in SECTION_ORDER.
+    const bySection = new Map();
+    for (const s of scored) {
+      const sec = (s.it && s.it.section) || "Commands";
+      if (!bySection.has(sec)) {
+        bySection.set(sec, []);
+      }
+      bySection.get(sec).push(s);
+    }
+    for (const arr of bySection.values()) {
+      arr.sort((a, b) => {
+        const pa = isPrefixHit(a) ? 0 : 1;
+        const pb = isPrefixHit(b) ? 0 : 1;
+        if (pa !== pb) {
+          return pa - pb;
+        }
+        return b.score - a.score || a.order - b.order;
+      });
+    }
+    const orderedSections = [...bySection.keys()].sort(
+      (a, b) => sectionRank(a) - sectionRank(b)
+    );
+    const out = [];
+    for (const sec of orderedSections) {
+      const arr = bySection.get(sec).slice(0, SECTION_CAP);
+      for (const s of arr) {
+        s.it._hl = { t: new Set(s.ti), s: new Set(s.si), h: new Set(s.hi) };
+        out.push(s.it);
+        if (out.length >= TOTAL_CAP) {
+          break;
+        }
+      }
+      if (out.length >= TOTAL_CAP) {
+        break;
+      }
+    }
+    return out;
+  }
+
+  function tagPlacesRows(rows) {
+    try {
+      for (const r of rows || []) {
+        if (!r) {
+          continue;
+        }
+        if (r.hint === "Bookmark") {
+          tag(r, "bookmark", "Bookmarks");
+        } else if (r.hint === "History") {
+          tag(r, "history", "History");
+        } else if (r.hint === "Archive") {
+          tag(r, "archive", "Archive");
+        }
+        if (!r.icon) {
+          try {
+            r.icon = KIND_ICONS[r.kind] || "";
+          } catch (_e) {}
+        }
+      }
+    } catch (e) {}
+    return rows;
+  }
+
+  function workspacePool(cmds, api, q) {
+    const out = [];
+    try {
+      for (const c of cmds || []) {
+        if (isWorkspaceCommandTitle(c && c.title)) {
+          out.push(c);
+        }
+      }
+      if (api && api.getRoutes && q) {
         for (const r of ruleRows(api)) {
-          pool.push(r);
+          out.push(tag(r, "workspace", "Workspaces"));
         }
         if (api.setRoute) {
           const host = currentHost();
           if (host) {
             for (const c of routeCommands(api, host)) {
-              pool.push(c);
+              out.push(tag(c, "workspace", "Workspaces"));
+            }
+          }
+        }
+      } else if (api && api.getRoutes && !q) {
+        for (const r of ruleRows(api)) {
+          out.push(tag(r, "workspace", "Workspaces"));
+        }
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  function allItems(filter) {
+    const parsed = typeof parseMode === "function" ? parseMode(filter) : { mode: "all", q: (filter || "").trim() };
+    const mode = parsed.mode || "all";
+    const raw = parsed.q || "";
+    const q = raw.toLowerCase();
+    const api = ws();
+    const cmds = getCachedCommands();
+    const tabs = getCachedTabs();
+
+    // Help mode: static cheat-sheet, filterable.
+    if (mode === "help") {
+      const all = typeof helpItems === "function" ? helpItems() : [];
+      if (!q) {
+        return all;
+      }
+      return scoreAndGroup(all, q);
+    }
+
+    // Empty query: curated home per mode (stays clean, no places/archive).
+    // Commands float by frecency so the home view learns your habits;
+    // tabs stay MRU-first from openTabs().
+    if (!raw) {
+      if (mode === "all") {
+        let top = [];
+        try {
+          top = [...cmds]
+            .map((it, i) => ({
+              it,
+              i,
+              b: typeof frecBoost === "function" ? frecBoost(it) : 0,
+            }))
+            .sort((a, b) => b.b - a.b || a.i - b.i)
+            .slice(0, 20)
+            .map((s) => s.it);
+        } catch (e) {
+          top = cmds.slice(0, 20);
+        }
+        const home = [...tabs.slice(0, 12), ...top].slice(0, 30);
+        for (const it of home) {
+          it._hl = { t: new Set(), s: new Set(), h: new Set() };
+        }
+        return home;
+      }
+      if (mode === "commands") {
+        const out = cmds.slice(0, 30);
+        for (const it of out) {
+          it._hl = { t: new Set(), s: new Set(), h: new Set() };
+        }
+        return out;
+      }
+      if (mode === "tabs") {
+        const out = tabs.slice(0, 30);
+        for (const it of out) {
+          it._hl = { t: new Set(), s: new Set(), h: new Set() };
+        }
+        return out;
+      }
+      if (mode === "workspaces") {
+        const pool = workspacePool(cmds, api, "");
+        const out = pool.slice(0, 30);
+        for (const it of out) {
+          it._hl = { t: new Set(), s: new Set(), h: new Set() };
+        }
+        return out;
+      }
+      // bookmarks/history/archive with no query: nothing (needs 2+ chars).
+      return [];
+    }
+
+    // Non-empty: mode-scoped pools.
+    if (mode === "tabs") {
+      return scoreAndGroup(tabs, q);
+    }
+    if (mode === "commands") {
+      return scoreAndGroup(cmds, q);
+    }
+    if (mode === "workspaces") {
+      return scoreAndGroup(workspacePool(cmds, api, raw), q);
+    }
+    if (mode === "bookmarks" || mode === "history") {
+      try {
+        if (typeof aphPlacesRowsForQuery === "function") {
+          const rows = tagPlacesRows(aphPlacesRowsForQuery(raw));
+          const want = mode === "bookmarks" ? "Bookmark" : "History";
+          return rows.filter((r) => r && r.hint === want).slice(0, 20);
+        }
+      } catch (e) {}
+      return [];
+    }
+    if (mode === "archive") {
+      try {
+        if (typeof aphArchivePoolItems === "function") {
+          const pool = tagPlacesRows(aphArchivePoolItems(raw));
+          return scoreAndGroup(pool, q);
+        }
+      } catch (e) {}
+      return [];
+    }
+
+    // mode === "all": unified pool (legacy behavior, now section-grouped).
+    const pool = [...cmds, ...tabs];
+    try {
+      if (api && api.getRoutes) {
+        for (const r of ruleRows(api)) {
+          pool.push(tag(r, "workspace", "Workspaces"));
+        }
+        if (api.setRoute) {
+          const host = currentHost();
+          if (host) {
+            for (const c of routeCommands(api, host)) {
+              pool.push(tag(c, "workspace", "Workspaces"));
             }
           }
         }
       }
     } catch (e) {}
-    // Saved archive entries join the pool the same way (newest-first,
-    // capped); fuzzy scoring ranks and highlights them with the rest.
     try {
       if (typeof aphArchivePoolItems === "function") {
         for (const r of aphArchivePoolItems(raw)) {
-          pool.push(r);
+          pool.push(tag(r, "archive", "Archive"));
         }
       }
     } catch (e) {}
-    const q = raw.toLowerCase();
-    const scored = [];
-    pool.forEach((it, i) => {
-      const m = matchItem(it, q);
-      if (m) {
-        scored.push({ it, score: m.score, order: i, ti: m.ti, si: m.si, hi: m.hi });
-      }
-    });
-    // Stable: higher score first, pool order breaks ties.
-    scored.sort((a, b) => b.score - a.score || a.order - b.order);
-    const out = scored.slice(0, 50).map((s) => {
-      s.it._hl = { t: new Set(s.ti), s: new Set(s.si), h: new Set(s.hi) };
-      return s.it;
-    });
-    // Places bookmarks/history join non-empty queries after fuzzy matches
-    // (already filtered by Places searchTerms, frecency-ordered). They sit
-    // above the search fallback so a known page beats a fresh search.
+    const out = scoreAndGroup(pool, q);
+    // Places bookmarks/history join after fuzzy matches (already filtered
+    // by Places searchTerms, frecency-ordered). Above the search fallback.
     try {
       if (typeof aphPlacesRowsForQuery === "function") {
-        for (const r of aphPlacesRowsForQuery(raw)) {
+        for (const r of tagPlacesRows(aphPlacesRowsForQuery(raw))) {
           out.push(r);
-          if (out.length >= 60) {
+          if (out.length >= TOTAL_CAP) {
             break;
           }
         }
       }
     } catch (e) {}
-    const fb = navFallback(raw);
-    if (fb) {
-      // Direct URL navigation wins over fuzzy matches: typing "github.com"
-      // means Go to, not a command that happens to fuzzy-match. Search
-      // fallbacks stay at the bottom — they're the last resort.
-      if (isLikelyURL(raw)) {
-        out.unshift(fb);
-      } else {
-        out.push(fb);
+    try {
+      const fb = navFallback(raw);
+      if (fb) {
+        if (isLikelyURL(raw)) {
+          out.unshift(tag(fb, "go", "Go"));
+        } else {
+          out.push(tag(fb, "search", "Search"));
+        }
       }
-    }
+    } catch (e) {}
     return out;
   }
 
@@ -1743,20 +2727,32 @@
 
     const box = document.createElement("div");
     box.id = "aph-palette";
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-label", "Aph command palette");
 
     input = document.createElement("input");
     input.id = "aph-palette-input";
     input.setAttribute("placeholder", PLACEHOLDER);
     input.setAttribute("autocomplete", "off");
     input.setAttribute("spellcheck", "false");
+    input.setAttribute("role", "combobox");
+    input.setAttribute("aria-expanded", "true");
+    input.setAttribute("aria-controls", "aph-palette-list");
+    input.setAttribute("aria-autocomplete", "list");
     input.addEventListener("input", () => render(input.value));
     input.addEventListener("keydown", onListKey, true);
 
     list = document.createElement("div");
     list.id = "aph-palette-list";
+    list.setAttribute("role", "listbox");
+    list.setAttribute("aria-label", "Results");
+
+    footer = document.createElement("div");
+    footer.id = "aph-palette-footer";
 
     box.appendChild(input);
     box.appendChild(list);
+    box.appendChild(footer);
     overlay.appendChild(box);
     overlay.addEventListener("mousedown", (e) => {
       if (e.target === overlay) {
@@ -1826,56 +2822,403 @@
     }
   }
 
+  function emptyMessage(mode, q) {
+    if (mode === "tabs") {
+      return q ? `No tabs match “${q}”` : "No open tabs";
+    }
+    if (mode === "commands") {
+      return `No commands match “${q}” — try @ for tabs, ? for modes`;
+    }
+    if (mode === "workspaces") {
+      return `No workspace rows match “${q}”`;
+    }
+    if (mode === "bookmarks") {
+      return q.length < 2 ? "Type 2+ characters to search bookmarks" : `No bookmarks match “${q}”`;
+    }
+    if (mode === "history") {
+      return q.length < 2 ? "Type 2+ characters to search history" : `No history matches “${q}”`;
+    }
+    if (mode === "archive") {
+      return q.length < 2 ? "Type 2+ characters to search the archive" : `Nothing archived matches “${q}”`;
+    }
+    return `No results for “${q}” — Enter searches DuckDuckGo`;
+  }
+
+  // Letter avatar for tabs without a favicon: first alnum character of
+  // the title, tinted by a stable hash so each site is recognizable.
+  function avatarLetter(it) {
+    try {
+      const s = String((it && it.title) || "").trim();
+      for (const ch of s) {
+        if (/[a-zA-Z0-9]/.test(ch)) {
+          return ch.toUpperCase();
+        }
+      }
+      const u = String((it && it.sub) || "");
+      const m = u.match(/:\/\/([^/:?#.]+)/);
+      if (m && m[1]) {
+        return m[1][0].toUpperCase();
+      }
+    } catch (e) {}
+    return "";
+  }
+
+  function avatarHue(it) {
+    try {
+      const s = String((it && it.sub) || it.title || "");
+      let h = 0;
+      for (let i = 0; i < s.length; i++) {
+        h = (h * 31 + s.charCodeAt(i)) % 360;
+      }
+      return h;
+    } catch (e) {
+      return 210;
+    }
+  }
+
+  // Pooled row: fixed children created once, reconfigured per paint.
+  // Listeners attach once and read row._aph.index (updated per render).
+  function makeRow() {
+    const row = document.createElement("div");
+    row.className = "aph-palette-item";
+    row.setAttribute("role", "option");
+    row.setAttribute("aria-selected", "false");
+    const img = document.createElement("img");
+    img.className = "aph-palette-icon-img";
+    img.setAttribute("alt", "");
+    img.setAttribute("draggable", "false");
+    const ic = document.createElement("span");
+    ic.className = "aph-palette-icon";
+    const body = document.createElement("div");
+    body.className = "aph-palette-body";
+    const main = document.createElement("span");
+    main.className = "aph-palette-title";
+    const hint = document.createElement("span");
+    hint.className = "aph-palette-hint";
+    const sub = document.createElement("div");
+    sub.className = "aph-palette-sub";
+    const key = document.createElement("span");
+    key.className = "aph-palette-key";
+    body.appendChild(main);
+    body.appendChild(hint);
+    body.appendChild(sub);
+    row.appendChild(img);
+    row.appendChild(ic);
+    row.appendChild(body);
+    row.appendChild(key);
+    row._aph = { img, ic, main, hint, sub, key, index: -1 };
+    row.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      selected = row._aph.index;
+      choose();
+    });
+    row.addEventListener("mousemove", () => {
+      if (selected !== row._aph.index) {
+        selected = row._aph.index;
+        paint();
+      }
+    });
+    return row;
+  }
+
+  function configureRow(row, it, i) {
+    const R = row._aph;
+    R.index = i;
+    const sel = i === selected;
+    row.id = `aph-palette-row-${i}`;
+    row.className = "aph-palette-item" + (sel ? " selected" : "");
+    row.setAttribute("aria-selected", sel ? "true" : "false");
+    // Icon slot: favicon img wins, else tab letter avatar, else glyph.
+    try {
+      if (it && it.iconURL) {
+        R.img.setAttribute("src", it.iconURL);
+        R.img.hidden = false;
+        R.ic.hidden = true;
+      } else {
+        R.img.hidden = true;
+        let glyph = "";
+        let avatar = false;
+        try {
+          if (it && it.kind === "tab") {
+            const letter = avatarLetter(it);
+            if (letter) {
+              glyph = letter;
+              avatar = true;
+            }
+          }
+          if (!glyph) {
+            glyph = (it && it.icon) || "";
+          }
+        } catch (_e) {}
+        if (glyph) {
+          R.ic.hidden = false;
+          R.ic.textContent = glyph;
+          R.ic.className = "aph-palette-icon" + (avatar ? " aph-palette-avatar" : "");
+          try {
+            R.ic.style.background = avatar ? `hsl(${avatarHue(it)} 45% 35% / 0.55)` : "";
+          } catch (_e) {}
+        } else {
+          R.ic.hidden = true;
+        }
+      }
+    } catch (e) {}
+    try {
+      paintText(R.main, it.title, it._hl && it._hl.t);
+    } catch (e) {}
+    try {
+      if (it.hint) {
+        R.hint.hidden = false;
+        paintText(R.hint, it.hint, it._hl && it._hl.h);
+      } else {
+        R.hint.hidden = true;
+        R.hint.textContent = "";
+      }
+    } catch (e) {}
+    try {
+      if (it.sub) {
+        R.sub.hidden = false;
+        // Clean display for bare-URL subs (tabs, bookmarks, copy rows) —
+        // but only when no sub-highlight is active, so fuzzy marks always
+        // align with the raw text they were computed on.
+        const hl = it._hl && it._hl.s;
+        const hasHl = !!(hl && hl.size);
+        if (
+          !hasHl &&
+          typeof displayURL === "function" &&
+          /^https?:\/\//i.test(String(it.sub).trim()) &&
+          !/\s/.test(String(it.sub).trim())
+        ) {
+          paintText(R.sub, displayURL(it.sub), new Set());
+        } else {
+          paintText(R.sub, it.sub, hl);
+        }
+      } else {
+        R.sub.hidden = true;
+        R.sub.textContent = "";
+      }
+    } catch (e) {}
+    // Alt+1–9 quick-pick badge on the first nine rows (right anchor).
+    try {
+      if (i < 9 && items.length > 1) {
+        R.key.hidden = false;
+        R.key.textContent = `⌥${i + 1}`;
+      } else {
+        R.key.hidden = true;
+      }
+    } catch (e) {}
+  }
+
   function paint() {
+    // Detach current children without destroying them — pooled rows and
+    // headers are re-appended below, so no element is recreated.
     while (list.firstChild) {
       list.removeChild(list.firstChild);
     }
-    items.forEach((it, i) => {
-      const row = document.createElement("div");
-      row.className = "aph-palette-item" + (i === selected ? " selected" : "");
-      const main = document.createElement("span");
-      main.className = "aph-palette-title";
-      paintText(main, it.title, it._hl && it._hl.t);
-      row.appendChild(main);
-      if (it.hint) {
-        const h = document.createElement("span");
-        h.className = "aph-palette-hint";
-        paintText(h, it.hint, it._hl && it._hl.h);
-        row.appendChild(h);
+    let mode = "all";
+    let q = "";
+    try {
+      const v = (input && input.value) || "";
+      if (typeof parseMode === "function") {
+        const p = parseMode(v);
+        mode = p.mode || "all";
+        q = p.q || "";
+      } else {
+        q = (v || "").trim();
       }
-      if (it.sub) {
-        const s = document.createElement("div");
-        s.className = "aph-palette-sub";
-        paintText(s, it.sub, it._hl && it._hl.s);
-        row.appendChild(s);
+    } catch (e) {}
+    // Per-mode placeholder so ">", "@", "#" teach themselves.
+    try {
+      if (input && typeof placeholderFor === "function") {
+        input.setAttribute("placeholder", placeholderFor(mode));
       }
-      row.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        selected = i;
-        choose();
-      });
-      row.addEventListener("mousemove", () => {
-        if (selected !== i) {
-          selected = i;
-          paint();
-        }
-      });
-      list.appendChild(row);
-    });
-    const sel = list.querySelector(".aph-palette-item.selected");
-    if (sel) {
+    } catch (e) {}
+    // Grow pools (never shrink); excess rows simply aren't re-appended.
+    try {
+      while (rowPool.length < items.length) {
+        rowPool.push(makeRow());
+      }
+    } catch (e) {}
+    if (!items.length) {
       try {
-        sel.scrollIntoView({ block: "nearest" });
+        if (!emptyEl) {
+          emptyEl = document.createElement("div");
+          emptyEl.className = "aph-palette-empty";
+        }
+        emptyEl.textContent = emptyMessage(mode, q || "");
+        list.appendChild(emptyEl);
       } catch (e) {}
+    } else {
+      const frag = document.createDocumentFragment
+        ? document.createDocumentFragment()
+        : null;
+      const target = frag || list;
+      // Count sections first so the header pool is exactly sized.
+      let sections = 0;
+      let prev = null;
+      for (const it of items) {
+        const sec = (it && it.section) || "";
+        if (sec && sec !== prev) {
+          prev = sec;
+          sections++;
+        }
+      }
+      try {
+        while (headerPool.length < sections) {
+          const h = document.createElement("div");
+          h.className = "aph-palette-section";
+          headerPool.push(h);
+        }
+      } catch (e) {}
+      let lastSection = null;
+      let hi = 0;
+      let selEl = null;
+      items.forEach((it, i) => {
+        const sec = (it && it.section) || "";
+        if (sec && sec !== lastSection) {
+          lastSection = sec;
+          try {
+            const h = headerPool[hi++];
+            h.textContent = sec;
+            target.appendChild(h);
+          } catch (e) {}
+        }
+        try {
+          const row = rowPool[i];
+          configureRow(row, it, i);
+          target.appendChild(row);
+          if (i === selected) {
+            selEl = row;
+          }
+        } catch (e) {}
+      });
+      if (frag) {
+        list.appendChild(frag);
+      }
+      if (selEl) {
+        try {
+          selEl.scrollIntoView({ block: "nearest" });
+        } catch (e) {}
+      }
     }
+    try {
+      if (input) {
+        input.setAttribute("aria-activedescendant", `aph-palette-row-${selected}`);
+      }
+    } catch (e) {}
+    try {
+      if (footer && typeof footerHintFor === "function") {
+        const base = footerHintFor(mode, items.length);
+        // Live preview of the highlighted row: full destination/action
+        // without truncation surprises before hitting Enter.
+        const cur = items[selected];
+        if (cur && (cur.sub || cur.hint)) {
+          const detail = String(cur.sub || cur.hint || "");
+          const shown = detail.length > 90 ? `${detail.slice(0, 90)}…` : detail;
+          footer.textContent = `${base} · ▶ ${cur.title} — ${shown}`;
+          try {
+            footer.setAttribute("title", detail);
+          } catch (_e) {}
+        } else if (cur) {
+          footer.textContent = `${base} · ▶ ${cur.title}`;
+          try {
+            footer.removeAttribute("title");
+          } catch (_e) {}
+        } else {
+          footer.textContent = base;
+          try {
+            footer.removeAttribute("title");
+          } catch (_e) {}
+        }
+      }
+    } catch (e) {}
+  }
+
+  function cancelCloseTimer() {
+    try {
+      if (closeTimer) {
+        clearTimeout(closeTimer);
+        closeTimer = null;
+      }
+    } catch (e) {
+      closeTimer = null;
+    }
+    try {
+      if (overlay && overlay.classList) {
+        overlay.classList.remove("aph-palette-closing");
+      }
+    } catch (e) {}
+    try {
+      const box = overlay && overlay.querySelector && overlay.querySelector("#aph-palette");
+      if (box && box.classList) {
+        box.classList.remove("aph-palette-closing");
+      }
+    } catch (e) {}
+  }
+
+  // Sacred return-of-focus: remember who had focus before the palette
+  // stole it (page input, editor, video player). Skips our own input and
+  // anything already inside the overlay so reopen-during-close keeps the
+  // original element.
+  function captureFocus() {
+    try {
+      const ae = document.activeElement;
+      if (!ae || ae === input) {
+        return;
+      }
+      try {
+        if (overlay && overlay.contains && overlay.contains(ae)) {
+          return;
+        }
+      } catch (e) {}
+      returnFocusTo = ae;
+    } catch (e) {}
+  }
+
+  // Restored synchronously in close() — before it.run() executes — so a
+  // tab switch afterwards owns focus naturally instead of being yanked
+  // back to the old tab. No-op when the element is gone.
+  function restoreFocus() {
+    const el = returnFocusTo;
+    returnFocusTo = null;
+    try {
+      if (!el || typeof el.focus !== "function") {
+        return;
+      }
+      try {
+        if (typeof el.isConnected === "boolean" && !el.isConnected) {
+          return;
+        }
+        if (document.contains && !document.contains(el)) {
+          return;
+        }
+      } catch (e) {}
+      el.focus();
+    } catch (e) {}
   }
 
   function open() {
     if (!overlay) {
       build();
     }
+    captureFocus();
     prompt = null;
+    try {
+      if (typeof invalidatePaletteCache === "function") {
+        invalidatePaletteCache();
+      }
+    } catch (e) {}
+    cancelCloseTimer();
     overlay.hidden = false;
+    // Pop-in animation: re-trigger on every open.
+    try {
+      overlay.classList.remove("aph-palette-anim");
+      const box = overlay.querySelector && overlay.querySelector("#aph-palette");
+      if (box) {
+        box.classList.remove("aph-palette-anim");
+        void box.offsetWidth;
+        box.classList.add("aph-palette-anim");
+      }
+    } catch (e) {}
     input.value = "";
     try {
       input.setAttribute("placeholder", PLACEHOLDER);
@@ -1898,6 +3241,7 @@
       return;
     }
     prompt = opts;
+    cancelCloseTimer();
     overlay.hidden = false;
     try {
       input.setAttribute("placeholder", opts.title);
@@ -1966,8 +3310,98 @@
 
   function close() {
     prompt = null;
-    if (overlay) {
+    try {
+      if (typeof invalidatePaletteCache === "function") {
+        invalidatePaletteCache();
+      }
+    } catch (e) {}
+    if (!overlay || overlay.hidden) {
+      cancelCloseTimer();
+      return;
+    }
+    // Already transitioning open→closed past this point, so returning
+    // focus is safe exactly once (early-return above never restores).
+    restoreFocus();
+    // Reduced-motion (or no timer support in tests): hide instantly.
+    let reduce = false;
+    try {
+      reduce = !!(
+        window.matchMedia &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      );
+    } catch (e) {}
+    if (reduce || typeof setTimeout !== "function") {
+      cancelCloseTimer();
       overlay.hidden = true;
+      return;
+    }
+    // Animated exit: fade the backdrop, sink + shrink the panel, then
+    // hide. Reopening cancels the timer (see open/cancelCloseTimer).
+    cancelCloseTimer();
+    try {
+      overlay.classList.add("aph-palette-closing");
+    } catch (e) {}
+    try {
+      const box = overlay.querySelector && overlay.querySelector("#aph-palette");
+      if (box) {
+        box.classList.remove("aph-palette-anim");
+        box.classList.add("aph-palette-closing");
+      }
+    } catch (e) {}
+    try {
+      closeTimer = setTimeout(() => {
+        closeTimer = null;
+        try {
+          if (overlay) {
+            overlay.hidden = true;
+            overlay.classList.remove("aph-palette-closing");
+            const box =
+              overlay.querySelector && overlay.querySelector("#aph-palette");
+            if (box) {
+              box.classList.remove("aph-palette-closing", "aph-palette-anim");
+            }
+          }
+        } catch (e) {}
+      }, 130);
+    } catch (e) {
+      try {
+        overlay.hidden = true;
+      } catch (_e) {}
+    }
+  }
+
+  // Ctrl+W on a tab row: closes that tab, keeps the palette open.
+  function closeRowTab(it) {
+    try {
+      const t = (it && it.tabRef) || null;
+      if (!t || t.closing) {
+        return false;
+      }
+      if (typeof gBrowser !== "undefined" && gBrowser && typeof gBrowser.removeTab === "function") {
+        gBrowser.removeTab(t, { animate: false });
+      } else if (typeof gBrowser !== "undefined" && gBrowser && typeof gBrowser.removeCurrentTab === "function") {
+        // Fallback when removeTab is absent (tests): only when it's current.
+        try {
+          if (gBrowser.selectedTab === t) {
+            gBrowser.removeCurrentTab();
+          } else {
+            return false;
+          }
+        } catch (e) {
+          return false;
+        }
+      } else {
+        return false;
+      }
+      if (typeof invalidatePaletteCache === "function") {
+        invalidatePaletteCache();
+      }
+      try {
+        render(input ? input.value : "");
+      } catch (e) {}
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 
@@ -1983,8 +3417,8 @@
     }
   }
 
-  // Alt+Enter forces the disposable temp container when the entry
-  // supports it (URL / search fallback); plain Enter uses run().
+  // Alt+Enter (or Shift+Enter) forces the disposable temp container when
+  // the entry supports it (URL / search fallback); plain Enter uses run().
   // In rename-prompt mode Enter commits the input instead. Rows marked
   // keepOpen (e.g. Rename) run without closing first.
   function choose(useTemp) {
@@ -2009,6 +3443,19 @@
       close();
       return;
     }
+    // Terminal-history recall: remember the committed query so an empty
+    // ArrowUp can bring it back (see onListKey).
+    try {
+      const qv = input && input.value ? String(input.value).trim() : "";
+      if (qv) {
+        lastCommittedQuery = qv;
+      }
+    } catch (e) {}
+    try {
+      if (typeof recordFrecency === "function") {
+        recordFrecency(it);
+      }
+    } catch (e) {}
     if (!it.keepOpen) {
       close();
     }
@@ -2017,6 +3464,13 @@
         it.runInTemp();
       } else {
         it.run();
+      }
+    } catch (e) {}
+    // keepOpen rows mutate live state (bind/pin/mute) — drop the cache so
+    // the repainted list (e.g. sidebar-footer toggle) reflects fresh titles.
+    try {
+      if (it.keepOpen && typeof invalidatePaletteCache === "function") {
+        invalidatePaletteCache();
       }
     } catch (e) {}
   }
@@ -2047,28 +3501,207 @@
     }
   }
 
+  function moveSelection(delta) {
+    if (!items.length) {
+      return;
+    }
+    selected = (selected + delta + items.length) % items.length;
+    paint();
+  }
+
+  // Live modifier peeking: holding bare Alt/Ctrl morphs the footer in
+  // real time to show what Enter (or Ctrl+W) would do — no commit needed.
+  // Release restores the normal footer via the keyup handler below.
+  function peekBaseAction(it) {
+    try {
+      if (!it) {
+        return "Run";
+      }
+      if (it.kind === "tab") {
+        return "Switch to tab";
+      }
+      if (it.kind === "help") {
+        return "Insert prefix";
+      }
+      if (it.kind === "archive") {
+        return "Restore entry";
+      }
+      if (it.kind === "go" || it.kind === "bookmark" || it.kind === "history") {
+        return "Open";
+      }
+      if (it.kind === "search") {
+        return "Search";
+      }
+      return "Run command";
+    } catch (e) {
+      return "Run";
+    }
+  }
+
+  function peekText(it, alt, ctrlMod) {
+    try {
+      if (ctrlMod && it && (it.kind === "tab" || it.tabRef)) {
+        return "⌃W Close tab — palette stays open · release to cancel";
+      }
+      if (alt && it && it.runInTemp) {
+        return "⌥↵ Open in temp container · release to cancel";
+      }
+      return `↵ ${peekBaseAction(it)} · hold ⌥/⌃ to peek alternatives`;
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // True when e is a bare modifier press handled as a footer peek.
+  function modifierPeek(e) {
+    try {
+      const k = e.key || "";
+      const bareAlt = k === "Alt" && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+      const bareCtrl =
+        (k === "Control" || k === "Meta") && !e.altKey && !e.shiftKey;
+      if (!bareAlt && !bareCtrl) {
+        return false;
+      }
+      // Swallow so bare Alt can't yank focus to the Firefox menu bar.
+      e.preventDefault();
+      e.stopPropagation();
+      if (footer) {
+        const t = peekText(items[selected], bareAlt, bareCtrl);
+        if (t) {
+          footer.textContent = t;
+        }
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function onListKey(e) {
+    if (modifierPeek(e)) {
+      return;
+    }
+    const ctrl = !!(e.ctrlKey || e.metaKey);
+    // Ctrl+N/P + Ctrl+J navigation (Ctrl+K stays the toggle — never hijack).
+    if (ctrl && !e.altKey && !e.shiftKey && (e.key === "n" || e.key === "N" || e.key === "j" || e.key === "J")) {
+      e.preventDefault();
+      e.stopPropagation();
+      moveSelection(1);
+      return;
+    }
+    if (ctrl && !e.altKey && !e.shiftKey && (e.key === "p" || e.key === "P")) {
+      e.preventDefault();
+      e.stopPropagation();
+      moveSelection(-1);
+      return;
+    }
+    // Ctrl+W on a tab row closes that tab, keeps the palette open.
+    if (ctrl && !e.altKey && !e.shiftKey && (e.key === "w" || e.key === "W")) {
+      const it = items[selected];
+      if (it && (it.kind === "tab" || it.tabRef)) {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          if (typeof closeRowTab === "function" && closeRowTab(it)) {
+            return;
+          }
+        } catch (_e) {}
+      }
+      return;
+    }
+    // Alt/ctrl + 1–9 quick-pick.
+    if ((e.altKey || ctrl) && /^[1-9]$/.test(e.key || "")) {
+      const idx = Number(e.key) - 1;
+      if (idx < items.length) {
+        e.preventDefault();
+        e.stopPropagation();
+        selected = idx;
+        choose(!!e.shiftKey);
+      }
+      return;
+    }
     if (e.key === "ArrowDown") {
       e.preventDefault();
       e.stopPropagation();
-      if (items.length) {
-        selected = (selected + 1) % items.length;
-        paint();
-      }
+      moveSelection(e.ctrlKey ? 10 : 1);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       e.stopPropagation();
+      // Terminal-history recall: empty input + Up restores the last
+      // committed query instead of moving selection.
+      try {
+        const v = input && input.value ? String(input.value) : "";
+        if (!v.trim() && lastCommittedQuery) {
+          input.value = lastCommittedQuery;
+          render(input.value);
+          try {
+            input.focus();
+          } catch (_e) {}
+          return;
+        }
+      } catch (_e) {}
+      moveSelection(e.ctrlKey ? -10 : -1);
+    } else if (e.key === "PageDown") {
+      e.preventDefault();
+      e.stopPropagation();
+      moveSelection(10);
+    } else if (e.key === "PageUp") {
+      e.preventDefault();
+      e.stopPropagation();
+      moveSelection(-10);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      e.stopPropagation();
       if (items.length) {
-        selected = (selected - 1 + items.length) % items.length;
+        selected = 0;
         paint();
+      }
+    } else if (e.key === "End") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (items.length) {
+        selected = items.length - 1;
+        paint();
+      }
+    } else if (e.key === "Tab") {
+      // Autocomplete the highlighted row title into the input.
+      const it = items[selected];
+      if (it && input) {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          input.value = it.title || "";
+          render(input.value);
+          try {
+            input.focus();
+          } catch (_e) {}
+        } catch (_e2) {}
       }
     } else if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-      choose(!!e.altKey);
+      choose(!!(e.altKey || e.shiftKey));
     } else if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
+      // First Esc with a mode prefix + query clears to the prefix;
+      // second Esc closes.
+      try {
+        const v = (input && input.value) || "";
+        if (v.length > 1 && /^[>@#?]/.test(v)) {
+          input.value = v[0];
+          render(input.value);
+          return;
+        }
+        if (/^[a-zA-Z]\s*:\s*\S/.test(v.trim())) {
+          const m = v.match(/^([a-zA-Z]\s*:)/);
+          if (m) {
+            input.value = m[1] + " ";
+            render(input.value);
+            return;
+          }
+        }
+      } catch (_e) {}
       close();
     }
   }
@@ -2094,17 +3727,47 @@
     if (!isOpen()) {
       return;
     }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      close();
-    } else if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter") {
+    if (
+      e.key === "Escape" ||
+      e.key === "ArrowDown" ||
+      e.key === "ArrowUp" ||
+      e.key === "Enter" ||
+      e.key === "PageDown" ||
+      e.key === "PageUp" ||
+      e.key === "Home" ||
+      e.key === "End" ||
+      e.key === "Tab" ||
+      e.key === "Alt" ||
+      e.key === "Control" ||
+      e.key === "Meta"
+    ) {
       // Input-level handler covers these when focused; this is the fallback.
       onListKey(e);
     }
   }
 
   window.addEventListener("keydown", onKey, true);
+
+  // Releasing a peeked modifier restores the normal footer (repaint is
+  // cheap with pooled rows). Swallows bare Alt release so the Firefox
+  // menu bar never steals focus from an open palette.
+  window.addEventListener(
+    "keyup",
+    (e) => {
+      try {
+        if (!isOpen()) {
+          return;
+        }
+        const k = e.key || "";
+        if (k === "Alt" || k === "Control" || k === "Meta") {
+          e.preventDefault();
+          e.stopPropagation();
+          paint();
+        }
+      } catch (_e) {}
+    },
+    true
+  );
 
   // Public API for the workspace badge / shortcuts / tab rename.
   try {

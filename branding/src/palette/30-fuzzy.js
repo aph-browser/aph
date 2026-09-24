@@ -97,13 +97,44 @@
     return { score, indices };
   }
 
+  // Highlight discipline: only "clean" hits get marks — a contiguous run
+  // (prefix / substring) or every hit on a word start (acronym "nt" →
+  // "New Tab"). Scattered subsequence matches still rank and select, but
+  // render as plain text instead of visual static, so the highlight always
+  // answers "why did this row appear?".
+  function isCleanHit(indices, text) {
+    try {
+      if (!indices || !indices.length) {
+        return false;
+      }
+      if (indices.length === 1) {
+        return true;
+      }
+      let contiguous = true;
+      for (let k = 1; k < indices.length; k++) {
+        if (indices[k] !== indices[0] + k) {
+          contiguous = false;
+          break;
+        }
+      }
+      if (contiguous) {
+        return true;
+      }
+      const lower = String(text || "").toLowerCase();
+      const isB = (i) => i === 0 || /[^a-z0-9]/.test(lower[i - 1] || "");
+      return indices.every(isB);
+    } catch (e) {
+      return false;
+    }
+  }
+
   // Best of title / sub / hint (sub and hint count slightly less, so a
   // title hit outranks metadata); keeps all index sets so paint() can
   // highlight each field that matched.
   function matchItem(it, q) {
-    const tm = fuzzyScore(q, it.title || "");
-    const sm = it.sub ? fuzzyScore(q, it.sub) : null;
-    const hm = it.hint ? fuzzyScore(q, it.hint) : null;
+    const tm = fuzzyScoreTypo(q, it.title || "");
+    const sm = it.sub ? fuzzyScoreTypo(q, it.sub) : null;
+    const hm = it.hint ? fuzzyScoreTypo(q, it.hint) : null;
     if (!tm && !sm && !hm) {
       return null;
     }
@@ -114,9 +145,80 @@
     );
     return {
       score,
-      ti: tm ? tm.indices : [],
-      si: sm ? sm.indices : [],
-      hi: hm ? hm.indices : [],
+      ti: tm && isCleanHit(tm.indices, it.title) ? tm.indices : [],
+      si: sm && isCleanHit(sm.indices, it.sub) ? sm.indices : [],
+      hi: hm && isCleanHit(hm.indices, it.hint) ? hm.indices : [],
     };
+  }
+
+  // Typo-tolerant wrapper: direct fuzzyScore first; on miss with q>=4,
+  // retry single adjacent transpositions ("nwe" -> "new") with a -120
+  // penalty. Sync, bounded (n-1 variants), no DP blowup.
+  function fuzzyScoreTypo(query, text) {
+    const direct = fuzzyScore(query, text);
+    if (direct) {
+      return direct;
+    }
+    try {
+      const q = (query || "").toLowerCase();
+      if (q.length < 3 || q.length > 40) {
+        return null;
+      }
+      if (/\s/.test(q)) {
+        return null;
+      }
+      let best = null;
+      for (let i = 0; i < q.length - 1; i++) {
+        if (q[i] === q[i + 1]) {
+          continue;
+        }
+        const swapped = q.slice(0, i) + q[i + 1] + q[i] + q.slice(i + 2);
+        const m = fuzzyScore(swapped, text);
+        if (m && (!best || m.score > best.score)) {
+          best = m;
+        }
+      }
+      if (best) {
+        return { score: best.score - 120, indices: best.indices };
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  // Multi-word: every whitespace-separated token must match (AND); scores
+  // sum, highlight index sets union. Single-token queries use matchItem
+  // directly so existing tier ordering is untouched.
+  function matchTokens(it, q) {
+    const raw = (q || "").toLowerCase().trim();
+    if (!raw) {
+      return { score: 0, ti: [], si: [], hi: [] };
+    }
+    const tokens = raw.split(/\s+/).filter(Boolean);
+    if (tokens.length <= 1) {
+      return matchItem(it, raw);
+    }
+    let total = 0;
+    const ti = [];
+    const si = [];
+    const hi = [];
+    for (const tok of tokens) {
+      const m = matchItem(it, tok);
+      if (!m) {
+        return null;
+      }
+      total += m.score;
+      for (const i of m.ti) {
+        ti.push(i);
+      }
+      for (const i of m.si) {
+        si.push(i);
+      }
+      for (const i of m.hi) {
+        hi.push(i);
+      }
+    }
+    // Slight bonus for matching more tokens (exact multi-word intent).
+    total += tokens.length * 5;
+    return { score: total, ti, si, hi };
   }
 

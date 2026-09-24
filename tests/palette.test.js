@@ -626,3 +626,320 @@ describe("sidebar footer toggle", () => {
     assert.deepEqual(w.writes, [["sidebar.visibility", "always-show"]]);
   });
 });
+
+describe("exact-prefix lock", () => {
+  // Tab A matches "yo" as an exact prefix but has a very long title
+  // (prefix score ~598); tab B matches as an acronym (~700) without any
+  // frecency. Without a structural lock, B outranks A.
+  function prefixSandbox() {
+    const sb2 = {
+      window: {
+        addEventListener() {},
+        AphWorkspaces: {
+          getCurrent: () => "1",
+          getWsName: () => "",
+          getWsContainer: () => 0,
+          describeContainer: () => null,
+          getRoutes: () => ({}),
+          setRoute: () => {},
+          deleteRoute: () => {},
+          getWs: () => "1",
+          switchTo: () => {},
+          sendTabTo: () => {},
+          openBoundTab: () => ({}),
+          openTempTab: () => ({}),
+        },
+      },
+      document: { readyState: "loading" },
+      gBrowser: {
+        tabs: [
+          {
+            label: "yo" + "x".repeat(400),
+            linkedBrowser: { currentURI: { spec: "https://long.example/" } },
+            lastAccessed: 2,
+          },
+          {
+            label: "Yaks Oink",
+            linkedBrowser: { currentURI: { spec: "https://yak.example/" } },
+            lastAccessed: 1,
+          },
+        ],
+        addTrustedTab: () => ({}),
+        get selectedTab() {
+          return { linkedBrowser: { currentURI: { spec: "about:newtab" } } };
+        },
+      },
+      SessionStore: {},
+      Services: { prefs: { getCharPref: () => "", setCharPref: () => {} } },
+    };
+    run(
+      "command-palette.js",
+      sb2,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest = { allItems, recordFrecency };"
+    );
+    return sb2.window.__aphTest;
+  }
+
+  function tabRows(api, q) {
+    return api.allItems(q).filter((r) => r.section === "Tabs");
+  }
+
+  it("keeps an exact-prefix row first when a fuzzy rival scores higher", () => {
+    const api = prefixSandbox();
+    const res = tabRows(api, "yo");
+    assert.ok(res.length >= 2, JSON.stringify(res.map((r) => r.title.slice(0, 12))));
+    assert.ok(res[0].title.startsWith("yoxxx"), res[0].title.slice(0, 12));
+  });
+
+  it("holds the lock under maxed frecency on the rival", () => {
+    const api = prefixSandbox();
+    for (let i = 0; i < 40; i++) {
+      api.recordFrecency({ title: "Yaks Oink", section: "Tabs", kind: "tab" });
+    }
+    const res = tabRows(api, "yo");
+    assert.ok(res[0].title.startsWith("yoxxx"), res[0].title.slice(0, 12));
+  });
+});
+
+describe("mode gating (zero leakage)", () => {
+  it("never leaks non-tab rows into @ results", () => {
+    const res = T.allItems("@new tab");
+    for (const r of res) {
+      assert.equal(r.section, "Tabs", r.title);
+    }
+  });
+
+  it("never leaks tabs/places/nav into > results", () => {
+    const res = T.allItems(">bind");
+    assert.ok(res.length > 0, "bind commands exist");
+    for (const r of res) {
+      assert.equal(r.section, "Commands", `${r.title}[${r.section}]`);
+    }
+  });
+
+  it("? lists only help rows", () => {
+    const res = T.allItems("?");
+    assert.ok(res.length > 0, "help rows exist");
+    for (const r of res) {
+      assert.equal(r.section, "Help", r.title);
+    }
+  });
+});
+
+describe("return-of-focus", () => {
+  function focusSandbox(pageEl) {
+    let created = 0;
+    const order = [];
+    function stubEl() {
+      return {
+        children: [],
+        attrs: {},
+        value: "",
+        textContent: "",
+        className: "",
+        id: "",
+        hidden: false,
+        style: {},
+        setAttribute(k, v) { this.attrs[k] = String(v); },
+        removeAttribute(k) { delete this.attrs[k]; },
+        appendChild(c) { this.children.push(c); return c; },
+        removeChild(c) {
+          const i = this.children.indexOf(c);
+          if (i !== -1) this.children.splice(i, 1);
+          return c;
+        },
+        get firstChild() { return this.children[0] || null; },
+        addEventListener() {},
+        querySelector() { return null; },
+        scrollIntoView() {},
+        focus() {},
+        select() {},
+        contains() { return false; },
+        classList: { add() {}, remove() {}, contains() { return false; } },
+      };
+    }
+    const sb2 = {
+      window: {
+        addEventListener() {},
+        AphWorkspaces: {
+          getCurrent: () => "1",
+          getWsName: () => "",
+          getWsContainer: () => 0,
+          describeContainer: () => null,
+          getRoutes: () => ({}),
+          setRoute: () => {},
+          deleteRoute: () => {},
+          getWs: () => "1",
+          switchTo: () => {},
+          sendTabTo: () => {},
+          openBoundTab: () => ({}),
+          openTempTab: () => ({}),
+        },
+      },
+      document: {
+        readyState: "loading",
+        activeElement: pageEl,
+        contains: () => true,
+        createElement: () => { created++; order.push(created); return stubEl(); },
+        createTextNode: (t) => ({ text: String(t) }),
+        body: { appendChild() {} },
+      },
+      gBrowser: {
+        tabs: [],
+        addTrustedTab: () => ({}),
+        get selectedTab() {
+          return { linkedBrowser: { currentURI: { spec: "about:newtab" } } };
+        },
+      },
+      SessionStore: {},
+    };
+    run(
+      "command-palette.js",
+      sb2,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest = { open, close, isOpen };"
+    );
+    return sb2.window.__aphTest;
+  }
+
+  it("restores focus to the previously focused element on close", () => {
+    let focused = null;
+    const api = focusSandbox({ focus() { focused = "page"; }, isConnected: true });
+    api.open();
+    api.close();
+    assert.equal(focused, "page");
+  });
+
+  it("never restores to a disconnected element", () => {
+    let focused = null;
+    const api = focusSandbox({ focus() { focused = "gone"; }, isConnected: false });
+    api.open();
+    assert.doesNotThrow(() => api.close());
+    assert.equal(focused, null);
+  });
+});
+
+describe("terminal history + modifier peek", () => {
+  function domSandbox() {
+    const created = [];
+    const winHandlers = {};
+    function stubEl() {
+      const el = {
+        children: [],
+        attrs: {},
+        value: "",
+        textContent: "",
+        className: "",
+        id: "",
+        hidden: false,
+        style: {},
+        setAttribute(k, v) { this.attrs[k] = String(v); },
+        removeAttribute(k) { delete this.attrs[k]; },
+        appendChild(c) { this.children.push(c); return c; },
+        removeChild(c) {
+          const i = this.children.indexOf(c);
+          if (i !== -1) this.children.splice(i, 1);
+          return c;
+        },
+        get firstChild() { return this.children[0] || null; },
+        addEventListener(t, fn) { (this._h = this._h || {})[t] = fn; },
+        querySelector() { return null; },
+        scrollIntoView() {},
+        focus() {},
+        select() {},
+        contains() { return false; },
+        classList: { add() {}, remove() {}, contains() { return false; } },
+      };
+      created.push(el);
+      return el;
+    }
+    const sb2 = {
+      window: {
+        addEventListener(t, fn) { (winHandlers[t] = winHandlers[t] || []).push(fn); },
+        AphWorkspaces: {
+          getCurrent: () => "1",
+          getWsName: () => "",
+          getWsContainer: () => 0,
+          describeContainer: () => null,
+          getRoutes: () => ({}),
+          setRoute: () => {},
+          deleteRoute: () => {},
+          getWs: () => "1",
+          switchTo: () => {},
+          sendTabTo: () => {},
+          openBoundTab: () => ({}),
+          openTempTab: () => ({}),
+        },
+      },
+      document: {
+        readyState: "loading",
+        activeElement: null,
+        contains: () => false,
+        createElement: () => stubEl(),
+        createTextNode: (t) => ({ text: String(t) }),
+        body: { appendChild() {} },
+      },
+      gBrowser: {
+        tabs: [],
+        addTrustedTab: () => ({}),
+        get selectedTab() {
+          return {
+            label: "T",
+            pinned: false,
+            linkedBrowser: { currentURI: { spec: "https://x.example/" } },
+            toggleMuteAudio() {},
+          };
+        },
+      },
+      SessionStore: {},
+    };
+    run(
+      "command-palette.js",
+      sb2,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest = { open, close, render };"
+    );
+    // build() runs lazily on open(); index created elements after that.
+    // build() order: overlay, box, input, list, footer.
+    return { api: sb2.window.__aphTest, created, winHandlers };
+  }
+
+  function key(k, extra) {
+    return Object.assign(
+      { key: k, preventDefault() {}, stopPropagation() {}, altKey: false, shiftKey: false, ctrlKey: false, metaKey: false },
+      extra || {}
+    );
+  }
+
+  it("recalls the last committed query on empty ArrowUp", () => {
+    const { api, created } = domSandbox();
+    api.open();
+    const input = created[2];
+    input.value = "mute";
+    api.render("mute");
+    input._h.keydown(key("Enter"));
+    assert.ok(input.value === "mute", "commit keeps the query in the field");
+    api.open();
+    assert.equal(input.value, "");
+    input._h.keydown(key("ArrowUp"));
+    assert.equal(input.value, "mute");
+  });
+
+  it("morphs the footer while Alt is held and restores on release", () => {
+    const { api, created, winHandlers } = domSandbox();
+    api.open();
+    const input = created[2];
+    const footer = created[4];
+    const base = String(footer.textContent || "");
+    assert.ok(base.length > 0, "footer has a mode hint");
+    input._h.keydown(key("Alt"));
+    const peeked = String(footer.textContent || "");
+    assert.ok(peeked !== base, `footer peeked: ${peeked}`);
+    assert.ok(/↵/.test(peeked), `peek shows Enter action: ${peeked}`);
+    for (const fn of winHandlers.keyup || []) {
+      fn(key("Alt"));
+    }
+    assert.equal(String(footer.textContent || ""), base);
+  });
+});

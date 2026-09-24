@@ -70,7 +70,7 @@ function makeEnv() {
       tabContainer: {
         setAttribute() {},
         // Prod keeps every listener; the mock must too (pinreset, starred,
-        // and lifecycle all watch TabPinned; tree + pinreset + starred all
+        // and lifecycle all watch TabPinned; pinreset + starred all
         // watch the tab context menu).
         addEventListener(t, fn) { (containerHandlers[t] ||= []).push(fn); },
         removeEventListener(t, fn) {

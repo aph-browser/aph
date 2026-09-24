@@ -1,13 +1,11 @@
   // Tab context-menu "Move to Workspace" submenus: the mouse-first path for
-  // moving tabs, trees, and native groups across workspaces. Three variants
+  // moving tabs and native groups across workspaces. Two variants
   // share one target-resolution rule (clicked tab wins; its live
   // multiselection rides along when the click belongs to it):
   // - "Move Tab(s) to Workspace >" — always shown, calls sendTabTo (which
-  //   auto-carries linked tree descendants and preserves whole groups).
-  // - "Move Tree to Workspace >" — only when the selection owns descendants;
-  //   calls sendTreeTo explicitly (same carry, explicit label/count).
+  //   preserves whole groups).
   // - "Move Group to Workspace >" — only when the clicked tab sits in a
-  //   native group of 2+; calls sendGroupTo (whole group + grouped trees).
+  //   native group of 2+; calls sendGroupTo (whole group, membership kept).
   // Labels carry workspace names + bound-container suffixes (palette wsFull
   // pattern, reimplemented here — the palette bundle is a separate scope).
   // XUL hosts need createXULElement (HTML-namespaced duds never render);
@@ -85,18 +83,14 @@
         try {
           let sel = [];
           try {
-            if (typeof getTreeSelectedTabs === "function") {
-              sel = getTreeSelectedTabs() || [];
-            } else {
-              const multi =
-                (gBrowser &&
-                  (gBrowser.selectedTabs || gBrowser.multiselectedTabs)) ||
-                null;
-              if (Array.isArray(multi) && multi.length) {
-                sel = multi.slice();
-              } else if (gBrowser && gBrowser.selectedTab) {
-                sel = [gBrowser.selectedTab];
-              }
+            const multi =
+              (gBrowser &&
+                (gBrowser.selectedTabs || gBrowser.multiselectedTabs)) ||
+              null;
+            if (Array.isArray(multi) && multi.length) {
+              sel = multi.slice();
+            } else if (gBrowser && gBrowser.selectedTab) {
+              sel = [gBrowser.selectedTab];
             }
           } catch (e) {}
           if (sel.length > 1) {
@@ -162,43 +156,6 @@
       return el;
     } catch (e) {
       return null;
-    }
-  }
-
-  function moveMenuFamilySize(tabs) {
-    try {
-      if (!tabs || !tabs.length) {
-        return 0;
-      }
-      const seen = new Set();
-      for (const t of tabs) {
-        if (t && !t.closing) {
-          seen.add(t);
-        }
-      }
-      try {
-        for (const t of Array.from(seen)) {
-          let kids = [];
-          try {
-            kids =
-              typeof getTreeDescendants === "function"
-                ? getTreeDescendants(t)
-                : [];
-          } catch (e) {
-            kids = [];
-          }
-          for (const k of kids || []) {
-            try {
-              if (k && !k.closing) {
-                seen.add(k);
-              }
-            } catch (e) {}
-          }
-        }
-      } catch (e) {}
-      return seen.size;
-    } catch (e) {
-      return 0;
     }
   }
 
@@ -316,23 +273,6 @@
             }
           } catch (err) {}
         });
-      } catch (err) {}
-      // Tree variant: only when the selection owns descendants beyond
-      // itself (otherwise it duplicates the Tab row).
-      try {
-        const family = moveMenuFamilySize(targets);
-        if (family > n) {
-          const treeLabel = `Move Tree (${family} Tabs) to Workspace`;
-          appendMoveSubmenu(menu, "aph-move-tree", treeLabel, targets.slice(), (id, ts) => {
-            try {
-              if (typeof sendTreeTo === "function") {
-                sendTreeTo(id, ts.length === 1 ? ts[0] : ts.slice());
-              } else if (typeof sendTabTo === "function") {
-                sendTabTo(id, ts.length === 1 ? ts[0] : ts.slice());
-              }
-            } catch (err) {}
-          });
-        }
       } catch (err) {}
       // Group variant: only when the clicked tab sits in a real group.
       try {

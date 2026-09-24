@@ -193,21 +193,6 @@
       }
     } catch (e) {}
     try {
-      if (gBrowser && gBrowser.tabContainer) {
-        try {
-          gBrowser.tabContainer.removeEventListener("TabSelect", onTreeTabSelect);
-        } catch (_e) {}
-        try {
-          gBrowser.tabContainer.removeEventListener("TabMove", onTreeTabMove);
-        } catch (_e) {}
-      }
-    } catch (e) {}
-    try {
-      if (typeof collapsedTreeParents !== "undefined" && collapsedTreeParents) {
-        collapsedTreeParents.clear();
-      }
-    } catch (e) {}
-    try {
       if (window.__aphRouteListener === routeListener) {
         window.__aphRouteListener = null;
       }
@@ -314,7 +299,6 @@
         scrubAdoptionGhost:
           typeof scrubAdoptionGhost === "function" ? scrubAdoptionGhost : () => {},
         sendTabTo,
-        sendTreeTo,
         sendGroupTo,
         cycleWorkspace,
         toggleLastWorkspace,
@@ -350,25 +334,6 @@
         closeWorkspaceTabs,
         applySidebarFooter:
           typeof applySidebarFooter === "function" ? applySidebarFooter : () => false,
-        getTreeLevel,
-        getTreeParent: getTreeParentTab,
-        getTreeChildren,
-        getTreeDescendants,
-        countTreeDescendants,
-        isTreeCollapsed,
-        isTreeHidden: isTreeHiddenByCollapse,
-        setTreeCollapsed,
-        toggleTreeCollapsed,
-        expandTreeAncestors,
-        attachTreeChild,
-        indentTreeTab,
-        outdentTreeTab,
-        promoteTreeTab,
-        debugTree,
-        findEnclosingTreeParent,
-        renderTree,
-        applyTreeVisibility,
-        healTreeLinks,
       };
     } catch (e) {}
     current = initialWorkspace();
@@ -389,7 +354,7 @@
     try {
       for (const t of gBrowser.tabs) {
         // Restoring tabs are owned by SessionStore until SSTabRestored:
-        // stamping or minting tree ids now would race extData and freeze
+        // stamping now would race extData and freeze
         // a WS3 tab to this window's workspace. Skip them here.
         try {
           if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
@@ -403,12 +368,6 @@
         try {
           t.__aphFresh = false;
         } catch (e) {}
-        // Every tab owns a stable tree id (roots simply have no parent).
-        try {
-          if (typeof ensureTreeId === "function") {
-            ensureTreeId(t);
-          }
-        } catch (e) {}
         // Heal legacy per-workspace pins: pins are global, never hidden.
         try {
           if (t.pinned && t.hidden) {
@@ -418,23 +377,11 @@
       }
       // Restored tabs keep their tags (no setWs above) — sync markers anyway.
       syncAllTabChrome();
-      // Restored tree links survive via SessionStore; collapsed state
-      // always starts expanded. Prune dangling/cross-WS edges.
-      try {
-        if (typeof healTreeLinks === "function") {
-          healTreeLinks();
-        }
-      } catch (e) {}
-      try {
-        if (typeof renderTree === "function") {
-          renderTree();
-        }
-      } catch (e) {}
     } catch (e) {}
     // Session restore may not preserve hidden state; force a full pass.
     // Claim-only (switchLocal, never switchTo): a fresh window must not
     // rip dormant tabs out of other windows uninvited — adoption flattens
-    // groups/trees in flight, and an unasked pull is pure destruction.
+    // groups in flight, and an unasked pull is pure destruction.
     // Dormant workspaces wait to be summoned explicitly. Broadcast the
     // claim so other windows' docks show the new remote pill.
     try {
@@ -450,6 +397,7 @@
       }
     } catch (e) {}
     gBrowser.tabContainer.addEventListener("TabOpen", onTabOpen);
+    gBrowser.tabContainer.addEventListener("TabSelect", onTabSelect);
     gBrowser.tabContainer.addEventListener("TabClose", onTabClose);
     gBrowser.tabContainer.addEventListener("SSTabRestored", onTabRestored);
     gBrowser.tabContainer.addEventListener("TabPinned", onTabPinned);
@@ -473,12 +421,6 @@
     // headers sync idempotently through the same handler.
     try {
       gBrowser.tabContainer.addEventListener("TabGroupMoved", onGroupChange);
-    } catch (e) {}
-    try {
-      gBrowser.tabContainer.addEventListener("TabSelect", onTreeTabSelect);
-    } catch (e) {}
-    try {
-      gBrowser.tabContainer.addEventListener("TabMove", onTreeTabMove);
     } catch (e) {}
     window.addEventListener("keydown", onKey, true);
     try {

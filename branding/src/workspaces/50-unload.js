@@ -182,7 +182,7 @@
   }
 
   // Next visible tab after `tab` in strip order, else the nearest visible
-  // tab before it. Hidden (foreign-workspace / tree-collapsed), closing,
+  // tab before it. Hidden (foreign-workspace), closing,
   // and the tab itself never qualify. Null when nothing else is visible.
   function findParkNeighbor(tab) {
     try {

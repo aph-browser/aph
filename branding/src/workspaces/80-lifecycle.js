@@ -44,9 +44,9 @@
     if (!tab) {
       return;
     }
-    // Session restore owns this tab until SSTabRestored: extData (aphWs,
-    // tree links) has not been applied yet, so every write below — birth
-    // age, last-viewed, fresh flag, container repair, stamp, tree attach —
+    // Session restore owns this tab until SSTabRestored: extData (aphWs)
+    // has not been applied yet, so every write below — birth
+    // age, last-viewed, fresh flag, container repair, stamp —
     // would race the restore and freeze a tagless WS3 tab to the current
     // workspace. Let onTabRestored settle it.
     try {
@@ -78,18 +78,6 @@
       try {
         adoptedTabs.add(tab);
       } catch (err) {}
-      // Adopted tabs land as Level 0 roots (workspace-scoped trees never
-      // span windows); former children left behind heal to roots/parents.
-      try {
-        if (typeof clearTreeParent === "function") {
-          clearTreeParent(tab);
-        }
-      } catch (err) {}
-      try {
-        if (typeof ensureTreeId === "function") {
-          ensureTreeId(tab);
-        }
-      } catch (err) {}
       // Adopted tabs arrive with a live page — settled, never auto-route.
       try {
         tab.__aphFresh = false;
@@ -108,11 +96,6 @@
       try {
         renderDock();
       } catch (err) {}
-      try {
-        if (typeof renderTree === "function") {
-          renderTree();
-        }
-      } catch (err) {}
       return;
     }
     // Fresh until its first real commit — the progress router may claim it.
@@ -125,18 +108,6 @@
       return;
     }
     stampTab(tab);
-    // Automatic tree: opener-linked tabs become children (placed after the
-    // parent's last descendant); manual tabs (no opener) stay Level 0.
-    try {
-      if (typeof treeAttachFromOpener === "function") {
-        treeAttachFromOpener(tab, e);
-      }
-    } catch (err) {}
-    try {
-      if (typeof renderTree === "function") {
-        renderTree();
-      }
-    } catch (err) {}
     try {
       renderDock();
     } catch (err) {}
@@ -200,27 +171,11 @@
         }, 0);
       }
     } catch (err) {}
-    // Restored tabs keep their persisted tree links; heal dangling edges
-    // (missing/cross-WS parents) and ensure every tab owns a tree id.
-    // Both wait when the tab is still restoring: ensureTreeId would mint
-    // a fresh id over the persisted one, and heal would read the
-    // not-yet-applied workspace tag (defaulting to "1") as a cross-WS
-    // edge and clear a valid link. The tick above stamps first; heal and
-    // ensure re-run there once settled.
+    // Restored tabs just keep their workspace tags.
     let restoreSettled = true;
     try {
       restoreSettled =
         typeof isRestoringTab !== "function" || !isRestoringTab(tab);
-    } catch (err) {}
-    try {
-      if (typeof ensureTreeId === "function" && restoreSettled) {
-        ensureTreeId(tab);
-      }
-    } catch (err) {}
-    try {
-      if (typeof healTreeLinks === "function" && restoreSettled) {
-        healTreeLinks();
-      }
     } catch (err) {}
     if (!restoreSettled) {
       try {
@@ -228,19 +183,6 @@
           try {
             if (tab.closing) {
               return;
-            }
-            if (typeof ensureTreeId === "function") {
-              ensureTreeId(tab);
-            }
-          } catch (err) {}
-          try {
-            if (typeof healTreeLinks === "function") {
-              healTreeLinks();
-            }
-          } catch (err) {}
-          try {
-            if (typeof renderTree === "function") {
-              renderTree();
             }
           } catch (err) {}
           // Visibility was skipped below (no tag yet) — settle it now
@@ -252,23 +194,9 @@
               }
             }
           } catch (err) {}
-          // Re-show anything hidden early (reconcile/unify acting on the
-          // tagless default before extData landed) now that the tag
-          // settled — applyTreeVisibility owns the selected/tree/group
-          // guards, so this can't fight intentional hides.
-          try {
-            if (typeof applyTreeVisibility === "function") {
-              applyTreeVisibility();
-            }
-          } catch (err) {}
         }, 0);
       } catch (err) {}
     }
-    try {
-      if (typeof renderTree === "function") {
-        renderTree();
-      }
-    } catch (err) {}
     // A tagless still-restoring tab has no workspace yet (getWs defaults
     // to "1") — hiding/showing now would act on the wrong workspace.
     // The tick above settles visibility once extData lands.
@@ -298,41 +226,34 @@
     try {
       renderDock();
     } catch (err) {}
-    // Settle visibility symmetrically: hide foreign strays AND re-show
-    // current-workspace tabs hidden early (before their tag landed).
-    // Without the re-show half, an early hide sticks until the next
-    // switch — the tab looks deleted.
+  }
+
+  // Selecting counts as viewing for auto-archive staleness (same stamp
+  // as birth in onTabOpen; never on SSTabRestored, where restore must
+  // not look like viewing).
+  function onTabSelect(e) {
     try {
-      if (typeof applyTreeVisibility === "function") {
-        applyTreeVisibility();
+      const tab =
+        (e && e.target) ||
+        (typeof gBrowser !== "undefined" && gBrowser && gBrowser.selectedTab) ||
+        null;
+      if (!tab || tab.closing) {
+        return;
+      }
+      if (typeof stampLastViewed === "function") {
+        stampLastViewed(tab);
       }
     } catch (err) {}
   }
 
   function onTabClose(e) {
     const tab = e.target;
-    // Promote, don't delete: children slide up one level in place.
-    try {
-      if (typeof promoteTreeChildrenOnClose === "function") {
-        promoteTreeChildrenOnClose(tab);
-      }
-    } catch (err) {}
     for (const id of Object.keys(lastSelected)) {
       if (lastSelected[id] === tab) {
         delete lastSelected[id];
       }
     }
     cleanupTempContainer(tab);
-    try {
-      if (typeof renderTree === "function") {
-        renderTree();
-      }
-    } catch (err) {}
-    try {
-      if (typeof applyTreeVisibility === "function") {
-        applyTreeVisibility();
-      }
-    } catch (err) {}
     // Closing can empty or singleton-ize a native group: re-sync headers
     // (deferred unify would touch a half-removed group; headers are safe
     // synchronously and removal events get their own listener).
@@ -349,8 +270,6 @@
   // Pin/unpin keeps the tab's workspace tag as dormant state (used when
   // eventually unpinned). Pins are global: pinning unhides, unpinning
   // re-applies workspace visibility. Stock pinTab() unconditionally unhides.
-  // Pins are always Level 0 roots: pinning detaches the tab and promotes
-  // its children (same rule as closing, without deleting anyone).
   function onTabPinned(e) {
     const tab = e.target;
     if (!tab) {
@@ -376,40 +295,13 @@
       }
     } catch (err) {}
     try {
-      if (tab.pinned) {
-        if (typeof promoteTreeChildrenOnClose === "function") {
-          promoteTreeChildrenOnClose(tab);
-        }
-      }
-    } catch (err) {}
-    try {
-      if (tab.pinned && typeof clearTreeParent === "function") {
-        clearTreeParent(tab);
-      }
-    } catch (err) {}
-    try {
-      if (typeof ensureTreeId === "function") {
-        ensureTreeId(tab);
-      }
-    } catch (err) {}
-    try {
       if (!isValidId(current)) {
-        try {
-          if (typeof renderTree === "function") {
-            renderTree();
-          }
-        } catch (_e) {}
         return;
       }
       if (tab.pinned) {
         if (tab.hidden) {
           aphShowTab(tab);
         }
-        try {
-          if (typeof renderTree === "function") {
-            renderTree();
-          }
-        } catch (_e) {}
         try {
           renderDock();
         } catch (_e) {}
@@ -421,16 +313,6 @@
         }
       } else if (tab.hidden) {
         aphShowTab(tab);
-      }
-    } catch (err) {}
-    try {
-      if (typeof renderTree === "function") {
-        renderTree();
-      }
-    } catch (err) {}
-    try {
-      if (typeof applyTreeVisibility === "function") {
-        applyTreeVisibility();
       }
     } catch (err) {}
     try {
