@@ -60,11 +60,16 @@
   }
 
   // Highlight matched characters (fuzzy index sets); plain text otherwise.
+  // Must clear first: pooled rows are reconfigured in place, so leftover
+  // marks/text from the previous render would concatenate (garbled rows).
   function paintText(el, text, set) {
     try {
       if (!set || set.size === 0) {
         el.textContent = text;
         return;
+      }
+      while (el.firstChild) {
+        el.removeChild(el.firstChild);
       }
       let buf = "";
       let cur = null;

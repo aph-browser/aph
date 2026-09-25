@@ -34,6 +34,7 @@ class PatchCounts:
     archiveshared: int = 0
     archivepage: int = 0
     tabrenamejs: int = 0
+    fonts: int = 0
 
     def as_tuple(self) -> tuple[int, ...]:
         return (
@@ -53,6 +54,7 @@ class PatchCounts:
             self.archiveshared,
             self.archivepage,
             self.tabrenamejs,
+            self.fonts,
         )
 
 

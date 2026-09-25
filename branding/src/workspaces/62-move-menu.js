@@ -290,6 +290,76 @@
           });
         }
       } catch (err) {}
+      // Window variant: explicit cross-window move (window-scoped model —
+      // the only path that touches another window). Arrivals join the
+      // destination's current workspace.
+      try {
+        if (
+          typeof listWindows === "function" &&
+          typeof moveTabsToWindow === "function"
+        ) {
+          const others = listWindows();
+          if (others && others.length) {
+            const sub = makeMoveMenuNode(
+              "menu",
+              "aph-move-window",
+              n > 1 ? `Move ${n} Tabs to Other Window` : "Move Tab to Other Window",
+              false
+            );
+            if (sub) {
+              const popup =
+                typeof document.createXULElement === "function"
+                  ? document.createXULElement("menupopup")
+                  : document.createElement("menupopup");
+              if (popup && typeof popup.appendChild === "function") {
+                for (const o of others) {
+                  try {
+                    let wsLabel = "";
+                    try {
+                      wsLabel = o && isValidId(o.ws) ? o.ws : "?";
+                      const nm =
+                        typeof getWsName === "function" && isValidId(o.ws)
+                          ? getWsName(o.ws)
+                          : "";
+                      if (nm) {
+                        wsLabel += ` (${nm})`;
+                      }
+                    } catch (err) {}
+                    const item = makeMoveMenuNode(
+                      "menuitem",
+                      "aph-move-window-ws",
+                      `Workspace ${wsLabel}`,
+                      false
+                    );
+                    if (!item) {
+                      continue;
+                    }
+                    if (typeof item.addEventListener === "function") {
+                      const dest = o.win;
+                      const moving = targets.slice();
+                      item.addEventListener("command", () => {
+                        try {
+                          moveTabsToWindow(dest, moving);
+                        } catch (err) {}
+                      });
+                    }
+                    try {
+                      popup.appendChild(item);
+                    } catch (err) {}
+                  } catch (err) {}
+                }
+                try {
+                  sub.appendChild(popup);
+                } catch (err) {}
+                try {
+                  menu.appendChild(sub);
+                  moveMenuItems.push(sub);
+                } catch (err) {}
+              }
+            }
+          }
+        }
+      } catch (err) {}
     } catch (err) {}
   }
 

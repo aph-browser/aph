@@ -166,3 +166,23 @@ class TabrenameInjector:
             counts.tabrenamejs += 1
             return [(TABRENAME_JA_PATH, self._js)]
         return []
+
+
+class FontInjector:
+    """Chrome type (Inter woff2): pure additions, never replacements."""
+
+    name = "fonts"
+
+    def __init__(self, fonts: dict[str, bytes]) -> None:
+        self._fonts = fonts
+
+    def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
+        return data
+
+    def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
+        out: list[tuple[str, bytes]] = []
+        for ja_path, payload in self._fonts.items():
+            if ja_path not in existing:
+                counts.fonts += 1
+                out.append((ja_path, payload))
+        return out

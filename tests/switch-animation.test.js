@@ -19,14 +19,30 @@ function classedTab(tabVals, o) {
 function makeEnv() {
   const tabVals = new WeakMap();
   const tabs = [];
+  const dipClasses = new Set();
+  const tabboxEl = {
+    classList: {
+      add: (c) => dipClasses.add(c),
+      remove: (c) => dipClasses.delete(c),
+      contains: (c) => dipClasses.has(c),
+    },
+  };
   const prefStore = {};
   let sel = null;
   const sb = {
+    // Real timers (see run()): this is the only suite asserting
+    // timer-driven removals (dip release). No other suite is affected.
+    __aphRealTimers: true,
     window: { addEventListener() {}, removeEventListener() {}, opener: null },
     navigator: { onLine: true },
     document: {
       readyState: "complete",
-      getElementById: () => null,
+      getElementById: (id) => (id === "tabbrowser-tabbox" ? tabboxEl : null),
+      documentElement: {
+        _attrs: {},
+        setAttribute(k, v) { this._attrs[k] = v; },
+        getAttribute(k) { return this._attrs[k]; },
+      },
       createElement: () => ({
         setAttribute() {}, removeAttribute() {}, addEventListener() {},
         style: {}, className: "",
@@ -97,7 +113,7 @@ function makeEnv() {
     tabs.push(t);
     return t;
   }
-  return { api, tabs, addTab, get sel() { return sel; } };
+  return { api, tabs, addTab, doc: sb.document, tabboxEl, get sel() { return sel; } };
 }
 
 describe("switch animation", () => {
@@ -129,5 +145,25 @@ describe("switch animation", () => {
     const b = addTab("b", { ws: "2" });
     api.switchLocal("2");
     assert.ok(b.classList.contains("aph-ws-enter"), "incoming tab fades in");
+  });
+
+  it("dips the card on switch (§24 dissolve) and releases it", async () => {
+    const { api, addTab, tabboxEl } = makeEnv();
+    addTab("a", { ws: "1" });
+    addTab("b", { ws: "2" });
+    api.switchTo("2");
+    assert.ok(tabboxEl.classList.contains("aph-ws-dip"), "card dips at the swap");
+    await new Promise((r) => setTimeout(r, 200));
+    assert.ok(!tabboxEl.classList.contains("aph-ws-dip"), "dip releases for the glide back");
+  });
+
+  it("stamps the live workspace on documentElement for the CSS tint (§21)", () => {
+    const { api, addTab, doc } = makeEnv();
+    addTab("a", { ws: "1" });
+    addTab("b", { ws: "2" });
+    api.switchTo("2");
+    assert.equal(doc.documentElement.getAttribute("data-aph-ws"), "2");
+    api.switchLocal("1");
+    assert.equal(doc.documentElement.getAttribute("data-aph-ws"), "1");
   });
 });

@@ -39,8 +39,10 @@
         const cur = isValidId(current) ? current : "1";
         const name = getWsName(cur);
         el.textContent = name ? `${cur}: ${name}` : cur;
-        // Bound container: color underline + tooltip. boxShadow (not border)
-        // so the fixed 24px badge never shifts layout.
+        // Bound container: colored dot + tooltip (theme.css §6 renders the
+        // dot from data-aph-bound + --aph-ws-dot). Attribute + var driven
+        // so the fixed-height pill never shifts layout, and the filled
+        // dot reads on light and dark toolbars alike.
         let title = `Workspace ${cur}${name ? `: ${name}` : ""} (Alt+Shift+1..9 · ]/[ cycle · Tab toggles last · click to rename)`;
         let color = "";
         try {
@@ -69,7 +71,15 @@
         } catch (e) {}
         el.title = title;
         try {
-          el.style.boxShadow = color ? `inset 0 -2px 0 ${color}` : "";
+          if (color) {
+            // Var first: if the style write throws (minimal stubs), the
+            // attribute never lands and no var-less dot renders.
+            el.style.setProperty("--aph-ws-dot", color);
+            el.setAttribute("data-aph-bound", "1");
+          } else {
+            el.removeAttribute("data-aph-bound");
+            el.style.removeProperty("--aph-ws-dot");
+          }
         } catch (e) {}
       }
       // Dock repaints with the badge: switch/rename/bind/pref-sync covered.
@@ -121,12 +131,15 @@
   }
 
   // Switch animation: fade incoming tabs in after the synchronous
-  // hidden-attribute swap. A leave-side fade is impossible here — the whole
-  // switch commits in one task, so a leave frame would never paint — but
-  // the enter fade alone reads as a soft dissolve, and the indicator pulse
-  // above covers the "confirmation". Pins are global (never change) so
-  // they are excluded. Fail-silent throughout (test tabs
-  // have no classList, which just no-ops).
+  // hidden-attribute swap. A leave-side tab fade is impossible here — the
+  // whole switch commits in one task, so a leave frame would never paint
+  // (splitting the commit async would break every sync visibility
+  // assertion for a 100ms cosmetic). Instead the CARD dips (§24
+  // .aph-ws-dip via dipWorkspaceCard below): the synchronous swap reads
+  // as a dissolve rather than a blink, with zero visibility-semantics
+  // change. Pins are global (never change) so they are excluded.
+  // Fail-silent throughout (test tabs have no classList, which just
+  // no-ops; test documents return null for the card, also a no-op).
   function animateIncomingTabs(tabs) {
     let animated = null;
     try {
@@ -165,10 +178,55 @@
     } catch (e) {}
   }
 
-  // Local-only switch: show `target` in this window. Cross-window policy
-  // lives in switchTo (55-exclusive.js); callers that already resolved
-  // ownership (startup de-dupe) use this directly. Returns "local"/"noop"
-  // so console callers can confirm what ran (no UI effect).
+  // Card dip dissolve (§24): called after reconcile's synchronous swap.
+  // Adds .aph-ws-dip to #tabbrowser-tabbox (100ms dip to 0.45) and
+  // removes it on a 120ms timer (180ms glide back). Retrigger-safe: a
+  // mid-dip switch clears the pending removal and re-arms, so mashing
+  // workspaces never sticks the card dim. Skipped under
+  // prefers-reduced-motion. Visual only — no visibility semantics, so
+  // sync tests observe nothing (their document stub returns null here).
+  let wsDipTimer = null;
+  function dipWorkspaceCard() {
+    try {
+      if (
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
+        return;
+      }
+    } catch (e) {}
+    let box = null;
+    try {
+      box = document.getElementById("tabbrowser-tabbox");
+    } catch (e) {}
+    if (!box || !box.classList || typeof box.classList.add !== "function") {
+      return;
+    }
+    try {
+      if (wsDipTimer) {
+        clearTimeout(wsDipTimer);
+        wsDipTimer = null;
+      }
+    } catch (e) {}
+    try {
+      box.classList.add("aph-ws-dip");
+    } catch (e) {
+      return;
+    }
+    try {
+      wsDipTimer = setTimeout(() => {
+        wsDipTimer = null;
+        try {
+          box.classList.remove("aph-ws-dip");
+        } catch (e) {}
+      }, 120);
+    } catch (e) {}
+  }
+
+  // Local-only switch: show `target` in this window. `switchTo` is local
+  // too; this entry exists for callers that already claimed (startup
+  // restore) and for console use. Returns "local"/"noop" so console
+  // callers can confirm what ran (no UI effect).
   function switchLocal(target) {
     if (!isValidId(target) || target === current) {
       return "noop";
@@ -176,6 +234,16 @@
     beginWorkspaceSwitch(target);
     finishWorkspaceSwitch(target);
     return "local";
+  }
+
+  // Window-level workspace stamp: mirrors the tabContainer claim onto
+  // documentElement so theme.css can tint per workspace
+  // (:root[data-aph-ws="N"] -> --aph-ws-accent, §20). try/catch like the
+  // tabContainer stamp — paint must never break a switch.
+  function stampWindowWs(target) {
+    try {
+      document.documentElement.setAttribute("data-aph-ws", target);
+    } catch (e) {}
   }
 
   // Commit this window's claim first: current + WIN_KEY + indicator. The
@@ -195,6 +263,7 @@
     try {
       gBrowser.tabContainer.setAttribute("data-aph-ws", target);
     } catch (e) {}
+    stampWindowWs(target);
     updateIndicator();
     pulseWorkspaceIndicator();
     try {
@@ -218,6 +287,7 @@
     } catch (e) {}
     anchorAllGroups();
     reconcile(target, tabs);
+    dipWorkspaceCard();
     pruneExtraNewTabs(target);
     // Fresh snapshot: reconcile may have opened a tab for an empty
     // workspace, which the stale list above would miss.
@@ -254,53 +324,19 @@
     } catch (e) {}
   }
 
-  // Exclusive entry: every keyboard/dock/palette path funnels here.
-  // Owned elsewhere -> focus-jump (V1 has no steal). Dormant -> claim
-  // first (so arrivals stamp correctly), pull its tabs here via adoptTab,
-  // then settle. Private windows bypass the pool and switch locally.
-  // Returns "focused"/"focus-failed"/"switched"/"local"/"noop" for console
+  // Window-scoped entry: every keyboard/dock/palette path funnels here.
+  // Each window switches purely locally — other windows are never
+  // consulted, pulled from, or focused. A workspace with no local tabs
+  // opens a fresh tab via reconcile; same-id workspaces elsewhere are
+  // independent tab sets. Returns "switched"/"local"/"noop" for console
   // diagnosis (callers ignore it).
   function switchTo(target) {
     if (!isValidId(target) || target === current) {
       return "noop";
     }
     try {
-      if (typeof aphIsPrivateWindow === "function" && aphIsPrivateWindow(window)) {
-        switchLocal(target);
-        return "local";
-      }
-    } catch (e) {}
-    let owner = null;
-    try {
-      owner = typeof findWsOwner === "function" ? findWsOwner(target) : null;
-    } catch (e) {
-      owner = null;
-    }
-    if (owner && owner !== window) {
-      let ok = false;
-      try {
-        if (typeof focusWsOwner === "function") {
-          ok = focusWsOwner(owner);
-        } else if (owner && typeof owner.focus === "function") {
-          owner.focus();
-          ok = true;
-        }
-      } catch (e) {
-        ok = false;
-      }
-      try {
-        pulseWorkspaceIndicator();
-      } catch (e) {}
-      return ok ? "focused" : "focus-failed";
-    }
-    try {
       if (typeof beginWorkspaceSwitch === "function") {
         beginWorkspaceSwitch(target);
-      }
-    } catch (e) {}
-    try {
-      if (typeof pullDormantTabs === "function") {
-        pullDormantTabs(target);
       }
     } catch (e) {}
     try {
@@ -310,12 +346,156 @@
         switchLocal(target);
       }
     } catch (e) {}
-    try {
-      if (typeof broadcastWsSwitch === "function") {
-        broadcastWsSwitch(target);
-      }
-    } catch (e) {}
     return "switched";
+  }
+
+  // Explicit cross-window move ("Move Tab to Other Window"): adopt each tab
+  // into `destWin` and retag arrivals to the destination's current
+  // workspace (confirmed semantics — arrivals join what the other window
+  // shows). Whole native groups stay joined when the move covers the whole
+  // group; partial moves eject like local sends. Pinned tabs never move
+  // (app anchors don't duplicate). Never crosses the private boundary.
+  // With no explicit set, the live selection moves (palette path).
+  // Returns the moved count.
+  function moveTabsToWindow(destWin, moveSet) {
+    try {
+      if (!destWin || destWin.closed || !destWin.gBrowser) {
+        return 0;
+      }
+      let set = moveSet;
+      try {
+        if ((!set || !set.length) && typeof resolveSendBase === "function") {
+          set = resolveSendBase(null);
+        }
+      } catch (e) {}
+      let selfPrivate = false;
+      try {
+        selfPrivate =
+          typeof aphIsPrivateWindow === "function" && aphIsPrivateWindow(window);
+      } catch (e) {}
+      try {
+        if (
+          typeof aphIsPrivateWindow === "function" &&
+          !!aphIsPrivateWindow(destWin) !== !!selfPrivate
+        ) {
+          try {
+            pulseWorkspaceIndicator();
+          } catch (_e) {}
+          return 0;
+        }
+      } catch (e) {}
+      const moving = [];
+      try {
+        const live = new Set(Array.from(gBrowser.tabs || []));
+        for (const t of set || []) {
+          if (t && !t.closing && !t.pinned && live.has(t)) {
+            moving.push(t);
+          }
+        }
+      } catch (e) {}
+      if (!moving.length) {
+        return 0;
+      }
+      let destWs = null;
+      try {
+        const dw = destWin.AphWorkspaces;
+        if (dw && typeof dw.getCurrent === "function") {
+          const c = dw.getCurrent();
+          if (isValidId(c)) {
+            destWs = c;
+          }
+        }
+      } catch (e) {}
+      if (!destWs) {
+        try {
+          destWs = getWindowWs(destWin);
+        } catch (e) {}
+      }
+      if (!isValidId(destWs)) {
+        return 0;
+      }
+      // Whole-group preservation mirrors the local send rule.
+      const movingSet = new Set(moving);
+      let preserved = null;
+      try {
+        preserved = preservedSendGroups(moving);
+      } catch (e) {
+        preserved = new Set();
+      }
+      for (const tab of moving) {
+        try {
+          if (!tab.group) {
+            continue;
+          }
+          let keep = false;
+          try {
+            keep = preserved && preserved.has(tab.group);
+          } catch (e) {}
+          if (!keep) {
+            gBrowser.ungroupTab(tab);
+          }
+        } catch (e) {}
+      }
+      let moved = 0;
+      for (const t of moving) {
+        try {
+          if (!t || t.closing || t.pinned) {
+            continue;
+          }
+          let nt = null;
+          try {
+            if (typeof destWin.gBrowser.adoptTab === "function") {
+              let idx = 0;
+              try {
+                idx = (destWin.gBrowser.tabs && destWin.gBrowser.tabs.length) || 0;
+              } catch (e) {}
+              try {
+                nt = destWin.gBrowser.adoptTab(t, { tabIndex: idx }) || null;
+              } catch (e) {
+                try {
+                  nt = destWin.gBrowser.adoptTab(t) || null;
+                } catch (_e) {}
+              }
+            }
+          } catch (e) {}
+          if (!nt) {
+            continue;
+          }
+          moved++;
+          try {
+            if (typeof scrubAdoptionGhost === "function") {
+              scrubAdoptionGhost(window, t);
+            }
+          } catch (e) {}
+          try {
+            setWs(nt, destWs);
+          } catch (e) {}
+        } catch (e) {}
+      }
+      try {
+        if (moved > 0 && typeof aphTabsLog === "function") {
+          aphTabsLog(`move-to-window ws=${destWs} moved=${moved}`);
+        }
+      } catch (_e) {}
+      try {
+        const dw = destWin.AphWorkspaces;
+        if (dw && typeof dw.renderDock === "function") {
+          dw.renderDock();
+        }
+      } catch (e) {}
+      try {
+        reconcile(current, Array.from(gBrowser.tabs));
+        pruneExtraNewTabs(current);
+      } catch (e) {}
+      try {
+        if (typeof renderDock === "function") {
+          renderDock();
+        }
+      } catch (e) {}
+      return moved;
+    } catch (e) {
+      return 0;
+    }
   }
 
   // Cycling: "active" = has a live unpinned tab (pins are global with a
@@ -458,110 +638,12 @@
     return preserved;
   }
 
-  // Forward a send into the window that owns `target` (adopt + tag there).
-  // The owner's adopted-tab handler settles selection/headers/dock; this
-  // side heals selection in case a selected tab rode along. Pinned tabs
-  // never forward (app anchors don't duplicate); groups flatten on
-  // forward (v1 — same rule as partial moves ejecting).
-  function forwardWorkspaceSend(owner, target, moveSet) {
-    try {
-      const moving = [];
-      try {
-        for (const t of moveSet || []) {
-          if (t && !t.closing && !t.pinned) {
-            moving.push(t);
-          }
-        }
-      } catch (e) {}
-      if (!moving.length || !owner || owner.closed || !owner.gBrowser) {
-        return false;
-      }
-      let forwarded = 0;
-      for (const t of moving) {
-        try {
-          if (!t || t.closing || t.pinned) {
-            continue;
-          }
-          let nt = null;
-          try {
-            if (typeof owner.gBrowser.adoptTab === "function") {
-              let idx = 0;
-              try {
-                idx = (owner.gBrowser.tabs && owner.gBrowser.tabs.length) || 0;
-              } catch (e) {}
-              try {
-                nt = owner.gBrowser.adoptTab(t, { tabIndex: idx }) || null;
-              } catch (e) {
-                try {
-                  nt = owner.gBrowser.adoptTab(t) || null;
-                } catch (_e) {}
-              }
-            }
-          } catch (e) {}
-          if (!nt) {
-            continue;
-          }
-          forwarded++;
-          // Scrub the adoption ghost: source is this window, and undo must
-          // not resurrect the forwarded tab as a duplicate.
-          try {
-            if (typeof scrubAdoptionGhost === "function") {
-              scrubAdoptionGhost(window, t);
-            }
-          } catch (e) {}
-          try {
-            setWs(nt, target);
-          } catch (e) {}
-        } catch (e) {}
-      }
-      try {
-        if (
-          owner.AphWorkspaces &&
-          typeof owner.AphWorkspaces.renderDock === "function"
-        ) {
-          owner.AphWorkspaces.renderDock();
-        }
-      } catch (e) {}
-      try {
-        reconcile(current, Array.from(gBrowser.tabs));
-        pruneExtraNewTabs(current);
-      } catch (e) {}
-      try {
-        if (typeof renderDock === "function") {
-          renderDock();
-        }
-      } catch (e) {}
-      return forwarded > 0;
-    } catch (e) {
-      return false;
-    }
-  }
-
   function executeWorkspaceSend(target, moveSet) {
     if (!isValidId(target) || !moveSet || !moveSet.length) {
       return false;
     }
-    // Remote-owned target: forwarding into the owner beats stranding tabs
-    // hidden here and absent there (invisible in both windows). A
-    // private-owned target refuses instead — never cross that boundary.
-    try {
-      const selfPrivate =
-        typeof aphIsPrivateWindow === "function" && aphIsPrivateWindow(window);
-      if (!selfPrivate && typeof findWsOwner === "function") {
-        const owner = findWsOwner(target);
-        if (owner && owner !== window) {
-          return forwardWorkspaceSend(owner, target, moveSet);
-        }
-        try {
-          if (typeof findWsOwner === "function" && findWsOwner(target, true)) {
-            try {
-              pulseWorkspaceIndicator();
-            } catch (e) {}
-            return false;
-          }
-        } catch (e) {}
-      }
-    } catch (e) {}
+    // Window-scoped: every send retags locally. Other windows showing the
+    // same id are independent tab sets and are never touched.
     const moving = new Set();
     try {
       for (const t of moveSet) {
@@ -601,6 +683,11 @@
         setWs(tab, target);
       } catch (e) {}
     }
+    try {
+      if (typeof aphTabsLog === "function") {
+        aphTabsLog(`send ws=${target} moved=${list.length}`);
+      }
+    } catch (_e) {}
     anchorAllGroups();
     try {
       reconcile(current, Array.from(gBrowser.tabs));

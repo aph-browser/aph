@@ -358,6 +358,14 @@
           continue;
         }
       } catch (e) {}
+      // Unloaded/pending tabs haven't committed a URL yet either (lazy
+      // restore, discard): their blank face may be transient, and closing
+      // them destroys unloaded state. Same rule as the unload guards.
+      try {
+        if (typeof t.hasAttribute === "function" && t.hasAttribute("pending")) {
+          continue;
+        }
+      } catch (e) {}
       if (getWs(t) !== target) {
         continue;
       }
@@ -368,6 +376,11 @@
         keep--;
         continue;
       }
+      try {
+        if (typeof aphTabsLog === "function") {
+          aphTabsLog(`prune ws=${target} closing ${aphTabDesc(t)}`);
+        }
+      } catch (e) {}
       try {
         gBrowser.removeTab(t, { animate: false });
       } catch (e) {

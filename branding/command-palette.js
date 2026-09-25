@@ -1975,6 +1975,35 @@
         }
       }
     } catch (e) {}
+    // Cross-window moves (window-scoped model — the only path that
+    // touches another window). Arrivals join the destination's current
+    // workspace. Listed per live window; hidden when alone.
+    try {
+      if (api && typeof api.listWindows === "function" && typeof api.moveTabsToWindow === "function") {
+        const others = api.listWindows() || [];
+        for (const o of others) {
+          try {
+            let wsLabel = "";
+            try {
+              wsLabel = o && o.ws ? wsFull(api, o.ws) : "other window";
+            } catch (e) {
+              wsLabel = "other window";
+            }
+            const dest = o && o.win;
+            cmds.push({
+              title: `Move Tab to Other Window (${wsLabel})`,
+              hint: "",
+              sub: "Moves the selection · arrives in that window's current workspace",
+              run: () => {
+                try {
+                  api.moveTabsToWindow(dest);
+                } catch (e) {}
+              },
+            });
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
     try {
       if (api && api.getCurrent) {
         const cur = api.getCurrent();
@@ -2782,11 +2811,16 @@
   }
 
   // Highlight matched characters (fuzzy index sets); plain text otherwise.
+  // Must clear first: pooled rows are reconfigured in place, so leftover
+  // marks/text from the previous render would concatenate (garbled rows).
   function paintText(el, text, set) {
     try {
       if (!set || set.size === 0) {
         el.textContent = text;
         return;
+      }
+      while (el.firstChild) {
+        el.removeChild(el.firstChild);
       }
       let buf = "";
       let cur = null;

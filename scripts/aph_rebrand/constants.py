@@ -42,6 +42,29 @@ THEME_CSS_SRC = BRANDING_DIR / "theme.css"
 THEME_JA_PATH = "chrome/browser/content/browser/aph-theme.css"
 THEME_LINK_TAG = '<link rel="stylesheet" href="chrome://browser/content/aph-theme.css" />'
 
+# Chrome type: Inter (SIL OFL — see branding/fonts/OFL.txt), static latin
+# subsets, one file per weight. Pure additions under aph-fonts/; the CSS
+# reaches them as chrome://browser/content/aph-fonts/<file> (content/
+# already maps to browser/content/browser/ — no extra segment).
+FONT_SRC_PAIRS = [
+    (
+        BRANDING_DIR / "fonts" / "inter-400-latin.woff2",
+        "chrome/browser/content/browser/aph-fonts/inter-400-latin.woff2",
+    ),
+    (
+        BRANDING_DIR / "fonts" / "inter-500-latin.woff2",
+        "chrome/browser/content/browser/aph-fonts/inter-500-latin.woff2",
+    ),
+    (
+        BRANDING_DIR / "fonts" / "inter-600-latin.woff2",
+        "chrome/browser/content/browser/aph-fonts/inter-600-latin.woff2",
+    ),
+    (
+        BRANDING_DIR / "fonts" / "inter-700-latin.woff2",
+        "chrome/browser/content/browser/aph-fonts/inter-700-latin.woff2",
+    ),
+]
+
 # Command palette (MVP): Ctrl+K overlay, JS + CSS injected the same way.
 PALETTE_JS_SRC = BRANDING_DIR / "command-palette.js"
 PALETTE_JA_PATH = "chrome/browser/content/browser/command-palette.js"

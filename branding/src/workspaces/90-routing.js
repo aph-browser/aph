@@ -79,6 +79,11 @@
             }
           }
           try {
+            if (typeof aphTabsLog === "function") {
+              aphTabsLog(`route-reopen ws=${target} closing ${aphTabDesc(tab)}`);
+            }
+          } catch (e) {}
+          try {
             gBrowser.removeTab(tab, { animate: false });
           } catch (e) {
             try {

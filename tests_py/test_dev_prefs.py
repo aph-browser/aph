@@ -110,3 +110,57 @@ def test_resolve_launch_daily_strips_flag(tmp_path: Path) -> None:
         assert profile == Path.home() / ".config" / "aph" / "profile"
         assert extra == ["https://example.com"]
         assert no_remote is False
+
+
+def _write_policies(root: Path, data: dict) -> None:
+    import json
+
+    (root / "config" / "policies.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_merge_policies_replaces_extension_settings(tmp_path: Path) -> None:
+    """Removing an extension from config/policies.json must remove it from
+    the live policy. Regression: deep_merge only added, so entries deleted
+    from config resurrected from a stale policies.json.bak on every launch
+    (SponsorBlock/containers reinstalled themselves)."""
+    from scripts.dev import merge_policies
+
+    root = tmp_path / "root"
+    (root / "config").mkdir(parents=True)
+    dist = root / "build" / "firefox" / "distribution"
+    dist.mkdir(parents=True)
+    import json
+
+    stale_base = {
+        "policies": {
+            "ExtensionSettings": {
+                "*": {"installation_mode": "allowed"},
+                "sponsorBlocker@ajay.app": {"installation_mode": "normal_installed"},
+            }
+        }
+    }
+    (dist / "policies.json").write_text(json.dumps(stale_base), encoding="utf-8")
+    (dist / "policies.json.bak").write_text(json.dumps(stale_base), encoding="utf-8")
+    _write_policies(
+        root,
+        {
+            "policies": {
+                "ExtensionSettings": {
+                    "*": {"installation_mode": "allowed"},
+                }
+            }
+        },
+    )
+    merge_policies(root)
+    live = json.loads((dist / "policies.json").read_text(encoding="utf-8"))
+    assert list(live["policies"]["ExtensionSettings"].keys()) == ["*"]
+
+
+def test_ensure_rebranded_reports_false_without_omni(tmp_path: Path) -> None:
+    """ensure_rebranded returns False (no purge needed) when there is no
+    omni.ja to patch — callers rely on the bool, not just the side effect."""
+    from scripts.dev import ensure_rebranded
+
+    root = tmp_path / "root"
+    (root / "build" / "firefox").mkdir(parents=True)
+    assert ensure_rebranded(root) is False

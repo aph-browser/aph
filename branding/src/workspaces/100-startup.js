@@ -1,7 +1,8 @@
-  // New windows (Ctrl+N) land on the lowest workspace no live window owns
-  // instead of inheriting the source window's workspace (which would
-  // collide under mutual exclusion). Stored value wins (session restore);
-  // opener inherits only when it would not collide; else lowest-unowned.
+  // New windows (Ctrl+N) land on the lowest workspace no other live
+  // window claims, instead of inheriting the source window's workspace, so
+  // two fresh windows don't open on top of each other. Stored value wins
+  // (session restore); otherwise the opener's workspace is inherited
+  // (window-scoped: sharing an id is harmless — independent tab sets).
   function initialWorkspace() {
     try {
       const w = SessionStore.getCustomWindowValue(window, WIN_KEY);
@@ -14,16 +15,7 @@
       if (op && op !== window && !op.closed) {
         const ow = SessionStore.getCustomWindowValue(op, WIN_KEY);
         if (isValidId(ow)) {
-          let collides = true;
-          try {
-            collides =
-              typeof findWsOwner === "function" ? !!findWsOwner(ow) : true;
-          } catch (_e) {
-            collides = true;
-          }
-          if (!collides) {
-            return ow;
-          }
+          return ow;
         }
       }
     } catch (e) {}
@@ -95,21 +87,9 @@
       } catch (e) {}
       return;
     }
-    // Session-restore de-dupe: two windows can resurrect onto the same
-    // workspace. The second one falls back to the lowest unowned workspace
-    // instead of co-displaying. switchLocal (not switchTo): focusing
-    // another window mid-restore would be wrong.
-    try {
-      if (typeof findWsOwner === "function" && findWsOwner(target)) {
-        const free =
-          typeof lowestUnownedWorkspace === "function"
-            ? lowestUnownedWorkspace()
-            : null;
-        if (isValidId(free)) {
-          target = free;
-        }
-      }
-    } catch (e) {}
+    // Window-scoped landing: each window restores its own saved workspace
+    // and reconciles its own strip (switchLocal — purely local). Same-id
+    // workspaces elsewhere are independent tab sets; no de-dupe needed.
     // Prefer the restored selected tab when it already lives in target,
     // so we focus the exact tab left open instead of the first in order.
     try {

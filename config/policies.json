@@ -63,11 +63,8 @@
       }
     },
     "EnableTrackingProtection": {
-      "Value": true,
+      "Category": "standard",
       "Locked": true,
-      "Cryptomining": true,
-      "Fingerprinting": true,
-      "EmailTracking": true,
       "BaselineExceptions": true,
       "ConvenienceExceptions": true
     },
@@ -111,23 +108,6 @@
         "installation_mode": "normal_installed",
         "private_browsing": true,
         "default_area": "navbar"
-      },
-      "{446900e4-71c2-419f-a6a7-df9c091e268b}": {
-        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/bitwarden-password-manager/latest.xpi",
-        "installation_mode": "normal_installed",
-        "private_browsing": true,
-        "default_area": "menupanel"
-      },
-      "sponsorBlocker@ajay.app": {
-        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/sponsorblock/latest.xpi",
-        "installation_mode": "normal_installed",
-        "private_browsing": true,
-        "default_area": "menupanel"
-      },
-      "@testpilot-containers": {
-        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/multi-account-containers/latest.xpi",
-        "installation_mode": "normal_installed",
-        "default_area": "menupanel"
       },
       "nova-sun@mozilla.org": {
         "install_url": "https://addons.mozilla.org/firefox/downloads/latest/nova-sun/latest.xpi",

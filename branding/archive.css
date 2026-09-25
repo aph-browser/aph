@@ -230,3 +230,31 @@ html, body {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* Motion language (§24 in theme.css, same dialect): hovers ease instead
+   of snapping; the delete reveal fades. Paint-only throughout, and the
+   reduced-motion block kills every transition including the toast's
+   (which previously had no guard). */
+.aph-archive-pill {
+  transition: color 0.12s ease-out, border-color 0.12s ease-out,
+    background-color 0.12s ease-out;
+}
+.aph-archive-row {
+  transition: background-color 0.12s ease-out;
+}
+.aph-archive-tag {
+  transition: background-color 0.12s ease-out;
+}
+.aph-archive-del {
+  transition: opacity 0.12s ease-out, color 0.12s ease-out,
+    background-color 0.12s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .aph-archive-pill,
+  .aph-archive-row,
+  .aph-archive-tag,
+  .aph-archive-del,
+  #aph-archive-toast {
+    transition: none;
+  }
+}

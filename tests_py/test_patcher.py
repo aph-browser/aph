@@ -40,6 +40,7 @@ def test_patch_replaces_brand_and_appends_features(synthetic_ja) -> None:
     assert (counts.archivejs, counts.archiveshared) == (1, 1)
     assert counts.archivepage == 3  # html/css/page
     assert counts.tabrenamejs == 1
+    assert counts.fonts == 4  # inter 400/500/600/700 latin woff2
 
     with zipfile.ZipFile(synthetic_ja) as z:
         # Every entry stays ZIP_STORED for Gecko memory-mapping.
@@ -47,6 +48,8 @@ def test_patch_replaces_brand_and_appends_features(synthetic_ja) -> None:
         names = set(z.namelist())
         assert "chrome/browser/content/browser/workspaces.js" in names
         assert "chrome/browser/content/browser/tabrename.js" in names
+        for w in (400, 500, 600, 700):
+            assert f"chrome/browser/content/browser/aph-fonts/inter-{w}-latin.woff2" in names
         # Regression guard: every xhtml <script> tag must have its payload
         # entry appended, otherwise the browser logs "Missing chrome or
         # resource URL" at startup (textpick/archive bug).

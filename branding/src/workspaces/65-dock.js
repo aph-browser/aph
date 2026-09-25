@@ -353,6 +353,11 @@
       let closed = 0;
       for (const t of doomed) {
         try {
+          if (typeof aphTabsLog === "function") {
+            aphTabsLog(`close-workspace ${id} closing ${aphTabDesc(t)}`);
+          }
+        } catch (e) {}
+        try {
           gBrowser.removeTab(t);
           closed++;
         } catch (e) {}
@@ -366,7 +371,7 @@
     }
   }
 
-  function makeDockPill(id, isCurrent, count, isEmpty, isRemote) {
+  function makeDockPill(id, isCurrent, count, isEmpty) {
     let pill = null;
     try {
       pill = document.createElement("div");
@@ -376,11 +381,6 @@
       if (isCurrent) {
         pill.setAttribute("data-current", "1");
       }
-      if (isRemote && !isCurrent) {
-        try {
-          pill.setAttribute("data-remote", "1");
-        } catch (e) {}
-      }
       if (isEmpty) {
         try {
           pill.setAttribute("data-empty", "1");
@@ -388,16 +388,8 @@
       }
       const glyph = dockGlyph(id);
       pill.textContent = glyph;
-      // Remote pills show a dot, never a local count (counts are per-window
-      // adoption state — a number here would mislead).
-      if (isRemote && !isCurrent) {
-        try {
-          const dot = document.createElement("span");
-          dot.className = "aph-ws-count";
-          dot.textContent = "•";
-          pill.appendChild(dot);
-        } catch (e) {}
-      } else if (count > 0) {
+      // Counts are per-window tab tags — this window's own set.
+      if (count > 0) {
         try {
           const badge = document.createElement("span");
           badge.className = "aph-ws-count";
@@ -431,9 +423,7 @@
       } catch (e) {}
       // During a tab drag the tooltip previews the move (group aware).
       try {
-        if (isRemote && !isCurrent && !dockDragActive) {
-          pill.title = `${title} — open on another window (click to focus)`;
-        } else if (dockDragActive) {
+        if (dockDragActive) {
           if (id === current) {
             pill.title = `${title} — current workspace (drop does nothing)`;
           } else {
@@ -460,26 +450,8 @@
               pulseWorkspaceIndicator();
               return;
             }
-            // Remote pill: focus-jump to the owning window (V1 has no
-            // steal — switchTo would do the same, but resolve the owner
-            // here so a stale render never mistriggers a pull).
-            if (isRemote) {
-              try {
-                const owner =
-                  typeof findWsOwner === "function" ? findWsOwner(id) : null;
-                if (owner && owner !== window) {
-                  if (typeof focusWsOwner === "function") {
-                    focusWsOwner(owner);
-                  } else if (typeof owner.focus === "function") {
-                    owner.focus();
-                  }
-                  try {
-                    pulseWorkspaceIndicator();
-                  } catch (_e) {}
-                  return;
-                }
-              } catch (_e) {}
-            }
+            // Window-scoped: every pill switches locally. Same-id
+            // workspaces in other windows are independent tab sets.
             switchTo(id);
           } catch (e) {}
         });
@@ -517,17 +489,8 @@
         const armDrop = (e) => {
           try {
             // Current workspace is never a drop target (send would no-op).
+            // Window-scoped: every other pill is local, always a target.
             if (id === current) {
-              return false;
-            }
-            // Remote workspaces live elsewhere: drops would retag locally
-            // into a hidden state the owner can't see. Not a target in V1.
-            try {
-              if (typeof getRemoteOwners === "function" && getRemoteOwners()[id]) {
-                return false;
-              }
-            } catch (err) {}
-            if (isRemote) {
               return false;
             }
             if (!isDockDropArmed(e)) {
@@ -574,18 +537,6 @@
               } catch (err) {}
               return;
             }
-            // Remote workspaces live elsewhere (see armDrop): never accept
-            // drops in V1, even if the render went stale mid-drag.
-            try {
-              if (isRemote) {
-                pulseWorkspaceIndicator();
-                return;
-              }
-              if (typeof getRemoteOwners === "function" && getRemoteOwners()[id]) {
-                pulseWorkspaceIndicator();
-                return;
-              }
-            } catch (err) {}
             const wasGroup = !!dockDragGroup;
             let dragTabs = [];
             try {
@@ -1166,9 +1117,9 @@
         }
       } catch (e) {}
       // Drag-mode expands to all 9 workspaces so empty ones accept drops.
-      // Normal mode shows active workspaces only (plus current) UNION
-      // remote-owned workspaces (zero local tabs, but the user must see
-      // where their tabs live to focus-jump back).
+      // Normal mode shows active workspaces only (plus current).
+      // Window-scoped: no remote pills — other windows' workspaces are
+      // independent tab sets, never shown here.
       let ids = [];
       try {
         ids = getActiveIds();
@@ -1177,30 +1128,6 @@
       }
       const cur = isValidId(current) ? current : "1";
       const counts = dockCounts();
-      let remote = null;
-      try {
-        remote = typeof getRemoteOwners === "function" ? getRemoteOwners() : null;
-      } catch (e) {
-        remote = null;
-      }
-      const isRemoteId = (id) => {
-        try {
-          return !!(remote && remote[id] && id !== cur);
-        } catch (e) {
-          return false;
-        }
-      };
-      if (!dockDragActive && remote) {
-        try {
-          const union = new Set(ids);
-          for (const k of Object.keys(remote)) {
-            if (isValidId(k)) {
-              union.add(k);
-            }
-          }
-          ids = [...union].sort();
-        } catch (e) {}
-      }
       if (dockDragActive) {
         try {
           dock.setAttribute("data-aph-dragging", "1");
@@ -1212,8 +1139,7 @@
               id,
               id === cur,
               counts[id] || 0,
-              !ids.includes(id),
-              isRemoteId(id)
+              !ids.includes(id)
             );
             if (pill) {
               dock.appendChild(pill);
@@ -1226,7 +1152,7 @@
         } catch (e) {}
         for (const id of ids) {
           try {
-            const pill = makeDockPill(id, id === cur, counts[id] || 0, false, isRemoteId(id));
+            const pill = makeDockPill(id, id === cur, counts[id] || 0, false);
             if (pill) {
               dock.appendChild(pill);
             }
@@ -1366,17 +1292,8 @@
       if (!id) {
         return;
       }
-      // Remote workspaces live elsewhere: local unload/close would act on
-      // zero local tabs and mislead. Rename/bind stay (global prefs).
-      let isRemoteWs = false;
-      try {
-        isRemoteWs =
-          id !== current &&
-          typeof getRemoteOwners === "function" &&
-          !!getRemoteOwners()[id];
-      } catch (err) {
-        isRemoteWs = false;
-      }
+      // Window-scoped: every pill is local. Rename/bind stay (global
+      // prefs); unload/close act on this window's tabs only.
       let name = "";
       try {
         name = getWsName(id) || "";
@@ -1454,14 +1371,14 @@
       }
       const unload = makeDockMenuItem(
         "aph-dock-unload",
-        isRemoteWs ? "Unload Inactive Tabs (open on another window)" : "Unload Inactive Tabs",
+        "Unload Inactive Tabs",
         () => {
           try {
             unloadEligibleTabs({ scope: "workspace", ws: id });
             renderDock();
           } catch (err) {}
         },
-        id === current || isRemoteWs
+        id === current
       );
       if (unload) {
         try {
@@ -1477,15 +1394,13 @@
       } catch (err) {}
       const close = makeDockMenuItem(
         "aph-dock-close",
-        isRemoteWs
-          ? "Close Workspace (open on another window)"
-          : count > 0 ? `Close Workspace (${count} tab${count === 1 ? "" : "s"})` : "Close Workspace",
+        count > 0 ? `Close Workspace (${count} tab${count === 1 ? "" : "s"})` : "Close Workspace",
         () => {
           try {
             closeWorkspaceTabs(id);
           } catch (err) {}
         },
-        count === 0 || isRemoteWs
+        count === 0
       );
       if (close) {
         try {

@@ -21,8 +21,16 @@ function load(file, hookLine, hookCode) {
 
 function run(file, sandbox, hookLine, hookCode) {
   sandbox.console = console;
-  sandbox.setTimeout = () => 0;
-  sandbox.clearTimeout = () => {};
+  // Timer-free by default (deterministic suites). Suites that assert
+  // timer-driven REMOVALS (switch dissolve) opt in via
+  // sandbox.__aphRealTimers = true before run().
+  if (!sandbox.__aphRealTimers) {
+    sandbox.setTimeout = () => 0;
+    sandbox.clearTimeout = () => {};
+  } else {
+    sandbox.setTimeout = (...a) => setTimeout(...a);
+    sandbox.clearTimeout = (...a) => clearTimeout(...a);
+  }
   vm.createContext(sandbox);
   vm.runInContext(load(file, hookLine, hookCode), sandbox, { filename: file });
   return sandbox;

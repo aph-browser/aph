@@ -646,6 +646,35 @@
         }
       }
     } catch (e) {}
+    // Cross-window moves (window-scoped model — the only path that
+    // touches another window). Arrivals join the destination's current
+    // workspace. Listed per live window; hidden when alone.
+    try {
+      if (api && typeof api.listWindows === "function" && typeof api.moveTabsToWindow === "function") {
+        const others = api.listWindows() || [];
+        for (const o of others) {
+          try {
+            let wsLabel = "";
+            try {
+              wsLabel = o && o.ws ? wsFull(api, o.ws) : "other window";
+            } catch (e) {
+              wsLabel = "other window";
+            }
+            const dest = o && o.win;
+            cmds.push({
+              title: `Move Tab to Other Window (${wsLabel})`,
+              hint: "",
+              sub: "Moves the selection · arrives in that window's current workspace",
+              run: () => {
+                try {
+                  api.moveTabsToWindow(dest);
+                } catch (e) {}
+              },
+            });
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
     try {
       if (api && api.getCurrent) {
         const cur = api.getCurrent();

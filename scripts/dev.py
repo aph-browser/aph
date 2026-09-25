@@ -8,6 +8,7 @@ made via about:config / Settings persist across restarts. Enterprise policies
 defaults over a profile on purpose, run: just sync-prefs
 """
 
+import contextlib
 import json
 import os
 import shutil
@@ -16,8 +17,15 @@ import sys
 from pathlib import Path
 
 
-def ensure_rebranded(root: Path) -> None:
-    """Run rebrand.py if branding or rebrand script changed."""
+def ensure_rebranded(root: Path) -> bool:
+    """Run rebrand.py if branding or rebrand script changed.
+
+    Returns True when a rebrand actually ran: omni.ja offsets move, so
+    the profile's startupCache must be purged for that launch (stale
+    chrome/resource mappings silently break privileged content like
+    about:newtab's resource://newtab/ bundles — blank page, Security
+    Error, zero console signal).
+    """
     try:
         # Ensure root is on sys.path for `import scripts.rebrand`
         if str(root) not in sys.path:
@@ -28,7 +36,7 @@ def ensure_rebranded(root: Path) -> None:
         root_omni = root / "build" / "firefox" / "omni.ja"
         # Only rebrand if backup missing (first run) or branding newer than omni.ja
         if not omni.is_file():
-            return
+            return False
         # Check mtime of all branding assets (sources + built bundles) AND
         # the rebrand package itself.
         watch_files = (
@@ -52,8 +60,11 @@ def ensure_rebranded(root: Path) -> None:
         ):
             print("Rebranding omni.ja to Aph...")
             rebrand()
+            return True
+        return False
     except Exception as e:
         print(f"Warning: rebrand check failed: {e}", file=sys.stderr)
+        return False
 
 
 def merge_policies(root: Path) -> None:
@@ -106,6 +117,18 @@ def merge_policies(root: Path) -> None:
         return base
 
     merged_data = deep_merge(base_data, custom_data)
+    # ExtensionSettings is REPLACE, not merge: deep_merge only adds, so a
+    # removed extension would resurrect from a stale base on every launch
+    # (seen live: SponsorBlock/containers reinstalled after their config
+    # entries were deleted, because policies.json.bak had snapshotted an
+    # old Aph policy as "pristine"). Config is authoritative here —
+    # removing an entry must actually remove it from the live policy.
+    try:
+        custom_ext = custom_data.get("policies", {}).get("ExtensionSettings")
+    except AttributeError:
+        custom_ext = None
+    if isinstance(custom_ext, dict):
+        merged_data.setdefault("policies", {})["ExtensionSettings"] = custom_ext
     target_policies_file.write_text(json.dumps(merged_data, indent=2) + "\n", encoding="utf-8")
 
 
@@ -146,12 +169,22 @@ def seed_user_js(root: Path, profile: Path) -> str:
 
 
 def seed_chrome_css(root: Path, profile: Path) -> str:
-    """Seed branding/userChrome.css into profile/chrome/ once (menu accents).
+    """Seed profile/chrome/ once: userChrome.css (menu accents) plus
+    userContent.css (new-tab backdrop, so the page is never flat when
+    the wallpaper feed is unreachable).
 
     Same seed-once contract as seed_user_js: never overwrite user edits.
-    Returns "seeded", "kept", or "missing-source".
+    Returns "seeded" (either file fresh), "kept", or "missing-source".
     """
-    return _seed_file(root / "branding" / "userChrome.css", profile / "chrome" / "userChrome.css")
+    first = _seed_file(root / "branding" / "userChrome.css", profile / "chrome" / "userChrome.css")
+    second = _seed_file(
+        root / "branding" / "userContent.css", profile / "chrome" / "userContent.css"
+    )
+    if "seeded" in (first, second):
+        return "seeded"
+    if "missing-source" in (first, second):
+        return "missing-source" if first == second else "kept"
+    return "kept"
 
 
 def _sync_file(
@@ -192,10 +225,11 @@ def sync_user_js(root: Path, profile: Path) -> None:
 
 
 def sync_chrome_css(root: Path, profile: Path) -> None:
-    """Force re-apply branding/userChrome.css over the profile (explicit opt-in).
+    """Force re-apply profile/chrome/ over the profile (explicit opt-in):
+    userChrome.css plus userContent.css (new-tab backdrop).
 
-    Same contract as sync_user_js: backs up to userChrome.css.bak first,
-    refuses while Firefox holds the profile lock.
+    Same contract as sync_user_js: backs up to *.bak first, refuses
+    while Firefox holds the profile lock.
     """
     _sync_file(
         root / "branding" / "userChrome.css",
@@ -203,6 +237,18 @@ def sync_chrome_css(root: Path, profile: Path) -> None:
         profile,
         "userChrome.css.bak",
     )
+    # userContent leg is skip-tolerant (minimal test roots and older
+    # checkouts may lack the file); the userChrome leg above keeps its
+    # fatal missing-source contract.
+    if (root / "branding" / "userContent.css").is_file():
+        _sync_file(
+            root / "branding" / "userContent.css",
+            profile / "chrome" / "userContent.css",
+            profile,
+            "userContent.css.bak",
+        )
+    else:
+        print("WARNING: branding/userContent.css not found, skipping.", file=sys.stderr)
 
 
 DAILY_FLAGS = ("--daily", "--local")
@@ -242,8 +288,13 @@ def main() -> None:
     # Auto-merge enterprise policies & extensions
     merge_policies(root)
 
-    # Auto-rebrand browser/omni.ja
-    ensure_rebranded(root)
+    # Auto-rebrand browser/omni.ja. A fresh rebrand moves omni offsets,
+    # so drop the purge marker: this launch passes -purgecaches and the
+    # stale startupCache (which would otherwise keep mapping chrome and
+    # resource:// URLs to the old bytes) is rebuilt.
+    if ensure_rebranded(root):
+        with contextlib.suppress(OSError):
+            (profile / ".purgecache_done").unlink(missing_ok=True)
 
     if not binary.is_file():
         print(f"ERROR: {binary} not found. Extract Firefox first.", file=sys.stderr)

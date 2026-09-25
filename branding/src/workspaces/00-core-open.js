@@ -1,14 +1,18 @@
 /* Aph workspaces: IDs "1"-"9", zero UI. Alt+Shift+1..9 jumps to a workspace,
  * Alt+Shift+]/Right cycles next active, Alt+Shift+[/Left cycles previous,
  * Alt+Shift+Tab toggles the last two used (MRU),
- * Exclusive model (tiling-WM): a workspace renders in at most one window.
- * Dormant workspaces pull here via adoptTab (no reload); workspaces live
- * elsewhere focus-jump on request (V1 has no steal). Window close merges
- * unpinned tabs back into a survivor (pins die with the window, stock).
+ * Window-scoped model (Vivaldi/Zen): every window has its own workspaces
+ * 1-9 and tabs belong to the window they live in. The same workspace id
+ * may show in two windows at once — independent tab sets, never shared.
+ * Windows never touch each other's tabs (no pulls, no steals); moving
+ * tabs across windows is always explicit ("Move Tab to Other Window",
+ * arrivals join the destination's current workspace). Closing a window
+ * is native (SessionStore undo); session restore is per-window native.
  * Ctrl+Alt+1..9 sends the selection there (stay here, focus next —
  * whole native groups stay joined).
  * Tab context menu offers Move Tab(s) / Move Group to Workspace
- * submenus; the dock accepts tab and group-header drops the same way.
+ * submenus plus Move to Other Window; the dock accepts tab and
+ * group-header drops the same way.
  * Tags persist via SessionStore; pinned tabs are global (never hidden —
  * stock Firefox assumes hidden pinned tabs never exist and vertical-tab
  * drag/drop breaks when they do); native tab groups
@@ -50,6 +54,35 @@
   // They join the destination's visible workspace; anchorGroup lets them
   // drag the whole group instead of being healed back to the source tag.
   const adoptedTabs = new WeakSet();
+
+  // Diagnostic lifeline for vanishing-tab reports: one console line per
+  // tab Aph itself closes, moves across windows/workspaces, or merges —
+  // stock closes (Ctrl+W etc.) never pass here. Fail-silent house style;
+  // only fires on actual action, so an idle browser stays quiet.
+  function aphTabsLog(msg) {
+    try {
+      Services.console.logStringMessage(`[AphTabs] ${msg}`);
+    } catch (e) {}
+  }
+
+  function aphTabDesc(tab) {
+    let label = "?";
+    let spec = "?";
+    let ws = "?";
+    try {
+      label = String(tab.label || "?").slice(0, 60);
+    } catch (e) {}
+    try {
+      spec = String(
+        (tab.linkedBrowser && tab.linkedBrowser.currentURI && tab.linkedBrowser.currentURI.spec) || "?"
+      ).slice(0, 80);
+    } catch (e) {}
+    try {
+      ws = getWs(tab);
+    } catch (e) {}
+    return `"${label}" ${spec} ws=${ws}`;
+  }
+
 
   // Disposable container tabs (Ctrl+Alt+T). moz-src path first: it is the
   // canonical URI in packaged builds (every internal importer uses it, and

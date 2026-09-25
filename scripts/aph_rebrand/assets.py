@@ -22,6 +22,7 @@ from .constants import (
     BRAND_FTL_SRC,
     BRANDING_DIR,
     BRANDINGS_FTL_SRC,
+    FONT_SRC_PAIRS,
     PALETTE_CSS_SRC,
     PALETTE_JS_SRC,
     SYNC_BRAND_FTL_SRC,
@@ -54,6 +55,7 @@ class PatchPayloads:
     archive_shared_js: bytes | None = None
     archive_page_files: dict[str, bytes] = field(default_factory=dict)
     tabrename_js: bytes | None = None
+    font_files: dict[str, bytes] = field(default_factory=dict)
 
 
 def _read(src, label: str) -> bytes | None:
@@ -167,4 +169,5 @@ def load_payloads(icon_buffers: dict[int, bytes]) -> PatchPayloads:
     )
 
     payloads.tabrename_js = _read(TABRENAME_JS_SRC, "tab rename injection")
+    payloads.font_files = _load_map(FONT_SRC_PAIRS, "chrome font")
     return payloads

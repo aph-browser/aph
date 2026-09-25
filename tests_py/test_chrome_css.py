@@ -91,3 +91,36 @@ def test_shipped_css_is_sane() -> None:
     # rule may set a bare text `color:` (menus keep stock text).
     bare_color = re.findall(r"(?m)^\s*color\s*:", css)
     assert not bare_color, bare_color
+
+
+def test_seed_seeds_content_backdrop_alongside(tmp_path: Path) -> None:
+    """seed_chrome_css also seeds userContent.css (new-tab backdrop) —
+    still seed-once, still never overwrites user edits."""
+    root = _make_root(tmp_path)
+    (root / "branding" / "userContent.css").write_text("body { color: red; }\n", encoding="utf-8")
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    assert seed_chrome_css(root, profile) == "seeded"
+    assert (profile / "chrome" / "userContent.css").read_text(
+        encoding="utf-8"
+    ) == "body { color: red; }\n"
+    assert seed_chrome_css(root, profile) == "kept"
+
+
+def test_shipped_content_css_is_sane() -> None:
+    """The committed userContent.css targets only new-tab surfaces and
+    never depends on the wallpaper feed."""
+    root = Path(__file__).resolve().parent.parent
+    css = (root / "branding" / "userContent.css").read_text(encoding="utf-8")
+    assert css.count("{") == css.count("}"), "unbalanced braces"
+    assert "@-moz-document" in css
+    for page in ("about:newtab", "about:home", "about:blank"):
+        assert page in css, page
+    # Self-contained gradients only: no remote or chrome-url asset the
+    # feed could withhold (@-moz-document url() selectors excepted).
+    assert "url(http" not in css
+    assert "url(chrome" not in css
+    # Yield-to-wallpaper guard: the backdrop must not cover Activity
+    # Stream's wallpaper (applied as body background-image via an inline
+    # --newtab-wallpaper property). about:blank keeps the plain body rule.
+    assert 'body:not([style*="--newtab-wallpaper:"])' in css

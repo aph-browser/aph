@@ -1,0 +1,53 @@
+/* ==========================================================================
+   Aph content backdrop: about:newtab / about:home / about:blank are never
+   a flat color. The wallpaper pref resolves only when Mozilla's Remote
+   Settings collection is reachable (no bundled v2 records ship in
+   omni.ja) — otherwise the page falls back to a single blank tone, so
+   this paints Aph's desk language instead: layered charcoal with depth
+   in dark, warm cream in light. Paint only; search and all page
+   behavior keep working.
+   yield-to-wallpaper guard (:not): Activity Stream applies its
+   wallpaper as body background-image driven by an inline
+   --newtab-wallpaper custom property. A body background shorthand here
+   would override that image and AMPUTATE the user's wallpaper (seen
+   live). So the backdrop applies ONLY when no wallpaper is selected —
+   detected via the inline style attribute, the single observable
+   signal. about:blank has no wallpaper concept and always gets the
+   backdrop.
+   ========================================================================== */
+@-moz-document url(about:newtab), url(about:home) {
+  body:not([style*="--newtab-wallpaper:"]) {
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.05), transparent 60%),
+      linear-gradient(#202028, #17181f) !important;
+    background-color: #17181f !important;
+  }
+}
+
+@-moz-document url(about:blank) {
+  body {
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.05), transparent 60%),
+      linear-gradient(#202028, #17181f) !important;
+    background-color: #17181f !important;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  @-moz-document url(about:newtab), url(about:home) {
+    body:not([style*="--newtab-wallpaper:"]) {
+      background:
+        radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.6), transparent 60%),
+        linear-gradient(#faf6ec, #f1e9d6) !important;
+      background-color: #f6f1e3 !important;
+    }
+  }
+  @-moz-document url(about:blank) {
+    body {
+      background:
+        radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.6), transparent 60%),
+        linear-gradient(#faf6ec, #f1e9d6) !important;
+      background-color: #f6f1e3 !important;
+    }
+  }
+}

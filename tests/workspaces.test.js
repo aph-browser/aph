@@ -591,6 +591,34 @@ describe("global pins", () => {
   });
 });
 
+describe("newtab pruning", () => {
+  it("never auto-closes pending (unloaded) tabs", () => {
+    // Lazy-restored / discarded tabs wear a blank face until they load;
+    // pruning them as "extra newtabs" would destroy unloaded state on
+    // every switch. Regression guard for the pending skip.
+    const start = api.getCurrent();
+    if (start !== "1") api.switchTo("1");
+    const base = sb.gBrowser.tabs.length;
+    const prevSel = sb.gBrowser.selectedTab;
+    const p1 = makeTab(tabVals, { label: "pend1", ws: "2", spec: "about:newtab", pending: true });
+    const p2 = makeTab(tabVals, { label: "pend2", ws: "2", spec: "about:newtab", pending: true });
+    sb.gBrowser.tabs.push(p1, p2);
+    try {
+      api.switchTo("2");
+      assert.ok(sb.gBrowser.tabs.includes(p1), "pending newtab survives the switch");
+      assert.ok(sb.gBrowser.tabs.includes(p2), "second pending newtab survives too");
+    } finally {
+      for (const t of [p1, p2]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+      while (sb.gBrowser.tabs.length > base) sb.gBrowser.tabs.pop();
+      sb.gBrowser.selectedTab = prevSel;
+      if (api.getCurrent() !== start) api.switchTo(start);
+    }
+  });
+});
+
 describe("tab unloading", () => {
   it("is opt-in off when the pref backend is absent", () => {
     assert.equal(api.getUnloadOnSwitch(), false);

@@ -153,3 +153,113 @@ def test_rounded_menus_present() -> None:
     body = css[css.find("menupopup {") :]
     body = body[: body.find("}") + 1]
     assert "overflow" not in body
+
+
+def test_tab_dialogs_survive_card_clip() -> None:
+    """Tab-modal dialogs live inside #tabbrowser-tabbox (TabDialogBox
+    appends the stack to the tab container), so the §19 card clip would
+    slice the buttons off any dialog taller than the tab area. The guard
+    constrains dialog content to fit with internal scroll instead."""
+    css = _css()
+    sel = "#tabbrowser-tabbox .dialogStack .dialogBox"
+    assert sel in css, "missing tab-dialog guard rule"
+    body = css[css.find(sel) :]
+    body = body[: body.find("}") + 1]
+    assert "max-height" in body
+    assert "overflow" in body and "auto" in body
+
+
+def test_desk_has_depth_and_adaptive_shadow() -> None:
+    """Canvas desk (§19): layered sheen + vignette over the flat base
+    (never sticker-flat), and the card shadow adapts to desk brightness
+    behind a supports gate so engines without relative colors keep the
+    fixed fallback."""
+    css = _css()
+    head = css.find("#browser {")
+    assert head != -1
+    body = css[head : head + 800]
+    assert "linear-gradient" in body
+    assert "color-mix" in body
+    assert "@supports" in css and "rgb(from" in css
+
+
+def test_workspace_accents_cover_all_nine() -> None:
+    """Per-workspace accents (§21): all nine workspaces define an accent,
+    the window tint hooks the desk sheen, and the indicator / selected
+    ring / dock consume it — washes only, never text."""
+    css = _css()
+    for n in "123456789":
+        assert f"--aph-ws-{n}:" in css, f"missing accent var for ws{n}"
+        assert f':root[data-aph-ws="{n}"]' in css
+    assert "--aph-ws-accent:" in css
+    assert "--aph-desk-sheen" in css
+    assert ":root[data-aph-ws] #aph-ws-indicator" in css
+    assert '.aph-ws-pill[data-ws][data-current="1"]' in css
+
+
+def test_chrome_type_is_inter() -> None:
+    """Chrome type (§23): Inter @font-face for 400/500/600/700 reaches the
+    injected woff2 files, and :root applies the stack document-wide."""
+    css = _css()
+    assert css.count("@font-face {") == 4
+    for w in ("400", "500", "600", "700"):
+        # Full chrome URL: chrome://browser/content/ already maps to
+        # browser/content/browser/ — an extra browser/ segment 404s at
+        # runtime ("Missing chrome or resource URL").
+        assert f"chrome://browser/content/aph-fonts/inter-{w}-latin.woff2" in css
+        assert f"font-weight: {w};" in css
+    assert "content/browser/aph-fonts" not in css
+    assert "--aph-font-chrome:" in css
+    assert "font-family: var(--aph-font-chrome)" in css
+
+
+def test_motion_language_glides_hovers_dissolves_and_guards() -> None:
+    """Motion language (§24): tab wash + dock ease both ways, the card
+    dip dissolve, accent load feedback (burst tint + busy sweep), and a
+    reduced-motion mirror that also covers the toast."""
+    css = _css()
+    assert "aph-ws-dip" in css
+    assert "aph-busy-sweep" in css
+    assert "--tab-loading-fill" in css
+    assert "prefers-reduced-motion" in css
+    assert "#aph-toast" in css and "transition: none" in css
+
+
+def test_urlbar_dropdown_speaks_palette() -> None:
+    """Dropdown as palette sibling (§25): wash hover/selected tokens, md
+    row radius, selected inset accent border (never layout), 14px titles,
+    icon wash tiles — all behind a forced-colors guard so High Contrast
+    keeps stock rendering."""
+    css = _css()
+    assert "--urlbarview-background-color-hover" in css
+    assert "--urlbarView-row-border-radius" in css
+    assert ".urlbarView-row[selected]" in css
+    assert ".urlbarView-title" in css
+    assert ".urlbarView-favicon" in css
+    assert "@media not (forced-colors)" in css
+
+
+def test_toolbar_rhythm_unified() -> None:
+    """Toolbar rhythm (§26 + §6): the indicator pill matches the 28px
+    urlbar height, and nav-bar buttons share the md hover corners."""
+    css = _css()
+    head = css.find("#aph-ws-indicator {")
+    assert head != -1
+    assert "height: 28px" in css[head : head + 900]
+    assert "#nav-bar toolbarbutton:hover" in css
+
+
+def test_inter_small_size_tracking_is_scoped() -> None:
+    """Inter tracking (§23): small chrome text gets the Dynamic-Metrics
+    breathing room via --aph-tracking-ui, scoped to small selectors —
+    never a :root blanket (inputs/headers excluded by design)."""
+    css = _css()
+    assert "--aph-tracking-ui: 0.015em" in css
+    for sel in (
+        ".tabbrowser-tab .tab-label",
+        ".aph-ws-pill",
+        "#aph-ws-indicator",
+        ".urlbarView-title",
+    ):
+        assert sel in css
+    assert "letter-spacing: var(--aph-tracking-ui)" in css

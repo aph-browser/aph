@@ -2,7 +2,60 @@
    Aph Theme: Clean Auto-Hide Top Bar (Negative-Margin Slide Architecture)
    ========================================================================== */
 
+/* ==========================================================================
+   23. Chrome type: Inter (SIL OFL, branding/fonts/) for every chrome
+   surface. @font-face is document-level — one definition serves this
+   sheet, the palette sheet, and all XUL in the browser window; latin
+   subsets keep it to ~97KB and non-latin glyphs fall through to the
+   system stack per-glyph. Applied on :root so the whole chrome inherits
+   it; any element with an explicit stock font-family keeps it
+   (specified beats inherited), and content documents are untouched
+   (separate documents, no inheritance across the chrome/content line).
+   ========================================================================== */
+@font-face {
+  font-family: "Inter";
+  src: url("chrome://browser/content/aph-fonts/inter-400-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("chrome://browser/content/aph-fonts/inter-500-latin.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("chrome://browser/content/aph-fonts/inter-600-latin.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("chrome://browser/content/aph-fonts/inter-700-latin.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
+  --aph-font-chrome: "Inter", system-ui, "Segoe UI", Roboto, "Noto Sans",
+    Ubuntu, Cantarell, sans-serif;
+  font-family: var(--aph-font-chrome) !important;
+  /* Small-size tracking (Inter Dynamic Metrics): Inter's tall x-height
+     and tight default spacing read cramped at 11–14px UI sizes, so
+     small chrome text gets +0.015em breathing room. Scoped to small
+     text ON PURPOSE — never :root (blanket tracking would leak into
+     inputs with caret/trailing-space quirks and every large header).
+     No blanket line-height either: rigid chrome rows (36px bar, 28px
+     urlbar, line-height:1 pills) would grow and fight their geometry.
+     No cv05/cv11: verified absent from these subset files (8 GSUB
+     features each) — that declaration would be dead code. Full files
+     would also unlock real optical sizing (no-op on statics). */
+  --aph-tracking-ui: 0.015em;
   --aph-pop-in: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   /* Hide grace: show instantly, hide after this delay. 0.5s is the sweet
      spot — <0.2s still flickers, >1s feels sticky (macOS dock ≈0.5s). */
@@ -250,7 +303,8 @@
 }
 
 /* ==========================================================================
-   6. Workspace indicator: just a number (left edge of nav-bar)
+   6. Workspace indicator: number/name pill (left edge of nav-bar) with
+   a bound-container dot
    ========================================================================== */
 
 #aph-ws-indicator {
@@ -262,7 +316,9 @@
   overflow: hidden !important;
   white-space: nowrap !important;
   text-overflow: ellipsis !important;
-  height: 24px !important;
+  /* 28px: the urlbar rhythm (input is 28px). 24px sat 3px off every
+     neighbor; now the pill, urlbar, and 30px buttons read as one row. */
+  height: 28px !important;
   margin-inline: 2px 6px !important;
   padding: 0 4px !important;
   box-sizing: border-box !important;
@@ -277,6 +333,22 @@
   user-select: none !important;
   cursor: pointer !important;
   transition: background-color 0.2s ease, color 0.2s ease !important;
+}
+
+/* Bound-container dot: filled circle in the workspace's container
+   color, driven by data-aph-bound + --aph-ws-dot set in updateIndicator
+   (60-indicator-switch.js). Replaces the old 2px underline, which was
+   easy to miss. Flex item of the pill row: vertically centered, fixed
+   size + margin only, so text never shifts and long names still
+   truncate via the pill's ellipsis. */
+#aph-ws-indicator[data-aph-bound="1"]::after {
+  content: "" !important;
+  flex: none !important;
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  background: var(--aph-ws-dot, transparent) !important;
+  margin-inline-start: 5px !important;
 }
 
 #aph-ws-indicator[data-aph-ws-pulse="1"] {
@@ -487,12 +559,17 @@ tab[selected] > .tab-stack > .tab-background {
     var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 70%,
     transparent
   ) !important;
-  /* Selected suggestion row (auto-selected while typing): stock paints
-     the system accent (SelectedItem) blue. The shared accent keeps it
-     opaque and vivid; row text stays stock SelectedItemText, which
-     reads white-on-accent by design. Covers urlbar + search popups,
+  /* Selected suggestion row (auto-selected while typing): the palette
+     sibling (§25) — hover-token wash with an inset accent border,
+     never the opaque vivid block. Row text stays the theme field text
+     (Nova already maps --urlbarview-text-color-selected there), so
+     hierarchy survives selection. Covers urlbar + search popups,
      which read the same variable. */
-  --urlbarview-background-color-selected: var(--aph-urlbar-accent) !important;
+  --urlbarview-background-color-selected: color-mix(
+    in srgb,
+    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 55%,
+    transparent
+  ) !important;
 }
 
 .urlbar:not([focused]) .urlbar-background {
@@ -621,14 +698,6 @@ tab[selected] > .tab-stack > .tab-background {
   border: 1px dashed color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 35%, transparent) !important;
 }
 
-/* Remote: workspace live in another window (mutual exclusion). Outlined
-   with a dot — click focus-jumps, never pulls (V1 has no steal). */
-.aph-ws-pill[data-remote="1"] {
-  opacity: 0.75 !important;
-  border: 1px solid color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 40%, transparent) !important;
-  background: transparent !important;
-}
-
 #aph-ws-dock[data-aph-dragging="1"] .aph-ws-pill[data-current="1"] {
   opacity: 0.45 !important;
   cursor: not-allowed !important;
@@ -652,7 +721,9 @@ tab[selected] > .tab-stack > .tab-background {
   height: 14px !important;
   padding: 0 3px !important;
   box-sizing: border-box !important;
-  font-size: 9px !important;
+  /* 10px: single-glyph badge text — Inter needs the extra pixel to stay
+     legible next to the 14px tab titles. Still fits the 14px badge. */
+  font-size: 10px !important;
   font-weight: 600 !important;
   line-height: 1 !important;
   border-radius: 999px !important;
@@ -772,8 +843,10 @@ tab[data-aph-starred="1"] .tab-close-button,
    look). #browser paints the desk (also behind the transparent toolbox,
    §1); #tabbrowser-tabbox becomes the card. Flush to the vertical tab
    strip (logical start, so RTL mirrors correctly), gapped everywhere
-   else. Theme-aware: desk follows --toolbar-bgcolor, ring is a wash of
-   the toolbar text color — no hardcoded palette.
+   else. Theme-aware: desk follows --toolbar-bgcolor with a text-tinted
+   top sheen + bottom vignette for depth, ring is a wash of
+   the toolbar text color, and the ambient shadow alpha derives from
+   desk brightness (softer on cream) — no hardcoded palette.
    Clipping: `overflow: clip` (not hidden) so no scroll container is
    created inside chrome. DOM fullscreen drops the frame entirely so
    video fills the screen with square corners.
@@ -782,7 +855,18 @@ tab[data-aph-starred="1"] .tab-close-button,
    ========================================================================== */
 
 #browser {
-  background-color: var(--aph-desk-bg) !important;
+  /* Desk depth: flat base, a top sheen tinted by the toolbar text color
+     (light glow on dark themes, soft shade on cream) and a faint bottom
+     vignette — spatial instead of sticker-flat. All washes, so any
+     lightweight theme keeps working. */
+  background:
+    linear-gradient(
+      /* Overridable per workspace (§21): unset = neutral text tint. */
+      var(--aph-desk-sheen, color-mix(in srgb, var(--toolbar-text-color, #ffffff) 7%, transparent)),
+      transparent 32%
+    ),
+    linear-gradient(transparent 62%, color-mix(in srgb, black 12%, transparent)),
+    var(--aph-desk-bg) !important;
 }
 
 #tabbrowser-tabbox {
@@ -797,10 +881,37 @@ tab[data-aph-starred="1"] .tab-close-button,
     0 12px 32px -16px rgba(0, 0, 0, 0.5) !important;
 }
 
+/* Adaptive card shadow: the fixed black above reads harsh on cream.
+   Where relative colors are supported, derive the ambient alpha from
+   the desk brightness (dark desk ≈ 0.52, cream desk ≈ 0.27). Layered
+   AFTER the base rule so an invalid var can only drop this override,
+   never the ring + shadow above. */
+@supports (box-shadow: rgb(from black r g b / 0.5)) {
+  #tabbrowser-tabbox {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--toolbar-text-color, #ffffff) 10%, transparent),
+      0 12px 32px -16px rgb(from var(--toolbar-bgcolor, #17181f) 0 0 0 / calc(0.55 - 0.3 * ((r + g + b) / 765))) !important;
+  }
+}
+
 :root[inDOMFullscreen] #tabbrowser-tabbox {
   margin: 0 !important;
   border-radius: 0 !important;
   box-shadow: none !important;
+}
+
+/* Dialog guard (§19 companion): tab-modal dialogs (cookie removal,
+   auth, permissions — anything in a tab dialog stack) live INSIDE
+   #tabbrowser-tabbox (TabDialogBox appends the stack to the tab's
+   .browserSidebarContainer), so the card clip above would silently
+   slice the buttons off any dialog taller than the tab area — long
+   hostnames wrap tall, short tab areas finish the job. Constrain
+   instead of amputate: an over-tall dialog scrolls internally so
+   every button stays reachable. No-op when content fits (auto shows
+   no scrollbar, layout untouched). */
+#tabbrowser-tabbox .dialogStack .dialogBox {
+  max-height: 100% !important;
+  overflow: auto !important;
 }
 
 /* ==========================================================================
@@ -826,4 +937,270 @@ menupopup > menu:last-child,
 menupopup > menuitem:last-child {
   border-bottom-left-radius: var(--aph-radius-md) !important;
   border-bottom-right-radius: var(--aph-radius-md) !important;
+}
+
+/* ==========================================================================
+   21. Per-workspace accents: color as orientation (Arc spaces). The
+   window carries data-aph-ws (60-indicator-switch.js stampWindowWs, set
+   on every switch + at birth), so :root knows the live workspace and
+   exposes --aph-ws-accent. The accent tints exactly three surfaces —
+   desk sheen (§19 hook), indicator pill (§6), selected-tab ring (§13),
+   dock pills (own data-ws identity) — always as washes over theme
+   surfaces, never as text or fills, so contrast on cream and dark
+   stays stock-safe. Unset (no stamp yet) drops each override and the
+   neutral rules above show through untouched.
+   ========================================================================== */
+:root {
+  --aph-ws-1: #d9a521;
+  --aph-ws-2: #8b7cf6;
+  --aph-ws-3: #2fb3a3;
+  --aph-ws-4: #ef6f5c;
+  --aph-ws-5: #4da3e8;
+  --aph-ws-6: #e5488c;
+  --aph-ws-7: #62b15c;
+  --aph-ws-8: #e8933c;
+  --aph-ws-9: #6b8afd;
+}
+:root[data-aph-ws="1"] { --aph-ws-accent: var(--aph-ws-1); }
+:root[data-aph-ws="2"] { --aph-ws-accent: var(--aph-ws-2); }
+:root[data-aph-ws="3"] { --aph-ws-accent: var(--aph-ws-3); }
+:root[data-aph-ws="4"] { --aph-ws-accent: var(--aph-ws-4); }
+:root[data-aph-ws="5"] { --aph-ws-accent: var(--aph-ws-5); }
+:root[data-aph-ws="6"] { --aph-ws-accent: var(--aph-ws-6); }
+:root[data-aph-ws="7"] { --aph-ws-accent: var(--aph-ws-7); }
+:root[data-aph-ws="8"] { --aph-ws-accent: var(--aph-ws-8); }
+:root[data-aph-ws="9"] { --aph-ws-accent: var(--aph-ws-9); }
+:root[data-aph-ws] {
+  --aph-desk-sheen: color-mix(in srgb, var(--aph-ws-accent) 13%, transparent);
+}
+
+/* Indicator pill (§6): accent wash behind the number/name. Text color
+   untouched — the wash is translucent over the toolbar. */
+:root[data-aph-ws] #aph-ws-indicator {
+  background: color-mix(
+    in srgb,
+    var(--aph-ws-accent) 24%,
+    color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 10%, transparent)
+  ) !important;
+  opacity: 1 !important;
+}
+
+/* Selected tab ring (§13): accent edge + soft accent glow. Fill stays
+   the §13 opaque pill — contrast-safe, hue only at the border. */
+:root[data-aph-ws] .tabbrowser-tab[selected] > .tab-stack > .tab-background,
+:root[data-aph-ws] tab[selected] > .tab-stack > .tab-background {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--aph-ws-accent) 55%, transparent),
+    0 4px 14px -8px color-mix(in srgb, var(--aph-ws-accent) 60%, transparent) !important;
+}
+
+/* Dock pills: each pill wears its OWN workspace color (data-ws set in
+   65-dock.js), quiet at rest, solid on current. Text stays toolbar
+   color throughout — identity without contrast risk. */
+.aph-ws-pill[data-ws="1"] { --aph-ws-accent: var(--aph-ws-1); }
+.aph-ws-pill[data-ws="2"] { --aph-ws-accent: var(--aph-ws-2); }
+.aph-ws-pill[data-ws="3"] { --aph-ws-accent: var(--aph-ws-3); }
+.aph-ws-pill[data-ws="4"] { --aph-ws-accent: var(--aph-ws-4); }
+.aph-ws-pill[data-ws="5"] { --aph-ws-accent: var(--aph-ws-5); }
+.aph-ws-pill[data-ws="6"] { --aph-ws-accent: var(--aph-ws-6); }
+.aph-ws-pill[data-ws="7"] { --aph-ws-accent: var(--aph-ws-7); }
+.aph-ws-pill[data-ws="8"] { --aph-ws-accent: var(--aph-ws-8); }
+.aph-ws-pill[data-ws="9"] { --aph-ws-accent: var(--aph-ws-9); }
+.aph-ws-pill[data-ws] {
+  background: color-mix(
+    in srgb,
+    var(--aph-ws-accent) 16%,
+    color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 10%, transparent)
+  ) !important;
+}
+.aph-ws-pill[data-ws][data-current="1"] {
+  background: color-mix(in srgb, var(--aph-ws-accent) 45%, transparent) !important;
+  color: var(--toolbar-text-color, #e8e8ec) !important;
+}
+
+/* ==========================================================================
+   22. Sidebar finish: the strip as furniture, not a toolbar (Arc recipe
+   adapted). Rest rows are explicitly transparent — the strip reads as
+   one calm surface and only hover/active assert themselves. Titles set
+   13px so long sidebars stay scannable; rows get the md radius so the
+   hover wash (§12) and selected pill (§13) share one corner language.
+   A 1px vertical breath per row keeps density while ending the
+   cramped stock stacking — padding only, never margins, so collapse
+   and multiselect geometry pass through untouched.
+   ========================================================================== */
+.tabbrowser-tab:not([selected]):not(:hover) > .tab-stack > .tab-background,
+tab:not([selected]):not(:hover) > .tab-stack > .tab-background {
+  background: transparent !important;
+}
+
+.tabbrowser-tab .tab-label,
+tab .tab-label {
+  /* 14px: Inter draws lighter than the hinted system fonts it replaces,
+     so it takes +1px to hold the same visual weight at tab distance. */
+  font-size: 14px !important;
+  letter-spacing: var(--aph-tracking-ui) !important;
+}
+
+/* Small-text tracking companions: dock pills (12px), the indicator
+   (13px), dropdown titles (14px/500). Inputs and headers excluded —
+   see the §23 note. */
+.aph-ws-pill,
+.aph-dock-aph,
+#aph-ws-indicator,
+.urlbarView-title {
+  letter-spacing: var(--aph-tracking-ui) !important;
+}
+
+.tabbrowser-tab > .tab-stack > .tab-background,
+tab > .tab-stack > .tab-background {
+  border-radius: var(--aph-radius-md) !important;
+}
+
+.tabbrowser-tab:not([pinned]) > .tab-stack,
+tab:not([pinned]) > .tab-stack {
+  padding-block: 1px !important;
+}
+
+/* ==========================================================================
+   24. Motion language: one dialect everywhere. The palette already glides;
+   everything else used to snap. These rules extend the same short eases
+   to the remaining hovers, the switch dissolve, and load feedback.
+   All background/opacity-only (never layout), all mirrored by a
+   reduced-motion block at the end of this section.
+   ========================================================================== */
+
+/* Tab wash glide: the base carries the transition so hover (§12),
+   select (§13), and the accent-ring retint (§21) all ease both ways
+   instead of snapping. */
+.tabbrowser-tab > .tab-stack > .tab-background,
+tab > .tab-stack > .tab-background {
+  transition: background-color 0.12s ease-out, box-shadow 0.15s ease-out !important;
+}
+
+/* Dock glide: pills and the Aph key ease washes and drag-mode dimming. */
+.aph-ws-pill,
+.aph-dock-aph {
+  transition: background-color 0.12s ease-out, opacity 0.12s ease-out !important;
+}
+
+/* Switch dissolve: the commit is synchronous (hidden swap), so a
+   leave-side tab fade could never paint — instead the whole card dips
+   to 0.45 over 100ms and glides back over 180ms (JS adds/removes
+   .aph-ws-dip in finishWorkspaceSwitch). Reads as a dissolve, not a
+   blink. Opacity-only on the card; fullscreen/dialog rules untouched. */
+#tabbrowser-tabbox {
+  transition: opacity 0.18s ease-out !important;
+}
+#tabbrowser-tabbox.aph-ws-dip {
+  opacity: 0.45 !important;
+  transition-duration: 0.1s !important;
+}
+
+/* Load feedback, stock machinery: the burst uses --tab-loading-fill,
+   so tinting it per workspace turns the native flash into Aph's
+   "loading in this space" signal. The selected busy tab additionally
+   sweeps an accent sheen (background-image over the §13 fill — the
+   fill stays authoritative for contrast); [busy] dropping ends the
+   sweep with no cleanup. */
+.tab-loading-burst {
+  --tab-loading-fill: color-mix(
+    in srgb,
+    var(--aph-ws-accent, rgb(125, 190, 255)) 70%,
+    white
+  ) !important;
+}
+@keyframes aph-busy-sweep {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
+}
+.tabbrowser-tab[selected][busy] > .tab-stack > .tab-background,
+tab[selected][busy] > .tab-stack > .tab-background {
+  background-image: linear-gradient(
+    100deg,
+    transparent 35%,
+    color-mix(in srgb, var(--aph-ws-accent, rgb(125, 190, 255)) 28%, transparent) 50%,
+    transparent 65%
+  ) !important;
+  background-size: 250% 100% !important;
+  animation: aph-busy-sweep 1.6s linear infinite !important;
+}
+
+/* Reduced-motion mirror: every §24 transition/animation dies, plus the
+   two toasts (§9 here, archive page) which previously had none. */
+@media (prefers-reduced-motion: reduce) {
+  .tabbrowser-tab > .tab-stack > .tab-background,
+  tab > .tab-stack > .tab-background,
+  .aph-ws-pill,
+  .aph-dock-aph,
+  #tabbrowser-tabbox,
+  #aph-toast,
+  #aph-toast.show {
+    transition: none !important;
+  }
+  .tabbrowser-tab[selected][busy] > .tab-stack > .tab-background,
+  tab[selected][busy] > .tab-stack > .tab-background {
+    animation: none !important;
+  }
+}
+
+/* ==========================================================================
+   25. Urlbar dropdown: the palette's sibling. Stock Nova rows are dense,
+   square, and gray-hierarchied; the selected row was an opaque vivid
+   block (§14, now a wash). Token overrides do most of it — hover and
+   selected share the palette's 55% wash, rows take the md radius — plus
+   three direct rules: the selected row's inset accent border (inset
+   box-shadow, never border-width, so selection never reflows the list),
+   14px/500 titles, and favicon/type-icon wash tiles. Text color is
+   deliberately untouched: Nova maps selected text to the field text,
+   so hierarchy survives selection on cream and dark alike.
+   Wrapped in not(forced-colors): unlayered author rules beat stock's
+   layered forced-colors tokens, so High Contrast keeps stock rendering.
+   ========================================================================== */
+@media not (forced-colors) {
+  .urlbarView {
+    --urlbarview-background-color-hover: color-mix(
+      in srgb,
+      var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 55%,
+      transparent
+    ) !important;
+    --urlbarView-row-border-radius: var(--aph-radius-md) !important;
+    --urlbarView-row-padding-inline: 10px !important;
+  }
+
+  .urlbarView-row[selected] {
+    box-shadow: inset 0 0 0 1px color-mix(
+      in srgb,
+      var(--aph-urlbar-accent, rgba(125, 190, 255, 0.5)) 45%,
+      transparent
+    ) !important;
+  }
+
+  .urlbarView-title {
+    font-size: 14px !important;
+    font-weight: 500 !important;
+  }
+
+  .urlbarView-favicon,
+  .urlbarView-type-icon {
+    background-color: color-mix(
+      in srgb,
+      var(--toolbar-text-color, #e8e8ec) 10%,
+      transparent
+    ) !important;
+    border-radius: var(--aph-radius-md) !important;
+  }
+}
+
+/* ==========================================================================
+   26. Toolbar rhythm: one designed row. The indicator pill now matches
+   the 28px urlbar height (§6), and every nav-bar icon button shares the
+   tab/dock hover language — same wash token, md corners. Deliberately
+   radius-only: the §3/§4 show/hide transitions own the `transition`
+   shorthand on these buttons, so no transition is declared here (a
+   second shorthand would silently replace the slide timing). Window
+   controls and the identity box are untouched (OS-native, and phase 3
+   territory, respectively).
+   ========================================================================== */
+#nav-bar toolbarbutton:hover {
+  border-radius: var(--aph-radius-md) !important;
 }

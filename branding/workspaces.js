@@ -2,14 +2,18 @@
 /* Aph workspaces: IDs "1"-"9", zero UI. Alt+Shift+1..9 jumps to a workspace,
  * Alt+Shift+]/Right cycles next active, Alt+Shift+[/Left cycles previous,
  * Alt+Shift+Tab toggles the last two used (MRU),
- * Exclusive model (tiling-WM): a workspace renders in at most one window.
- * Dormant workspaces pull here via adoptTab (no reload); workspaces live
- * elsewhere focus-jump on request (V1 has no steal). Window close merges
- * unpinned tabs back into a survivor (pins die with the window, stock).
+ * Window-scoped model (Vivaldi/Zen): every window has its own workspaces
+ * 1-9 and tabs belong to the window they live in. The same workspace id
+ * may show in two windows at once — independent tab sets, never shared.
+ * Windows never touch each other's tabs (no pulls, no steals); moving
+ * tabs across windows is always explicit ("Move Tab to Other Window",
+ * arrivals join the destination's current workspace). Closing a window
+ * is native (SessionStore undo); session restore is per-window native.
  * Ctrl+Alt+1..9 sends the selection there (stay here, focus next —
  * whole native groups stay joined).
  * Tab context menu offers Move Tab(s) / Move Group to Workspace
- * submenus; the dock accepts tab and group-header drops the same way.
+ * submenus plus Move to Other Window; the dock accepts tab and
+ * group-header drops the same way.
  * Tags persist via SessionStore; pinned tabs are global (never hidden —
  * stock Firefox assumes hidden pinned tabs never exist and vertical-tab
  * drag/drop breaks when they do); native tab groups
@@ -51,6 +55,35 @@
   // They join the destination's visible workspace; anchorGroup lets them
   // drag the whole group instead of being healed back to the source tag.
   const adoptedTabs = new WeakSet();
+
+  // Diagnostic lifeline for vanishing-tab reports: one console line per
+  // tab Aph itself closes, moves across windows/workspaces, or merges —
+  // stock closes (Ctrl+W etc.) never pass here. Fail-silent house style;
+  // only fires on actual action, so an idle browser stays quiet.
+  function aphTabsLog(msg) {
+    try {
+      Services.console.logStringMessage(`[AphTabs] ${msg}`);
+    } catch (e) {}
+  }
+
+  function aphTabDesc(tab) {
+    let label = "?";
+    let spec = "?";
+    let ws = "?";
+    try {
+      label = String(tab.label || "?").slice(0, 60);
+    } catch (e) {}
+    try {
+      spec = String(
+        (tab.linkedBrowser && tab.linkedBrowser.currentURI && tab.linkedBrowser.currentURI.spec) || "?"
+      ).slice(0, 80);
+    } catch (e) {}
+    try {
+      ws = getWs(tab);
+    } catch (e) {}
+    return `"${label}" ${spec} ws=${ws}`;
+  }
+
 
   // Disposable container tabs (Ctrl+Alt+T). moz-src path first: it is the
   // canonical URI in packaged builds (every internal importer uses it, and
@@ -537,6 +570,11 @@
           // Stock focused the urlbar for the original tab; the swap moves
           // selection, so re-focus or typing lands in the page.
           focusUrlBar();
+          try {
+            if (typeof aphTabsLog === "function") {
+              aphTabsLog(`container-repair closing ${aphTabDesc(tab)}`);
+            }
+          } catch (e) {}
           try {
             gBrowser.removeTab(tab, { animate: false });
           } catch (e) {
@@ -1201,6 +1239,14 @@
           continue;
         }
       } catch (e) {}
+      // Unloaded/pending tabs haven't committed a URL yet either (lazy
+      // restore, discard): their blank face may be transient, and closing
+      // them destroys unloaded state. Same rule as the unload guards.
+      try {
+        if (typeof t.hasAttribute === "function" && t.hasAttribute("pending")) {
+          continue;
+        }
+      } catch (e) {}
       if (getWs(t) !== target) {
         continue;
       }
@@ -1211,6 +1257,11 @@
         keep--;
         continue;
       }
+      try {
+        if (typeof aphTabsLog === "function") {
+          aphTabsLog(`prune ws=${target} closing ${aphTabDesc(t)}`);
+        }
+      } catch (e) {}
       try {
         gBrowser.removeTab(t, { animate: false });
       } catch (e) {
@@ -1667,14 +1718,16 @@
     );
   }
 
-  // Exclusive workspaces (tiling-WM model): a workspace renders in at most
-  // one window at a time. Tabs carry the global tag (aphWs); each window
-  // owns exactly one active workspace (WIN_KEY). Switching to a dormant
-  // workspace pulls its tabs here via gBrowser.adoptTab (no reload);
-  // switching to a workspace live elsewhere focus-jumps (no steal in V1).
-  // Remote-pill state is derived live per render — never cached.
-  const WS_SWITCH_TOPIC = "aph-workspace-switched";
-
+  // Window-scoped workspaces (Vivaldi/Zen model): every window has its own
+  // workspaces 1-9, and tabs belong to the window they live in. The same
+  // workspace id may show in two windows at once — each window renders only
+  // the tabs physically in its own strip whose tag (aphWs) matches its
+  // current workspace (WIN_KEY). Windows never touch each other's tabs:
+  // no pulls, no focus-jumps, no close-time merging. SessionStore saves
+  // each window independently, so session restore just works natively.
+  // Moving tabs across windows is always explicit ("Move Tab to Other
+  // Window" in the palette / tab context menu), retagging arrivals to the
+  // destination's current workspace.
   function aphWinId() {
     try {
       if (!window.__aphWinId) {
@@ -1687,7 +1740,7 @@
     }
   }
 
-  // Private windows never join the pool (no own, no pull, no merge).
+  // Private windows never join the pool (no shared moves).
   function aphIsPrivateWindow(win) {
     try {
       const target = win || window;
@@ -1726,13 +1779,11 @@
     return out;
   }
 
-  // Live ownership registry: a direct expando on the chrome window is the
-  // primary store — synchronous, no SessionStore tracking dependency, and
-  // readable from any same-privilege window the moment it is set. (Session
-  // window values throw "Window is not tracked" outside tracking and every
-  // failure degrades silently to "no owner": no focus-jump, pulls instead.
-  // The expando cannot fail that way.) SessionStore remains as persistence
-  // + restore fallback (extData survives restarts; expandos don't).
+  // This window's workspace claim: a direct expando on the chrome window is
+  // the primary store — synchronous, no SessionStore tracking dependency,
+  // and readable from any same-privilege window the moment it is set.
+  // SessionStore remains as persistence + restore fallback (extData
+  // survives restarts; expandos don't).
   function setWindowWs(target) {
     if (!isValidId(target)) {
       return;
@@ -1760,57 +1811,15 @@
     }
   }
 
-  // Owner of `target` among other windows, or null when dormant.
-  // Private windows are invisible to the pool on both sides, unless
-  // `includePrivate` (used only to refuse boundary crossings explicitly —
-  // never to move tabs across them).
-  function findWsOwner(target, includePrivate) {
-    if (!isValidId(target)) {
-      return null;
-    }
-    let skipPrivate = !includePrivate;
+  // Candidate destinations for "Move Tab to Other Window": every live
+  // window except this one, never across the private boundary.
+  // Returns [{ win, ws }] with ws possibly null when the other window's
+  // claim is unreadable (callers fall back to its live tab tags then).
+  function listWindows() {
+    const out = [];
+    let selfPrivate = false;
     try {
-      if (skipPrivate && aphIsPrivateWindow(window)) {
-        return null;
-      }
-    } catch (e) {}
-    let wins = [];
-    try {
-      wins = listAphWindows();
-    } catch (e) {
-      return null;
-    }
-    for (const w of wins) {
-      try {
-        if (!w || w === window || w.closed) {
-          continue;
-        }
-        if (skipPrivate && aphIsPrivateWindow(w)) {
-          continue;
-        }
-        if (getWindowWs(w) === target) {
-          return w;
-        }
-      } catch (e) {}
-    }
-    return null;
-  }
-
-  function isWsOwnedElsewhere(target) {
-    try {
-      return !!findWsOwner(target);
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // Workspaces live elsewhere right now: {wsId: true}. Derived per call.
-  function getRemoteOwners() {
-    const out = Object.create(null);
-    try {
-      if (aphIsPrivateWindow(window)) {
-        return out;
-      }
+      selfPrivate = aphIsPrivateWindow(window);
     } catch (e) {}
     let wins = [];
     try {
@@ -1820,52 +1829,22 @@
     }
     for (const w of wins) {
       try {
-        if (!w || w === window || w.closed) {
+        if (!w || w === window || w.closed || !w.gBrowser) {
           continue;
         }
-        if (aphIsPrivateWindow(w)) {
-          continue;
-        }
-        const ws = getWindowWs(w);
-        if (isValidId(ws)) {
-          out[ws] = true;
-        }
+        try {
+          if (!!aphIsPrivateWindow(w) !== !!selfPrivate) {
+            continue;
+          }
+        } catch (e) {}
+        let ws = null;
+        try {
+          ws = getWindowWs(w);
+        } catch (e) {}
+        out.push({ win: w, ws: isValidId(ws) ? ws : null });
       } catch (e) {}
     }
     return out;
-  }
-
-  // Bring the owning window forward. focus() alone is a hint some window
-  // managers ignore while a same-app window holds focus, so release first
-  // (blur), unminimize when the platform exposes it, then focus — the same
-  // primitive stock switch-to-tab uses, just given every chance. Returns
-  // whether focus was requested (the compositor still has final say).
-  function focusWsOwner(ownerWin) {
-    try {
-      if (!ownerWin || ownerWin.closed) {
-        return false;
-      }
-      try {
-        if (ownerWin !== window && typeof window.blur === "function") {
-          window.blur();
-        }
-      } catch (e) {}
-      try {
-        if (
-          typeof ownerWin.restore === "function" &&
-          typeof ownerWin.windowState === "number" &&
-          typeof ownerWin.STATE_MINIMIZED === "number" &&
-          ownerWin.windowState === ownerWin.STATE_MINIMIZED
-        ) {
-          ownerWin.restore();
-        }
-      } catch (e) {}
-      if (typeof ownerWin.focus === "function") {
-        ownerWin.focus();
-        return true;
-      }
-    } catch (e) {}
-    return false;
   }
 
   function readRemoteTabWs(tab) {
@@ -1965,278 +1944,9 @@
     }
   }
 
-  // Adopt one whole source group with membership intact. Native path first
-  // (adoptTabGroup preserves id/label/color, like group-header drags);
-  // fallback adopts members adjacently and rebuilds the group. Registers
-  // every old->new pair in `link` for workspace adopt/tag relinking. Returns moved count.
-  function pullWholeGroup(group, members, target, link) {
-    let label = "";
-    let color = "";
-    let collapsed = false;
-    try {
-      label = group.label || "";
-    } catch (e) {}
-    try {
-      color = group.color || "";
-    } catch (e) {}
-    try {
-      collapsed = !!group.collapsed;
-    } catch (e) {}
-    // Source window resolved BEFORE adoption (members live here after).
-    let srcWin = null;
-    try {
-      srcWin =
-        members.length && typeof findTabOwnerWindow === "function"
-          ? findTabOwnerWindow(members[0])
-          : null;
-    } catch (e) {}
-    const finishOne = (oldT, nt) => {
-      if (!nt) {
-        return false;
-      }
-      try {
-        link.set(oldT, nt);
-      } catch (e) {}
-      try {
-        setWs(nt, target);
-      } catch (e) {}
-      try {
-        if (typeof syncTabChrome === "function") {
-          syncTabChrome(nt);
-        }
-      } catch (e) {}
-      return true;
-    };
-    // Native path.
-    try {
-      if (typeof gBrowser.adoptTabGroup === "function") {
-        let idx = 0;
-        try {
-          idx = (gBrowser.tabs && gBrowser.tabs.length) || 0;
-        } catch (e) {}
-        const ng = gBrowser.adoptTabGroup(group, { tabIndex: idx });
-        if (ng) {
-          let news = [];
-          try {
-            news = Array.from(ng.tabs || []);
-          } catch (e) {}
-          // Order-preserving adoption: pair by position. On mismatch pair
-          // what we can; unmapped arrivals keep the handler's (correct-by-
-          // claim-order) tag as plain tagged tabs.
-          const n = Math.min(members.length, news.length);
-          let ok = 0;
-          for (let i = 0; i < n; i++) {
-            try {
-              if (finishOne(members[i], news[i])) {
-                ok++;
-              }
-            } catch (e) {}
-          }
-          try {
-            if (collapsed && !ng.collapsed) {
-              ng.collapsed = true;
-            }
-          } catch (e) {}
-          // Scrub adoption ghosts for mapped members: undo must not
-          // resurrect moved tabs as duplicates.
-          try {
-            if (ok > 0 && srcWin && typeof scrubAdoptionGhost === "function") {
-              for (let i = 0; i < n; i++) {
-                try {
-                  if (link && typeof link.has === "function" && link.has(members[i])) {
-                    scrubAdoptionGhost(srcWin, members[i]);
-                  }
-                } catch (e) {}
-              }
-            }
-          } catch (e) {}
-          return ok;
-        }
-      }
-    } catch (e) {}
-    // Rebuild path: adjacent adoption, then regroup with copied chrome.
-    const news = [];
-    for (const m of members) {
-      try {
-        const nt = adoptOneTab(m);
-        if (nt && link) {
-          try {
-            link.set(m, nt);
-          } catch (e) {}
-        }
-        if (nt) {
-          try {
-            setWs(nt, target);
-          } catch (e) {}
-          try {
-            if (typeof syncTabChrome === "function") {
-              syncTabChrome(nt);
-            }
-          } catch (e) {}
-          news.push(nt);
-        }
-      } catch (e) {}
-    }
-    // Regroup only when the whole unit survived (partial arrivals stay flat
-    // — same rule as partial sends ejecting).
-    if (news.length === members.length && news.length > 0) {
-      try {
-        if (typeof gBrowser.addTabGroup === "function") {
-          const ng = gBrowser.addTabGroup(news, { label, color });
-          if (ng && collapsed) {
-            try {
-              ng.collapsed = true;
-            } catch (e) {}
-          }
-        }
-      } catch (e) {}
-    }
-    return news.length;
-  }
-
-  // Pull every unpinned tab tagged `target` from all other windows here.
-  // Groups move as units (membership/label/color/collapse preserved);
-  // tabs keep workspace tags; no relinking. The
-  // destination's adopted-tab handler stamps arrivals to its current
-  // workspace (drag-drop semantics), so the tag is set explicitly on the
-  // RETURNED tab afterwards — never trust the stamp. Visibility settles in
-  // finishWorkspaceSwitch's reconcile. Returns the adopted count.
-  function pullDormantTabs(target) {
-    if (!isValidId(target)) {
-      return 0;
-    }
-    try {
-      if (aphIsPrivateWindow(window)) {
-        return 0;
-      }
-    } catch (e) {}
-    let wins = [];
-    try {
-      wins = listAphWindows();
-    } catch (e) {
-      return 0;
-    }
-    // Snapshot candidates per source window before adoption mutates strips.
-    const jobs = [];
-    for (const w of wins) {
-      try {
-        if (!w || w === window || w.closed || !w.gBrowser) {
-          continue;
-        }
-        if (aphIsPrivateWindow(w)) {
-          continue;
-        }
-        let tabs = [];
-        try {
-          tabs = Array.from(w.gBrowser.tabs || []);
-        } catch (e) {}
-        const cands = [];
-        for (const t of tabs) {
-          try {
-            if (!t || t.closing || t.pinned) {
-              continue;
-            }
-            if (readRemoteTabWs(t) !== target) {
-              continue;
-            }
-            cands.push(t);
-          } catch (e) {}
-        }
-        if (cands.length) {
-          jobs.push(cands);
-        }
-      } catch (e) {}
-    }
-    if (!jobs.length) {
-      return 0;
-    }
-    const candSet = new Set();
-    for (const cands of jobs) {
-      for (const t of cands) {
-        candSet.add(t);
-      }
-    }
-    const oldToNew = new Map();
-    let moved = 0;
-    const adoptSingleInto = (t) => {
-      try {
-        const nt = adoptOneTab(t);
-        if (!nt) {
-          return false;
-        }
-        try {
-          oldToNew.set(t, nt);
-        } catch (e) {}
-        moved++;
-        try {
-          setWs(nt, target);
-        } catch (e) {}
-        try {
-          if (typeof syncTabChrome === "function") {
-            syncTabChrome(nt);
-          }
-        } catch (e) {}
-        return true;
-      } catch (e) {
-        return false;
-      }
-    };
-    for (const cands of jobs) {
-      // Source strip order: a whole group moves when its first member is
-      // reached (Aph groups are single-workspace, so whole-group is the
-      // norm); partial groups fall through to single adoption and land
-      // flat — the healing case. Order preservation keeps focus + strip
-      // position stable across the move.
-      const done = new Set();
-      for (const t of cands) {
-        try {
-          if (!t || done.has(t)) {
-            continue;
-          }
-          let g = null;
-          try {
-            g = t.group || null;
-          } catch (e) {}
-          if (g) {
-            let members = [];
-            try {
-              members =
-                typeof groupMembers === "function"
-                  ? groupMembers(g).filter((x) => !x.pinned)
-                  : [];
-            } catch (e) {}
-            const whole =
-              members.length > 0 &&
-              members.every((x) => !x.closing && candSet.has(x));
-            if (whole) {
-              const n = pullWholeGroup(g, members, target, oldToNew);
-              if (n > 0) {
-                moved += n;
-                // Only mapped members are done: refused members (source
-                // tab left alive) retry below as singles.
-                for (const m of members) {
-                  try {
-                    if (oldToNew.has(m)) {
-                      done.add(m);
-                    }
-                  } catch (e) {}
-                }
-                continue;
-              }
-            }
-          }
-          if (adoptSingleInto(t)) {
-            done.add(t);
-          }
-        } catch (e) {}
-      }
-    }
-    return moved;
-  }
-
-  // Lowest workspace no live window owns (new-window + restore de-dupe).
-  // Window claims only (WIN_KEY), never local tab tags: a fresh window has
-  // no tabs yet and must land on "1" when the pool is empty.
+  // Lowest workspace no live window (other than this one) claims. Only a
+  // new-window placement hint now — windows no longer de-dupe, so any
+  // collision is harmless (independent tab sets).
   function lowestUnownedWorkspace() {
     try {
       const owned = new Set();
@@ -2265,106 +1975,68 @@
 
   // Browser-Console diagnosis (Ctrl+Shift+J):
   //   Services.wm.getMostRecentWindow("navigator:browser").AphWorkspaces.debugExclusive()
-  // Shows this window's claim and every live window's workspace, so a
-  // "focus never fires" report can distinguish registry failure (owner
-  // missing/wrong here) from a platform focus refusal (owner correct).
+  // Shows this window's claim (restore fallback included).
   function debugExclusive() {
-    const out = { winId: null, current: null, windows: [], remote: [] };
+    const out = { winId: null, current: null };
     try {
       out.winId = aphWinId();
     } catch (e) {}
     try {
       out.current = isValidId(current) ? current : null;
     } catch (e) {}
-    try {
-      for (const w of listAphWindows()) {
-        try {
-          out.windows.push({
-            ws: getWindowWs(w),
-            self: w === window,
-            closed: !!w.closed,
-          });
-        } catch (e) {}
-      }
-    } catch (e) {}
-    try {
-      out.remote = Object.keys(getRemoteOwners()).sort();
-    } catch (e) {}
     return out;
   }
 
   // Session forensics (Browser Console, Ctrl+Shift+J):
   //   Services.wm.getMostRecentWindow("navigator:browser").AphWorkspaces.debugSession()
-  // Run BEFORE closing windows and AFTER restore, then diff: every live
-  // window with its workspace claim and per-tab tag/visibility/pinned/
-  // pending state. Answers "was it snapshotted?" vs "did restore drop it?".
+  // Run BEFORE closing windows and AFTER restore, then diff: this window
+  // with its workspace claim and per-tab tag/visibility/pinned/pending
+  // state. Answers "was it snapshotted?" vs "did restore drop it?".
+  // (Pool-wide enumeration is gone with exclusive ownership; use one
+  // capture per window.)
   function debugSession() {
     const out = [];
     try {
-      for (const w of listAphWindows()) {
-        const rec = { ws: null, self: false, tabs: [] };
+      const rec = { ws: null, self: true, tabs: [] };
+      try {
+        rec.ws = getWindowWs(window);
+      } catch (e) {}
+      let tabs = [];
+      try {
+        tabs = Array.from(gBrowser.tabs || []);
+      } catch (e) {}
+      for (const t of tabs) {
+        const r = {};
         try {
-          rec.ws = getWindowWs(w);
-        } catch (e) {}
-        try {
-          rec.self = w === window;
-        } catch (e) {}
-        let tabs = [];
-        try {
-          tabs = Array.from(w.gBrowser.tabs || []);
-        } catch (e) {}
-        for (const t of tabs) {
-          const r = {};
-          try {
-            r.label = String(t.label || "").slice(0, 60);
-          } catch (e) {
-            r.label = "?";
-          }
-          try {
-            r.spec = String(
-              (t.linkedBrowser && t.linkedBrowser.currentURI && t.linkedBrowser.currentURI.spec) || "?"
-            ).slice(0, 80);
-          } catch (e) {
-            r.spec = "?";
-          }
-          try {
-            r.ws = readRemoteTabWs(t);
-          } catch (e) {
-            r.ws = null;
-          }
-          for (const k of ["hidden", "pinned", "selected", "closing"]) {
-            try {
-              r[k] = !!t[k];
-            } catch (e) {}
-          }
-          try {
-            r.pending = !!(t.hasAttribute && t.hasAttribute("pending"));
-          } catch (e) {}
-          rec.tabs.push(r);
+          r.label = String(t.label || "").slice(0, 60);
+        } catch (e) {
+          r.label = "?";
         }
-        out.push(rec);
+        try {
+          r.spec = String(
+            (t.linkedBrowser && t.linkedBrowser.currentURI && t.linkedBrowser.currentURI.spec) || "?"
+          ).slice(0, 80);
+        } catch (e) {
+          r.spec = "?";
+        }
+        try {
+          r.ws = readRemoteTabWs(t);
+        } catch (e) {
+          r.ws = null;
+        }
+        for (const k of ["hidden", "pinned", "selected", "closing"]) {
+          try {
+            r[k] = !!t[k];
+          } catch (e) {}
+        }
+        try {
+          r.pending = !!(t.hasAttribute && t.hasAttribute("pending"));
+        } catch (e) {}
+        rec.tabs.push(r);
       }
+      out.push(rec);
     } catch (e) {}
     return out;
-  }
-
-  // Duplicate cleanup (Browser Console recovery tool):
-  //   AphWorkspaces.findDuplicateTabs() → [{ key, spec, ws, tabs: [{label, win, hidden, ...}]}]
-  //   AphWorkspaces.closeDuplicateTabs({ dryRun: true }) → preview (default, closes nothing)
-  //   AphWorkspaces.closeDuplicateTabs({ dryRun: false }) → close the losers
-  // Pool-wide same-URL + same-workspace groups (quit-scramble artifacts from
-  // builds predating the shutdown merge-skip). Keeps one per group:
-  // selected > visible > loaded > first. Never touches pinned, selected,
-  // visible-in-owner... precisely: never closes selected tabs, pinned tabs,
-  // loading tabs, or internal about:* pages (every window legitimately has
-  // its own newtab). Deliberate same-URL dupes are indistinguishable from
-  // artifacts, so dry-run is the default — review before executing.
-  function duplicateKey(spec, ws) {
-    try {
-      return `${ws}\n${String(spec || "")}`;
-    } catch (e) {
-      return "";
-    }
   }
 
   function tabSpec(t) {
@@ -2386,396 +2058,6 @@
       );
     } catch (e) {
       return true;
-    }
-  }
-
-  function collectPoolTabs() {
-    const out = [];
-    let selfPrivate = false;
-    try {
-      selfPrivate = aphIsPrivateWindow(window);
-    } catch (e) {}
-    let wins = [];
-    try {
-      wins = listAphWindows();
-    } catch (e) {}
-    for (const w of wins) {
-      try {
-        if (!w || w.closed || !w.gBrowser) {
-          continue;
-        }
-        // Never mix the private boundary, even for reporting closures.
-        try {
-          if (!!aphIsPrivateWindow(w) !== !!selfPrivate) {
-            continue;
-          }
-        } catch (e) {}
-        let tabs = [];
-        try {
-          tabs = Array.from(w.gBrowser.tabs || []);
-        } catch (e) {}
-        for (const t of tabs) {
-          try {
-            if (!t || t.closing) {
-              continue;
-            }
-            out.push({ win: w, tab: t });
-          } catch (e) {}
-        }
-      } catch (e) {}
-    }
-    return out;
-  }
-
-  function findDuplicateTabs() {
-    const groups = new Map();
-    try {
-      for (const { win, tab } of collectPoolTabs()) {
-        try {
-          if (tab.pinned) {
-            continue;
-          }
-          const spec = tabSpec(tab);
-          if (!spec || isInternalSpec(spec)) {
-            continue;
-          }
-          const ws = readRemoteTabWs(tab);
-          if (!isValidId(ws)) {
-            continue;
-          }
-          const key = duplicateKey(spec, ws);
-          if (!key) {
-            continue;
-          }
-          if (!groups.has(key)) {
-            groups.set(key, { key, spec, ws, tabs: [] });
-          }
-          let info = {};
-          try {
-            info.label = String(tab.label || "").slice(0, 60);
-          } catch (e) {
-            info.label = "?";
-          }
-          try {
-            info.hidden = !!tab.hidden;
-          } catch (e) {}
-          try {
-            info.selected =
-              !!tab.selected ||
-              (win.gBrowser && win.gBrowser.selectedTab === tab);
-          } catch (e) {}
-          try {
-            info.pending = !!(tab.hasAttribute && tab.hasAttribute("pending"));
-          } catch (e) {}
-          try {
-            info.selfWin = win === window;
-          } catch (e) {}
-          groups.get(key).tabs.push({ ...info, win, tab });
-        } catch (e) {}
-      }
-    } catch (e) {}
-    const out = [];
-    try {
-      for (const g of groups.values()) {
-        if (g.tabs.length > 1) {
-          // Strip live refs for console readability; keep count.
-          out.push({
-            key: g.key,
-            spec: g.spec,
-            ws: g.ws,
-            count: g.tabs.length,
-            tabs: g.tabs.map((t) => {
-              const c = { ...t };
-              delete c.win;
-              delete c.tab;
-              return c;
-            }),
-            _refs: g.tabs,
-          });
-        }
-      }
-    } catch (e) {}
-    return out;
-  }
-
-  // Rank keeper first: selected, then visible, then loaded, then first seen.
-  function rankDupe(t) {
-    try {
-      if (t.selected) {
-        return 0;
-      }
-      if (!t.hidden) {
-        return 1;
-      }
-      if (!t.pending) {
-        return 2;
-      }
-      return 3;
-    } catch (e) {
-      return 3;
-    }
-  }
-
-  function closeDuplicateTabs(opts) {
-    const dryRun = !opts || opts.dryRun !== false;
-    const result = { dryRun, closed: 0, doomed: [], groups: 0 };
-    try {
-      const groups = findDuplicateTabs();
-      result.groups = groups.length;
-      for (const g of groups) {
-        try {
-          const ranked = (g._refs || []).slice().sort((a, b) => rankDupe(a) - rankDupe(b));
-          // Keeper (ranked first) always survives. Only hidden + unselected
-          // copies are eligible: a visible copy is some window's live strip
-          // (hands off — findDuplicateTabs still reports the group for
-          // manual handling).
-          for (const loser of ranked.slice(1)) {
-            try {
-              const eligible = !!loser.hidden && !loser.selected;
-              if (!eligible) {
-                continue;
-              }
-              const entry = {
-                label: loser.label || "?",
-                spec: g.spec,
-                ws: g.ws,
-                selfWin: !!loser.selfWin,
-              };
-              result.doomed.push(entry);
-              if (!dryRun) {
-                try {
-                  if (loser.win && !loser.win.closed && loser.win.gBrowser) {
-                    loser.win.gBrowser.removeTab(loser.tab);
-                    result.closed++;
-                  }
-                } catch (e) {}
-              }
-            } catch (e) {}
-          }
-        } catch (e) {}
-      }
-    } catch (e) {}
-    try {
-      if (!dryRun && typeof renderDock === "function") {
-        renderDock();
-      }
-    } catch (e) {}
-    return result;
-  }
-
-  function broadcastWsSwitch(wsId) {
-    try {
-      if (typeof Services === "undefined" || !Services.obs) {
-        return;
-      }
-      if (typeof Services.obs.notifyObservers !== "function") {
-        return;
-      }
-      Services.obs.notifyObservers(
-        null,
-        WS_SWITCH_TOPIC,
-        JSON.stringify({ winId: aphWinId(), ws: wsId })
-      );
-    } catch (e) {}
-  }
-
-  function handleWsSwitchPayload(data) {
-    try {
-      const msg = JSON.parse(String(data || ""));
-      if (msg && msg.winId && msg.winId === aphWinId()) {
-        return;
-      }
-    } catch (e) {}
-    try {
-      updateIndicator();
-    } catch (e) {
-      try {
-        renderDock();
-      } catch (_e) {}
-    }
-  }
-
-  let wsSwitchObserver = null;
-
-  // Quit guard: during application shutdown every window unloads, so there
-  // is no survivor — merging would shuffle tabs among dying windows and
-  // the shutdown snapshot would restore the scrambled arrangement next
-  // launch. quit-application-granted fires before any unload (cancel
-  // precedes it), so the flag is settled by merge time.
-  let aphQuitGranted = false;
-  let quitFlagObserver = null;
-
-  function initQuitFlag() {
-    try {
-      if (quitFlagObserver) {
-        return;
-      }
-      if (typeof Services === "undefined" || !Services.obs) {
-        return;
-      }
-      if (typeof Services.obs.addObserver !== "function") {
-        return;
-      }
-      quitFlagObserver = {
-        observe(_subject, topic) {
-          try {
-            if (topic === "quit-application-granted" || topic === "quit-application") {
-              aphQuitGranted = true;
-            }
-          } catch (e) {}
-        },
-      };
-      try {
-        Services.obs.addObserver(quitFlagObserver, "quit-application-granted", false);
-      } catch (e) {}
-      try {
-        Services.obs.addObserver(quitFlagObserver, "quit-application", false);
-      } catch (e) {}
-    } catch (e) {
-      quitFlagObserver = null;
-    }
-  }
-
-  function cleanupQuitFlag() {
-    try {
-      if (quitFlagObserver && Services && Services.obs) {
-        try {
-          Services.obs.removeObserver(quitFlagObserver, "quit-application-granted");
-        } catch (e) {}
-        try {
-          Services.obs.removeObserver(quitFlagObserver, "quit-application");
-        } catch (e) {}
-      }
-    } catch (e) {}
-    quitFlagObserver = null;
-  }
-
-  function initWsSwitchObserver() {
-    try {
-      if (wsSwitchObserver) {
-        return;
-      }
-      if (typeof Services === "undefined" || !Services.obs) {
-        return;
-      }
-      if (typeof Services.obs.addObserver !== "function") {
-        return;
-      }
-      wsSwitchObserver = {
-        observe(_subject, _topic, data) {
-          try {
-            handleWsSwitchPayload(data);
-          } catch (e) {}
-        },
-      };
-      Services.obs.addObserver(wsSwitchObserver, WS_SWITCH_TOPIC, false);
-    } catch (e) {
-      wsSwitchObserver = null;
-    }
-  }
-
-  function cleanupWsSwitchObserver() {
-    try {
-      if (wsSwitchObserver && Services && Services.obs) {
-        Services.obs.removeObserver(wsSwitchObserver, WS_SWITCH_TOPIC);
-      }
-    } catch (e) {}
-    wsSwitchObserver = null;
-  }
-
-  // Merge-back: a closing window must never destroy a workspace. Adopt all
-  // unpinned tabs into the first surviving window; pins die with the window
-  // (stock semantics — avoids duplicate pin strips in the survivor).
-  // Survivor hides non-matching tabs best-effort; its next switchTo heals
-  // the rest. Never crosses the private boundary; never runs at shutdown
-  // (quit shuffle would corrupt the session snapshot).
-  function mergeTabsIntoSurvivor() {
-    try {
-      // Shutdown: no survivor lives on; moving tabs now only scrambles
-      // the session snapshot. SessionStore records each dying window
-      // as-is, which is exactly what restore needs.
-      try {
-        if (aphQuitGranted) {
-          return { merged: 0, reason: "shutdown" };
-        }
-      } catch (e) {}
-      const selfPrivate = aphIsPrivateWindow(window);
-      let survivor = null;
-      for (const w of listAphWindows()) {
-        try {
-          if (!w || w === window || w.closed || !w.gBrowser) {
-            continue;
-          }
-          if (!!aphIsPrivateWindow(w) !== !!selfPrivate) {
-            continue;
-          }
-          survivor = w;
-          break;
-        } catch (e) {}
-      }
-      if (!survivor) {
-        return { merged: 0, reason: "no-survivor" };
-      }
-      let doomed = [];
-      try {
-        doomed = Array.from(gBrowser.tabs || []).filter(
-          (t) => t && !t.closing && !t.pinned
-        );
-      } catch (e) {
-        return { merged: 0, reason: "no-tabs" };
-      }
-      if (!doomed.length) {
-        return { merged: 0 };
-      }
-      let survivorWs = null;
-      try {
-        survivorWs = getWindowWs(survivor);
-      } catch (e) {}
-      let merged = 0;
-      for (const t of doomed.slice()) {
-        try {
-          if (!t || t.closing || t.pinned) {
-            continue;
-          }
-          // Snapshot first: adoption closes the source element.
-          let tag = null;
-          try {
-            tag = readRemoteTabWs(t);
-          } catch (e) {}
-          const nt = adoptOneTab(t, survivor.gBrowser);
-          if (!nt) {
-            continue;
-          }
-          merged++;
-          // Re-assert the tag: the survivor's adopted-tab handler stamps
-          // arrivals to ITS current workspace — that would scramble every
-          // foreign workspace into one.
-          try {
-            if (isValidId(tag)) {
-              setWs(nt, tag);
-            }
-          } catch (e) {}
-          try {
-            if (survivorWs && tag !== survivorWs) {
-              nt.setAttribute("hidden", "true");
-            }
-          } catch (e) {}
-        } catch (e) {}
-      }
-      try {
-        if (survivor.gBrowser && survivor.gBrowser.tabContainer &&
-            typeof survivor.gBrowser.tabContainer._invalidateCachedVisibleTabs === "function") {
-          survivor.gBrowser.tabContainer._invalidateCachedVisibleTabs();
-        }
-      } catch (e) {}
-      try {
-        if (survivor.AphWorkspaces && typeof survivor.AphWorkspaces.renderDock === "function") {
-          survivor.AphWorkspaces.renderDock();
-        }
-      } catch (e) {}
-      return { merged };
-    } catch (e) {
-      return { merged: 0, reason: "error" };
     }
   }
   // Workspace indicator: number, or "N: name" pill once named. Click
@@ -2819,8 +2101,10 @@
         const cur = isValidId(current) ? current : "1";
         const name = getWsName(cur);
         el.textContent = name ? `${cur}: ${name}` : cur;
-        // Bound container: color underline + tooltip. boxShadow (not border)
-        // so the fixed 24px badge never shifts layout.
+        // Bound container: colored dot + tooltip (theme.css §6 renders the
+        // dot from data-aph-bound + --aph-ws-dot). Attribute + var driven
+        // so the fixed-height pill never shifts layout, and the filled
+        // dot reads on light and dark toolbars alike.
         let title = `Workspace ${cur}${name ? `: ${name}` : ""} (Alt+Shift+1..9 · ]/[ cycle · Tab toggles last · click to rename)`;
         let color = "";
         try {
@@ -2849,7 +2133,15 @@
         } catch (e) {}
         el.title = title;
         try {
-          el.style.boxShadow = color ? `inset 0 -2px 0 ${color}` : "";
+          if (color) {
+            // Var first: if the style write throws (minimal stubs), the
+            // attribute never lands and no var-less dot renders.
+            el.style.setProperty("--aph-ws-dot", color);
+            el.setAttribute("data-aph-bound", "1");
+          } else {
+            el.removeAttribute("data-aph-bound");
+            el.style.removeProperty("--aph-ws-dot");
+          }
         } catch (e) {}
       }
       // Dock repaints with the badge: switch/rename/bind/pref-sync covered.
@@ -2901,12 +2193,15 @@
   }
 
   // Switch animation: fade incoming tabs in after the synchronous
-  // hidden-attribute swap. A leave-side fade is impossible here — the whole
-  // switch commits in one task, so a leave frame would never paint — but
-  // the enter fade alone reads as a soft dissolve, and the indicator pulse
-  // above covers the "confirmation". Pins are global (never change) so
-  // they are excluded. Fail-silent throughout (test tabs
-  // have no classList, which just no-ops).
+  // hidden-attribute swap. A leave-side tab fade is impossible here — the
+  // whole switch commits in one task, so a leave frame would never paint
+  // (splitting the commit async would break every sync visibility
+  // assertion for a 100ms cosmetic). Instead the CARD dips (§24
+  // .aph-ws-dip via dipWorkspaceCard below): the synchronous swap reads
+  // as a dissolve rather than a blink, with zero visibility-semantics
+  // change. Pins are global (never change) so they are excluded.
+  // Fail-silent throughout (test tabs have no classList, which just
+  // no-ops; test documents return null for the card, also a no-op).
   function animateIncomingTabs(tabs) {
     let animated = null;
     try {
@@ -2945,10 +2240,55 @@
     } catch (e) {}
   }
 
-  // Local-only switch: show `target` in this window. Cross-window policy
-  // lives in switchTo (55-exclusive.js); callers that already resolved
-  // ownership (startup de-dupe) use this directly. Returns "local"/"noop"
-  // so console callers can confirm what ran (no UI effect).
+  // Card dip dissolve (§24): called after reconcile's synchronous swap.
+  // Adds .aph-ws-dip to #tabbrowser-tabbox (100ms dip to 0.45) and
+  // removes it on a 120ms timer (180ms glide back). Retrigger-safe: a
+  // mid-dip switch clears the pending removal and re-arms, so mashing
+  // workspaces never sticks the card dim. Skipped under
+  // prefers-reduced-motion. Visual only — no visibility semantics, so
+  // sync tests observe nothing (their document stub returns null here).
+  let wsDipTimer = null;
+  function dipWorkspaceCard() {
+    try {
+      if (
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
+        return;
+      }
+    } catch (e) {}
+    let box = null;
+    try {
+      box = document.getElementById("tabbrowser-tabbox");
+    } catch (e) {}
+    if (!box || !box.classList || typeof box.classList.add !== "function") {
+      return;
+    }
+    try {
+      if (wsDipTimer) {
+        clearTimeout(wsDipTimer);
+        wsDipTimer = null;
+      }
+    } catch (e) {}
+    try {
+      box.classList.add("aph-ws-dip");
+    } catch (e) {
+      return;
+    }
+    try {
+      wsDipTimer = setTimeout(() => {
+        wsDipTimer = null;
+        try {
+          box.classList.remove("aph-ws-dip");
+        } catch (e) {}
+      }, 120);
+    } catch (e) {}
+  }
+
+  // Local-only switch: show `target` in this window. `switchTo` is local
+  // too; this entry exists for callers that already claimed (startup
+  // restore) and for console use. Returns "local"/"noop" so console
+  // callers can confirm what ran (no UI effect).
   function switchLocal(target) {
     if (!isValidId(target) || target === current) {
       return "noop";
@@ -2956,6 +2296,16 @@
     beginWorkspaceSwitch(target);
     finishWorkspaceSwitch(target);
     return "local";
+  }
+
+  // Window-level workspace stamp: mirrors the tabContainer claim onto
+  // documentElement so theme.css can tint per workspace
+  // (:root[data-aph-ws="N"] -> --aph-ws-accent, §20). try/catch like the
+  // tabContainer stamp — paint must never break a switch.
+  function stampWindowWs(target) {
+    try {
+      document.documentElement.setAttribute("data-aph-ws", target);
+    } catch (e) {}
   }
 
   // Commit this window's claim first: current + WIN_KEY + indicator. The
@@ -2975,6 +2325,7 @@
     try {
       gBrowser.tabContainer.setAttribute("data-aph-ws", target);
     } catch (e) {}
+    stampWindowWs(target);
     updateIndicator();
     pulseWorkspaceIndicator();
     try {
@@ -2998,6 +2349,7 @@
     } catch (e) {}
     anchorAllGroups();
     reconcile(target, tabs);
+    dipWorkspaceCard();
     pruneExtraNewTabs(target);
     // Fresh snapshot: reconcile may have opened a tab for an empty
     // workspace, which the stale list above would miss.
@@ -3034,53 +2386,19 @@
     } catch (e) {}
   }
 
-  // Exclusive entry: every keyboard/dock/palette path funnels here.
-  // Owned elsewhere -> focus-jump (V1 has no steal). Dormant -> claim
-  // first (so arrivals stamp correctly), pull its tabs here via adoptTab,
-  // then settle. Private windows bypass the pool and switch locally.
-  // Returns "focused"/"focus-failed"/"switched"/"local"/"noop" for console
+  // Window-scoped entry: every keyboard/dock/palette path funnels here.
+  // Each window switches purely locally — other windows are never
+  // consulted, pulled from, or focused. A workspace with no local tabs
+  // opens a fresh tab via reconcile; same-id workspaces elsewhere are
+  // independent tab sets. Returns "switched"/"local"/"noop" for console
   // diagnosis (callers ignore it).
   function switchTo(target) {
     if (!isValidId(target) || target === current) {
       return "noop";
     }
     try {
-      if (typeof aphIsPrivateWindow === "function" && aphIsPrivateWindow(window)) {
-        switchLocal(target);
-        return "local";
-      }
-    } catch (e) {}
-    let owner = null;
-    try {
-      owner = typeof findWsOwner === "function" ? findWsOwner(target) : null;
-    } catch (e) {
-      owner = null;
-    }
-    if (owner && owner !== window) {
-      let ok = false;
-      try {
-        if (typeof focusWsOwner === "function") {
-          ok = focusWsOwner(owner);
-        } else if (owner && typeof owner.focus === "function") {
-          owner.focus();
-          ok = true;
-        }
-      } catch (e) {
-        ok = false;
-      }
-      try {
-        pulseWorkspaceIndicator();
-      } catch (e) {}
-      return ok ? "focused" : "focus-failed";
-    }
-    try {
       if (typeof beginWorkspaceSwitch === "function") {
         beginWorkspaceSwitch(target);
-      }
-    } catch (e) {}
-    try {
-      if (typeof pullDormantTabs === "function") {
-        pullDormantTabs(target);
       }
     } catch (e) {}
     try {
@@ -3090,12 +2408,156 @@
         switchLocal(target);
       }
     } catch (e) {}
-    try {
-      if (typeof broadcastWsSwitch === "function") {
-        broadcastWsSwitch(target);
-      }
-    } catch (e) {}
     return "switched";
+  }
+
+  // Explicit cross-window move ("Move Tab to Other Window"): adopt each tab
+  // into `destWin` and retag arrivals to the destination's current
+  // workspace (confirmed semantics — arrivals join what the other window
+  // shows). Whole native groups stay joined when the move covers the whole
+  // group; partial moves eject like local sends. Pinned tabs never move
+  // (app anchors don't duplicate). Never crosses the private boundary.
+  // With no explicit set, the live selection moves (palette path).
+  // Returns the moved count.
+  function moveTabsToWindow(destWin, moveSet) {
+    try {
+      if (!destWin || destWin.closed || !destWin.gBrowser) {
+        return 0;
+      }
+      let set = moveSet;
+      try {
+        if ((!set || !set.length) && typeof resolveSendBase === "function") {
+          set = resolveSendBase(null);
+        }
+      } catch (e) {}
+      let selfPrivate = false;
+      try {
+        selfPrivate =
+          typeof aphIsPrivateWindow === "function" && aphIsPrivateWindow(window);
+      } catch (e) {}
+      try {
+        if (
+          typeof aphIsPrivateWindow === "function" &&
+          !!aphIsPrivateWindow(destWin) !== !!selfPrivate
+        ) {
+          try {
+            pulseWorkspaceIndicator();
+          } catch (_e) {}
+          return 0;
+        }
+      } catch (e) {}
+      const moving = [];
+      try {
+        const live = new Set(Array.from(gBrowser.tabs || []));
+        for (const t of set || []) {
+          if (t && !t.closing && !t.pinned && live.has(t)) {
+            moving.push(t);
+          }
+        }
+      } catch (e) {}
+      if (!moving.length) {
+        return 0;
+      }
+      let destWs = null;
+      try {
+        const dw = destWin.AphWorkspaces;
+        if (dw && typeof dw.getCurrent === "function") {
+          const c = dw.getCurrent();
+          if (isValidId(c)) {
+            destWs = c;
+          }
+        }
+      } catch (e) {}
+      if (!destWs) {
+        try {
+          destWs = getWindowWs(destWin);
+        } catch (e) {}
+      }
+      if (!isValidId(destWs)) {
+        return 0;
+      }
+      // Whole-group preservation mirrors the local send rule.
+      const movingSet = new Set(moving);
+      let preserved = null;
+      try {
+        preserved = preservedSendGroups(moving);
+      } catch (e) {
+        preserved = new Set();
+      }
+      for (const tab of moving) {
+        try {
+          if (!tab.group) {
+            continue;
+          }
+          let keep = false;
+          try {
+            keep = preserved && preserved.has(tab.group);
+          } catch (e) {}
+          if (!keep) {
+            gBrowser.ungroupTab(tab);
+          }
+        } catch (e) {}
+      }
+      let moved = 0;
+      for (const t of moving) {
+        try {
+          if (!t || t.closing || t.pinned) {
+            continue;
+          }
+          let nt = null;
+          try {
+            if (typeof destWin.gBrowser.adoptTab === "function") {
+              let idx = 0;
+              try {
+                idx = (destWin.gBrowser.tabs && destWin.gBrowser.tabs.length) || 0;
+              } catch (e) {}
+              try {
+                nt = destWin.gBrowser.adoptTab(t, { tabIndex: idx }) || null;
+              } catch (e) {
+                try {
+                  nt = destWin.gBrowser.adoptTab(t) || null;
+                } catch (_e) {}
+              }
+            }
+          } catch (e) {}
+          if (!nt) {
+            continue;
+          }
+          moved++;
+          try {
+            if (typeof scrubAdoptionGhost === "function") {
+              scrubAdoptionGhost(window, t);
+            }
+          } catch (e) {}
+          try {
+            setWs(nt, destWs);
+          } catch (e) {}
+        } catch (e) {}
+      }
+      try {
+        if (moved > 0 && typeof aphTabsLog === "function") {
+          aphTabsLog(`move-to-window ws=${destWs} moved=${moved}`);
+        }
+      } catch (_e) {}
+      try {
+        const dw = destWin.AphWorkspaces;
+        if (dw && typeof dw.renderDock === "function") {
+          dw.renderDock();
+        }
+      } catch (e) {}
+      try {
+        reconcile(current, Array.from(gBrowser.tabs));
+        pruneExtraNewTabs(current);
+      } catch (e) {}
+      try {
+        if (typeof renderDock === "function") {
+          renderDock();
+        }
+      } catch (e) {}
+      return moved;
+    } catch (e) {
+      return 0;
+    }
   }
 
   // Cycling: "active" = has a live unpinned tab (pins are global with a
@@ -3238,110 +2700,12 @@
     return preserved;
   }
 
-  // Forward a send into the window that owns `target` (adopt + tag there).
-  // The owner's adopted-tab handler settles selection/headers/dock; this
-  // side heals selection in case a selected tab rode along. Pinned tabs
-  // never forward (app anchors don't duplicate); groups flatten on
-  // forward (v1 — same rule as partial moves ejecting).
-  function forwardWorkspaceSend(owner, target, moveSet) {
-    try {
-      const moving = [];
-      try {
-        for (const t of moveSet || []) {
-          if (t && !t.closing && !t.pinned) {
-            moving.push(t);
-          }
-        }
-      } catch (e) {}
-      if (!moving.length || !owner || owner.closed || !owner.gBrowser) {
-        return false;
-      }
-      let forwarded = 0;
-      for (const t of moving) {
-        try {
-          if (!t || t.closing || t.pinned) {
-            continue;
-          }
-          let nt = null;
-          try {
-            if (typeof owner.gBrowser.adoptTab === "function") {
-              let idx = 0;
-              try {
-                idx = (owner.gBrowser.tabs && owner.gBrowser.tabs.length) || 0;
-              } catch (e) {}
-              try {
-                nt = owner.gBrowser.adoptTab(t, { tabIndex: idx }) || null;
-              } catch (e) {
-                try {
-                  nt = owner.gBrowser.adoptTab(t) || null;
-                } catch (_e) {}
-              }
-            }
-          } catch (e) {}
-          if (!nt) {
-            continue;
-          }
-          forwarded++;
-          // Scrub the adoption ghost: source is this window, and undo must
-          // not resurrect the forwarded tab as a duplicate.
-          try {
-            if (typeof scrubAdoptionGhost === "function") {
-              scrubAdoptionGhost(window, t);
-            }
-          } catch (e) {}
-          try {
-            setWs(nt, target);
-          } catch (e) {}
-        } catch (e) {}
-      }
-      try {
-        if (
-          owner.AphWorkspaces &&
-          typeof owner.AphWorkspaces.renderDock === "function"
-        ) {
-          owner.AphWorkspaces.renderDock();
-        }
-      } catch (e) {}
-      try {
-        reconcile(current, Array.from(gBrowser.tabs));
-        pruneExtraNewTabs(current);
-      } catch (e) {}
-      try {
-        if (typeof renderDock === "function") {
-          renderDock();
-        }
-      } catch (e) {}
-      return forwarded > 0;
-    } catch (e) {
-      return false;
-    }
-  }
-
   function executeWorkspaceSend(target, moveSet) {
     if (!isValidId(target) || !moveSet || !moveSet.length) {
       return false;
     }
-    // Remote-owned target: forwarding into the owner beats stranding tabs
-    // hidden here and absent there (invisible in both windows). A
-    // private-owned target refuses instead — never cross that boundary.
-    try {
-      const selfPrivate =
-        typeof aphIsPrivateWindow === "function" && aphIsPrivateWindow(window);
-      if (!selfPrivate && typeof findWsOwner === "function") {
-        const owner = findWsOwner(target);
-        if (owner && owner !== window) {
-          return forwardWorkspaceSend(owner, target, moveSet);
-        }
-        try {
-          if (typeof findWsOwner === "function" && findWsOwner(target, true)) {
-            try {
-              pulseWorkspaceIndicator();
-            } catch (e) {}
-            return false;
-          }
-        } catch (e) {}
-      }
-    } catch (e) {}
+    // Window-scoped: every send retags locally. Other windows showing the
+    // same id are independent tab sets and are never touched.
     const moving = new Set();
     try {
       for (const t of moveSet) {
@@ -3381,6 +2745,11 @@
         setWs(tab, target);
       } catch (e) {}
     }
+    try {
+      if (typeof aphTabsLog === "function") {
+        aphTabsLog(`send ws=${target} moved=${list.length}`);
+      }
+    } catch (_e) {}
     anchorAllGroups();
     try {
       reconcile(current, Array.from(gBrowser.tabs));
@@ -3755,6 +3124,76 @@
               }
             } catch (err) {}
           });
+        }
+      } catch (err) {}
+      // Window variant: explicit cross-window move (window-scoped model —
+      // the only path that touches another window). Arrivals join the
+      // destination's current workspace.
+      try {
+        if (
+          typeof listWindows === "function" &&
+          typeof moveTabsToWindow === "function"
+        ) {
+          const others = listWindows();
+          if (others && others.length) {
+            const sub = makeMoveMenuNode(
+              "menu",
+              "aph-move-window",
+              n > 1 ? `Move ${n} Tabs to Other Window` : "Move Tab to Other Window",
+              false
+            );
+            if (sub) {
+              const popup =
+                typeof document.createXULElement === "function"
+                  ? document.createXULElement("menupopup")
+                  : document.createElement("menupopup");
+              if (popup && typeof popup.appendChild === "function") {
+                for (const o of others) {
+                  try {
+                    let wsLabel = "";
+                    try {
+                      wsLabel = o && isValidId(o.ws) ? o.ws : "?";
+                      const nm =
+                        typeof getWsName === "function" && isValidId(o.ws)
+                          ? getWsName(o.ws)
+                          : "";
+                      if (nm) {
+                        wsLabel += ` (${nm})`;
+                      }
+                    } catch (err) {}
+                    const item = makeMoveMenuNode(
+                      "menuitem",
+                      "aph-move-window-ws",
+                      `Workspace ${wsLabel}`,
+                      false
+                    );
+                    if (!item) {
+                      continue;
+                    }
+                    if (typeof item.addEventListener === "function") {
+                      const dest = o.win;
+                      const moving = targets.slice();
+                      item.addEventListener("command", () => {
+                        try {
+                          moveTabsToWindow(dest, moving);
+                        } catch (err) {}
+                      });
+                    }
+                    try {
+                      popup.appendChild(item);
+                    } catch (err) {}
+                  } catch (err) {}
+                }
+                try {
+                  sub.appendChild(popup);
+                } catch (err) {}
+                try {
+                  menu.appendChild(sub);
+                  moveMenuItems.push(sub);
+                } catch (err) {}
+              }
+            }
+          }
         }
       } catch (err) {}
     } catch (err) {}
@@ -4144,6 +3583,11 @@
       let closed = 0;
       for (const t of doomed) {
         try {
+          if (typeof aphTabsLog === "function") {
+            aphTabsLog(`close-workspace ${id} closing ${aphTabDesc(t)}`);
+          }
+        } catch (e) {}
+        try {
           gBrowser.removeTab(t);
           closed++;
         } catch (e) {}
@@ -4157,7 +3601,7 @@
     }
   }
 
-  function makeDockPill(id, isCurrent, count, isEmpty, isRemote) {
+  function makeDockPill(id, isCurrent, count, isEmpty) {
     let pill = null;
     try {
       pill = document.createElement("div");
@@ -4167,11 +3611,6 @@
       if (isCurrent) {
         pill.setAttribute("data-current", "1");
       }
-      if (isRemote && !isCurrent) {
-        try {
-          pill.setAttribute("data-remote", "1");
-        } catch (e) {}
-      }
       if (isEmpty) {
         try {
           pill.setAttribute("data-empty", "1");
@@ -4179,16 +3618,8 @@
       }
       const glyph = dockGlyph(id);
       pill.textContent = glyph;
-      // Remote pills show a dot, never a local count (counts are per-window
-      // adoption state — a number here would mislead).
-      if (isRemote && !isCurrent) {
-        try {
-          const dot = document.createElement("span");
-          dot.className = "aph-ws-count";
-          dot.textContent = "•";
-          pill.appendChild(dot);
-        } catch (e) {}
-      } else if (count > 0) {
+      // Counts are per-window tab tags — this window's own set.
+      if (count > 0) {
         try {
           const badge = document.createElement("span");
           badge.className = "aph-ws-count";
@@ -4222,9 +3653,7 @@
       } catch (e) {}
       // During a tab drag the tooltip previews the move (group aware).
       try {
-        if (isRemote && !isCurrent && !dockDragActive) {
-          pill.title = `${title} — open on another window (click to focus)`;
-        } else if (dockDragActive) {
+        if (dockDragActive) {
           if (id === current) {
             pill.title = `${title} — current workspace (drop does nothing)`;
           } else {
@@ -4251,26 +3680,8 @@
               pulseWorkspaceIndicator();
               return;
             }
-            // Remote pill: focus-jump to the owning window (V1 has no
-            // steal — switchTo would do the same, but resolve the owner
-            // here so a stale render never mistriggers a pull).
-            if (isRemote) {
-              try {
-                const owner =
-                  typeof findWsOwner === "function" ? findWsOwner(id) : null;
-                if (owner && owner !== window) {
-                  if (typeof focusWsOwner === "function") {
-                    focusWsOwner(owner);
-                  } else if (typeof owner.focus === "function") {
-                    owner.focus();
-                  }
-                  try {
-                    pulseWorkspaceIndicator();
-                  } catch (_e) {}
-                  return;
-                }
-              } catch (_e) {}
-            }
+            // Window-scoped: every pill switches locally. Same-id
+            // workspaces in other windows are independent tab sets.
             switchTo(id);
           } catch (e) {}
         });
@@ -4308,17 +3719,8 @@
         const armDrop = (e) => {
           try {
             // Current workspace is never a drop target (send would no-op).
+            // Window-scoped: every other pill is local, always a target.
             if (id === current) {
-              return false;
-            }
-            // Remote workspaces live elsewhere: drops would retag locally
-            // into a hidden state the owner can't see. Not a target in V1.
-            try {
-              if (typeof getRemoteOwners === "function" && getRemoteOwners()[id]) {
-                return false;
-              }
-            } catch (err) {}
-            if (isRemote) {
               return false;
             }
             if (!isDockDropArmed(e)) {
@@ -4365,18 +3767,6 @@
               } catch (err) {}
               return;
             }
-            // Remote workspaces live elsewhere (see armDrop): never accept
-            // drops in V1, even if the render went stale mid-drag.
-            try {
-              if (isRemote) {
-                pulseWorkspaceIndicator();
-                return;
-              }
-              if (typeof getRemoteOwners === "function" && getRemoteOwners()[id]) {
-                pulseWorkspaceIndicator();
-                return;
-              }
-            } catch (err) {}
             const wasGroup = !!dockDragGroup;
             let dragTabs = [];
             try {
@@ -4957,9 +4347,9 @@
         }
       } catch (e) {}
       // Drag-mode expands to all 9 workspaces so empty ones accept drops.
-      // Normal mode shows active workspaces only (plus current) UNION
-      // remote-owned workspaces (zero local tabs, but the user must see
-      // where their tabs live to focus-jump back).
+      // Normal mode shows active workspaces only (plus current).
+      // Window-scoped: no remote pills — other windows' workspaces are
+      // independent tab sets, never shown here.
       let ids = [];
       try {
         ids = getActiveIds();
@@ -4968,30 +4358,6 @@
       }
       const cur = isValidId(current) ? current : "1";
       const counts = dockCounts();
-      let remote = null;
-      try {
-        remote = typeof getRemoteOwners === "function" ? getRemoteOwners() : null;
-      } catch (e) {
-        remote = null;
-      }
-      const isRemoteId = (id) => {
-        try {
-          return !!(remote && remote[id] && id !== cur);
-        } catch (e) {
-          return false;
-        }
-      };
-      if (!dockDragActive && remote) {
-        try {
-          const union = new Set(ids);
-          for (const k of Object.keys(remote)) {
-            if (isValidId(k)) {
-              union.add(k);
-            }
-          }
-          ids = [...union].sort();
-        } catch (e) {}
-      }
       if (dockDragActive) {
         try {
           dock.setAttribute("data-aph-dragging", "1");
@@ -5003,8 +4369,7 @@
               id,
               id === cur,
               counts[id] || 0,
-              !ids.includes(id),
-              isRemoteId(id)
+              !ids.includes(id)
             );
             if (pill) {
               dock.appendChild(pill);
@@ -5017,7 +4382,7 @@
         } catch (e) {}
         for (const id of ids) {
           try {
-            const pill = makeDockPill(id, id === cur, counts[id] || 0, false, isRemoteId(id));
+            const pill = makeDockPill(id, id === cur, counts[id] || 0, false);
             if (pill) {
               dock.appendChild(pill);
             }
@@ -5157,17 +4522,8 @@
       if (!id) {
         return;
       }
-      // Remote workspaces live elsewhere: local unload/close would act on
-      // zero local tabs and mislead. Rename/bind stay (global prefs).
-      let isRemoteWs = false;
-      try {
-        isRemoteWs =
-          id !== current &&
-          typeof getRemoteOwners === "function" &&
-          !!getRemoteOwners()[id];
-      } catch (err) {
-        isRemoteWs = false;
-      }
+      // Window-scoped: every pill is local. Rename/bind stay (global
+      // prefs); unload/close act on this window's tabs only.
       let name = "";
       try {
         name = getWsName(id) || "";
@@ -5245,14 +4601,14 @@
       }
       const unload = makeDockMenuItem(
         "aph-dock-unload",
-        isRemoteWs ? "Unload Inactive Tabs (open on another window)" : "Unload Inactive Tabs",
+        "Unload Inactive Tabs",
         () => {
           try {
             unloadEligibleTabs({ scope: "workspace", ws: id });
             renderDock();
           } catch (err) {}
         },
-        id === current || isRemoteWs
+        id === current
       );
       if (unload) {
         try {
@@ -5268,15 +4624,13 @@
       } catch (err) {}
       const close = makeDockMenuItem(
         "aph-dock-close",
-        isRemoteWs
-          ? "Close Workspace (open on another window)"
-          : count > 0 ? `Close Workspace (${count} tab${count === 1 ? "" : "s"})` : "Close Workspace",
+        count > 0 ? `Close Workspace (${count} tab${count === 1 ? "" : "s"})` : "Close Workspace",
         () => {
           try {
             closeWorkspaceTabs(id);
           } catch (err) {}
         },
-        count === 0 || isRemoteWs
+        count === 0
       );
       if (close) {
         try {
@@ -7336,6 +6690,11 @@
             }
           }
           try {
+            if (typeof aphTabsLog === "function") {
+              aphTabsLog(`route-reopen ws=${target} closing ${aphTabDesc(tab)}`);
+            }
+          } catch (e) {}
+          try {
             gBrowser.removeTab(tab, { animate: false });
           } catch (e) {
             try {
@@ -7825,10 +7184,11 @@
     }
   }
 
-  // New windows (Ctrl+N) land on the lowest workspace no live window owns
-  // instead of inheriting the source window's workspace (which would
-  // collide under mutual exclusion). Stored value wins (session restore);
-  // opener inherits only when it would not collide; else lowest-unowned.
+  // New windows (Ctrl+N) land on the lowest workspace no other live
+  // window claims, instead of inheriting the source window's workspace, so
+  // two fresh windows don't open on top of each other. Stored value wins
+  // (session restore); otherwise the opener's workspace is inherited
+  // (window-scoped: sharing an id is harmless — independent tab sets).
   function initialWorkspace() {
     try {
       const w = SessionStore.getCustomWindowValue(window, WIN_KEY);
@@ -7841,16 +7201,7 @@
       if (op && op !== window && !op.closed) {
         const ow = SessionStore.getCustomWindowValue(op, WIN_KEY);
         if (isValidId(ow)) {
-          let collides = true;
-          try {
-            collides =
-              typeof findWsOwner === "function" ? !!findWsOwner(ow) : true;
-          } catch (_e) {
-            collides = true;
-          }
-          if (!collides) {
-            return ow;
-          }
+          return ow;
         }
       }
     } catch (e) {}
@@ -7922,21 +7273,9 @@
       } catch (e) {}
       return;
     }
-    // Session-restore de-dupe: two windows can resurrect onto the same
-    // workspace. The second one falls back to the lowest unowned workspace
-    // instead of co-displaying. switchLocal (not switchTo): focusing
-    // another window mid-restore would be wrong.
-    try {
-      if (typeof findWsOwner === "function" && findWsOwner(target)) {
-        const free =
-          typeof lowestUnownedWorkspace === "function"
-            ? lowestUnownedWorkspace()
-            : null;
-        if (isValidId(free)) {
-          target = free;
-        }
-      }
-    } catch (e) {}
+    // Window-scoped landing: each window restores its own saved workspace
+    // and reconciles its own strip (switchLocal — purely local). Same-id
+    // workspaces elsewhere are independent tab sets; no de-dupe needed.
     // Prefer the restored selected tab when it already lives in target,
     // so we focus the exact tab left open instead of the first in order.
     try {
@@ -8106,25 +7445,10 @@
   // window stays reachable (observer -> closure -> document/gBrowser) and
   // leaks until process exit.
   function cleanupWindowObservers() {
-    // Merge-back first, while tabs are still adoptable: a closing window
-    // must never destroy a workspace. Unpinned tabs move to the survivor
-    // (pins die with the window, stock semantics); last-window closes and
-    // private-boundary crossings are no-ops.
+    // Window-scoped: closing needs no tab shuffling. SessionStore records
+    // this window as-is for native undo (Recently Closed Windows); other
+    // windows are never touched.
     try {
-      if (typeof mergeTabsIntoSurvivor === "function") {
-        mergeTabsIntoSurvivor();
-      }
-    } catch (e) {}
-    try {
-      if (typeof cleanupWsSwitchObserver === "function") {
-        cleanupWsSwitchObserver();
-      }
-    } catch (e) {}
-    try {
-      if (typeof cleanupQuitFlag === "function") {
-        cleanupQuitFlag();
-      }
-    } catch (e) {}    try {
       if (bindingObserver) {
         Services.prefs.removeObserver(WS_CONTAINER_PREF, bindingObserver);
       }
@@ -8271,30 +7595,14 @@
       window.AphWorkspaces = {
         switchTo,
         switchLocal: typeof switchLocal === "function" ? switchLocal : switchTo,
-        getRemoteWorkspaces:
-          typeof getRemoteOwners === "function" ? getRemoteOwners : () => ({}),
-        isWsOwnedElsewhere:
-          typeof isWsOwnedElsewhere === "function" ? isWsOwnedElsewhere : () => false,
-        pullDormantTabs:
-          typeof pullDormantTabs === "function" ? pullDormantTabs : () => 0,
-        mergeTabsIntoSurvivor:
-          typeof mergeTabsIntoSurvivor === "function"
-            ? mergeTabsIntoSurvivor
-            : () => ({ merged: 0 }),
-        lowestUnownedWorkspace:
-          typeof lowestUnownedWorkspace === "function"
-            ? lowestUnownedWorkspace
-            : () => null,
+        listWindows:
+          typeof listWindows === "function" ? listWindows : () => [],
+        moveTabsToWindow:
+          typeof moveTabsToWindow === "function" ? moveTabsToWindow : () => 0,
         debugExclusive:
           typeof debugExclusive === "function" ? debugExclusive : () => ({}),
         debugSession:
           typeof debugSession === "function" ? debugSession : () => ([]),
-        findDuplicateTabs:
-          typeof findDuplicateTabs === "function" ? findDuplicateTabs : () => ([]),
-        closeDuplicateTabs:
-          typeof closeDuplicateTabs === "function"
-            ? closeDuplicateTabs
-            : () => ({ dryRun: true, closed: 0, doomed: [], groups: 0 }),
         scrubAdoptionGhost:
           typeof scrubAdoptionGhost === "function" ? scrubAdoptionGhost : () => {},
         sendTabTo,
@@ -8348,6 +7656,13 @@
       try {
         gBrowser.tabContainer.setAttribute("data-aph-ws", current);
       } catch (e) {}
+      // Birth stamp: same window-level claim as beginWorkspaceSwitch so
+      // the per-workspace tint (§20) is correct before the first switch.
+      try {
+        if (typeof stampWindowWs === "function") {
+          stampWindowWs(current);
+        }
+      } catch (e) {}
     }
     updateIndicator();
     try {
@@ -8378,11 +7693,7 @@
       syncAllTabChrome();
     } catch (e) {}
     // Session restore may not preserve hidden state; force a full pass.
-    // Claim-only (switchLocal, never switchTo): a fresh window must not
-    // rip dormant tabs out of other windows uninvited — adoption flattens
-    // groups in flight, and an unasked pull is pure destruction.
-    // Dormant workspaces wait to be summoned explicitly. Broadcast the
-    // claim so other windows' docks show the new remote pill.
+    // Purely local (switchLocal): each window reconciles its own strip.
     try {
       const saved = isValidId(current) ? current : "1";
       current = saved === "1" ? "__force__" : "1";
@@ -8390,9 +7701,6 @@
         switchLocal(saved);
       } else {
         switchTo(saved);
-      }
-      if (typeof broadcastWsSwitch === "function") {
-        broadcastWsSwitch(saved);
       }
     } catch (e) {}
     gBrowser.tabContainer.addEventListener("TabOpen", onTabOpen);
@@ -8475,16 +7783,6 @@
     }
     try {
       initRouteListener();
-    } catch (e) {}
-    try {
-      if (typeof initWsSwitchObserver === "function") {
-        initWsSwitchObserver();
-      }
-    } catch (e) {}
-    try {
-      if (typeof initQuitFlag === "function") {
-        initQuitFlag();
-      }
     } catch (e) {}
     scheduleStartupRestore();
     // Global-service registrations above outlive this window unless removed.

@@ -18,6 +18,7 @@ from .injectors.base import Injector, PatchCounts
 from .injectors.brand import BrandStringsInjector
 from .injectors.features import (
     ArchiveInjector,
+    FontInjector,
     PaletteInjector,
     TabrenameInjector,
     TextpickInjector,
@@ -46,6 +47,7 @@ LEAGCY_LOG_FIELDS = (
     "archive-shared.js",
     "archive page files (html/css/page)",
     "tabrename.js",
+    "chrome fonts (inter woff2)",
 )
 
 
@@ -72,6 +74,7 @@ class BrandPatcher:
                 payloads.archive_page_files,
             ),
             TabrenameInjector(payloads.tabrename_js),
+            FontInjector(payloads.font_files),
         ]
         self._replace_injectors: list[Injector] = [brand, logos, ToolbarDefaultsInjector()]
         self._feature_injectors: list[Injector] = features
@@ -194,5 +197,6 @@ class BrandPatcher:
             f"{counts.textpick} textpick files (controller/shared/child/parent), "
             f"{counts.archivejs} archive.js, {counts.archiveshared} archive-shared.js, "
             f"{counts.archivepage} archive page files (html/css/page), "
-            f"{counts.tabrenamejs} tabrename.js"
+            f"{counts.tabrenamejs} tabrename.js, "
+            f"{counts.fonts} chrome fonts (inter woff2)"
         )

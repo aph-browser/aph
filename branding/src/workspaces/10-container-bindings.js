@@ -463,6 +463,11 @@
           // selection, so re-focus or typing lands in the page.
           focusUrlBar();
           try {
+            if (typeof aphTabsLog === "function") {
+              aphTabsLog(`container-repair closing ${aphTabDesc(tab)}`);
+            }
+          } catch (e) {}
+          try {
             gBrowser.removeTab(tab, { animate: false });
           } catch (e) {
             try {
