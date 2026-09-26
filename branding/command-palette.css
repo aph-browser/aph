@@ -24,10 +24,11 @@
 /* Deliberate charcoal surface (Linear/Raycast-style): Cool Midnight
    Charcoal #161722 — 92% pitch black with a whisper of deep navy, never
    pure flat grey (which reads muddy/unstyled). Always-dark overlay like
-   Spotlight, so text is pinned light for guaranteed contrast; theme
-   accents (selection, marks, urlbar border) still shine through. */
+   Spotlight, so text is pinned light for guaranteed contrast; a 7%
+   voice kiss ties the slab to the room without going candy, and the
+   voice (selection, marks, urlbar border) shines through. */
 #aph-palette-overlay {
-  --aph-palette-bg: #161722;
+  --aph-palette-bg: color-mix(in srgb, var(--aph-voice, #7dbeff) 7%, #161722);
   --aph-palette-fg: #e8e8ec;
 }
 #aph-palette {
@@ -82,11 +83,7 @@
   outline: none !important;
 }
 #aph-palette-input::selection {
-  background-color: color-mix(
-    in srgb,
-    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 70%,
-    transparent
-  ) !important;
+  background-color: var(--aph-select, rgba(125, 190, 255, 0.28)) !important;
 }
 #aph-palette-list {
   overflow-y: auto !important;
@@ -119,13 +116,14 @@
   display: none !important;
 }
 .aph-palette-item:hover {
-  background: color-mix(in srgb, var(--toolbarbutton-background-color-hover, rgba(255, 255, 255, 0.12)) 55%, transparent) !important;
+  background: color-mix(in srgb, var(--aph-voice, rgba(255, 255, 255, 0.12)) 55%, transparent) !important;
 }
 .aph-palette-item.selected {
-  /* Theme-driven selection: Sun light -> #FDE8B5 gold tint, Sun dark ->
-     #5F3100 brown. Fallback keeps the neutral wash with no theme. */
+  /* Voice-driven selection: theme voice by default (Sun light ->
+     #FDE8B5 gold tint, Sun dark -> #5F3100 brown), workspace accent
+     once §21 retunes --aph-voice. Fallback keeps the neutral wash. */
   background: var(
-    --toolbarbutton-background-color-hover,
+    --aph-voice,
     rgba(255, 255, 255, 0.12)
   ) !important;
   border-color: color-mix(in srgb, var(--aph-urlbar-accent, rgba(125, 190, 255, 0.5)) 45%, transparent) !important;
@@ -210,11 +208,10 @@
   text-overflow: ellipsis !important;
   background: color-mix(in srgb, currentColor 4%, transparent) !important;
 }
-/* Fuzzy-match highlight: why this row matched the query.
-   Explicit theme highlight first, else the same hover gold as the
-   selected row above (Sun never sets toolbar_field_highlight). */
+/* Fuzzy-match highlight: why this row matched the query. The Aph
+   select token — one selection paint with the inputs and urlbar. */
 .aph-palette-mark {
-  background: var(--lwt-toolbar-field-highlight, var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28))) !important;
+  background: var(--aph-select, rgba(125, 190, 255, 0.28)) !important;
   border-radius: 3px !important;
   padding: 0 1px !important;
   color: inherit !important;

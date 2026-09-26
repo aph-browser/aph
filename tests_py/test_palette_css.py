@@ -28,3 +28,18 @@ def test_palette_input_shares_urlbar_accent() -> None:
     body = body[: body.find("}") + 1]
     assert "border-bottom" in body
     assert "--aph-urlbar-accent" in body
+
+
+def test_palette_slab_belongs_to_room() -> None:
+    """The always-dark slab carries a 7% voice kiss so the overlay
+    belongs to the workspace without going candy; selection speaks the
+    full voice."""
+    css = _css()
+    head = css.find("--aph-palette-bg")
+    assert head != -1
+    overlay = css[max(0, head - 400) : head + 200]
+    assert "--aph-voice" in overlay
+    assert "7%" in overlay
+    sel = css[css.find(".aph-palette-item.selected {") :]
+    sel = sel[: sel.find("}") + 1]
+    assert "--aph-voice" in sel
