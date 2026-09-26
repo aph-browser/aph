@@ -1,14 +1,81 @@
-/* Aph archive page — dark, spacious, distraction-free. */
+/* Aph archive page — one product with the chrome (theme.css), not a
+   guest skin. System: Inter, the Aph radius scale, neutral desk
+   surfaces (#17181f desk / #202028 elevated / #2a2c3a raised), ink +
+   muted text. Workspace color lives ONLY on the filter pills that
+   carry a workspace identity (data-ws, stamped by aph-archive-page.js
+   renderPills) — the page itself is global surface, so search focus
+   and rows stay neutral. Danger red survives solely as the delete
+   signal (functional, never decorative). Separate document from the
+   browser window, so the hue table is duplicated here by design —
+   test_archive_voice_parity pins it to theme.css §21. */
+
+@font-face {
+  font-family: "Inter";
+  src: url("aph-fonts/inter-400-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("aph-fonts/inter-500-latin.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("aph-fonts/inter-600-latin.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("aph-fonts/inter-700-latin.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
+  --arch-font: "Inter", system-ui, "Segoe UI", Roboto, "Noto Sans",
+    Ubuntu, Cantarell, sans-serif;
+  --arch-bg: #17181f;
+  --arch-surface: #202028;
+  --arch-raised: #2a2c3a;
+  --arch-text: #e8e8ec;
+  --arch-muted: #9aa5ce;
+  --arch-faint: #626880;
+  --arch-line: rgba(255, 255, 255, 0.09);
+  --arch-danger: #ff5d73;
+  --arch-warn-bg: #3a2430;
+  --arch-warn-text: #ff9aae;
+  --arch-radius-sm: 4px;
+  --arch-radius-md: 6px;
+  --arch-radius-lg: 8px;
+  --arch-radius-xl: 10px;
+  /* Workspace hues — mirror of theme.css §21 (parity-tested). Spent
+     only on [data-ws] filter pills, never on page chrome. */
+  --arch-ws-1: #d9a521;
+  --arch-ws-2: #8b7cf6;
+  --arch-ws-3: #2fb3a3;
+  --arch-ws-4: #ef6f5c;
+  --arch-ws-5: #4da3e8;
+  --arch-ws-6: #e5488c;
+  --arch-ws-7: #62b15c;
+  --arch-ws-8: #e8933c;
+  --arch-ws-9: #6b8afd;
 }
 
 html, body {
   margin: 0;
   padding: 0;
-  background: #1a1b26;
-  color: #c0caf5;
-  font: 14px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif;
+  background: var(--arch-bg);
+  color: var(--arch-text);
+  font: 14px/1.45 var(--arch-font);
+  letter-spacing: 0.015em;
 }
 
 #aph-archive {
@@ -20,43 +87,44 @@ html, body {
 #aph-archive-head {
   position: sticky;
   top: 0;
-  background: #1a1b26;
+  background: var(--arch-bg);
   padding: 8px 0 16px;
   z-index: 2;
 }
 
 #aph-archive-title {
   font-size: 22px;
-  font-weight: 650;
-  color: #e6e8f5;
+  font-weight: 600;
+  color: var(--arch-text);
   margin-bottom: 12px;
 }
 
 #aph-archive-count {
   font-size: 13px;
   font-weight: 400;
-  color: #565f89;
+  color: var(--arch-faint);
   margin-left: 8px;
 }
 
 #aph-archive-search {
   width: 100%;
   box-sizing: border-box;
-  background: #24283b;
-  color: #c0caf5;
-  border: 1px solid #343a55;
-  border-radius: 8px;
+  background: var(--arch-surface);
+  color: var(--arch-text);
+  border: 1px solid var(--arch-line);
+  border-radius: var(--arch-radius-lg);
   padding: 10px 14px;
   font-size: 15px;
+  font-family: inherit;
   outline: none;
 }
 
 #aph-archive-search:focus {
-  border-color: #ff2d55;
+  border-color: color-mix(in srgb, var(--arch-text) 45%, transparent);
 }
 
 #aph-archive-search::placeholder {
-  color: #565f89;
+  color: var(--arch-faint);
 }
 
 #aph-archive-pills {
@@ -67,24 +135,44 @@ html, body {
 }
 
 .aph-archive-pill {
-  background: #24283b;
-  color: #9aa5ce;
+  background: color-mix(in srgb, var(--arch-text) 10%, transparent);
+  color: var(--arch-muted);
   border: 1px solid transparent;
   border-radius: 999px;
   padding: 4px 14px;
   font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
   cursor: pointer;
 }
 
 .aph-archive-pill:hover {
-  color: #c0caf5;
-  border-color: #343a55;
+  color: var(--arch-text);
+  border-color: var(--arch-line);
 }
 
 .aph-archive-pill.on {
-  color: #fff;
-  background: #343a55;
-  border-color: #ff2d55;
+  color: var(--arch-text);
+  background: var(--arch-raised);
+  border-color: var(--arch-line);
+}
+
+/* Workspace filter pills: each wears its own hue when active (dock
+   parity) — identity-correct with no protocol, since the page stamps
+   data-ws itself at render. Rest pills stay neutral furniture. */
+.aph-archive-pill[data-ws="1"] { --arch-ws-accent: var(--arch-ws-1); }
+.aph-archive-pill[data-ws="2"] { --arch-ws-accent: var(--arch-ws-2); }
+.aph-archive-pill[data-ws="3"] { --arch-ws-accent: var(--arch-ws-3); }
+.aph-archive-pill[data-ws="4"] { --arch-ws-accent: var(--arch-ws-4); }
+.aph-archive-pill[data-ws="5"] { --arch-ws-accent: var(--arch-ws-5); }
+.aph-archive-pill[data-ws="6"] { --arch-ws-accent: var(--arch-ws-6); }
+.aph-archive-pill[data-ws="7"] { --arch-ws-accent: var(--arch-ws-7); }
+.aph-archive-pill[data-ws="8"] { --arch-ws-accent: var(--arch-ws-8); }
+.aph-archive-pill[data-ws="9"] { --arch-ws-accent: var(--arch-ws-9); }
+.aph-archive-pill[data-ws].on {
+  background: color-mix(in srgb, var(--arch-ws-accent) 45%, transparent);
+  border-color: transparent;
+  color: var(--arch-text);
 }
 
 .aph-archive-group {
@@ -93,10 +181,10 @@ html, body {
 
 .aph-archive-group > h2 {
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #565f89;
+  color: var(--arch-faint);
   margin: 0 0 8px 2px;
 }
 
@@ -105,23 +193,23 @@ html, body {
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--arch-radius-xl);
   cursor: pointer;
 }
 
 .aph-archive-row:hover {
-  background: #24283b;
+  background: var(--arch-surface);
 }
 
 .aph-archive-fav {
   flex: 0 0 28px;
   width: 28px;
   height: 28px;
-  border-radius: 7px;
-  background: #343a55;
-  color: #e6e8f5;
+  border-radius: var(--arch-radius-md);
+  background: var(--arch-raised);
+  color: var(--arch-text);
   font-size: 15px;
-  font-weight: 650;
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -139,7 +227,7 @@ html, body {
 }
 
 .aph-archive-title {
-  color: #e6e8f5;
+  color: var(--arch-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -147,7 +235,7 @@ html, body {
 
 .aph-archive-domain {
   font-size: 12px;
-  color: #565f89;
+  color: var(--arch-faint);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -158,27 +246,27 @@ html, body {
   display: flex;
   gap: 6px;
   font-size: 12px;
-  color: #9aa5ce;
+  color: var(--arch-muted);
 }
 
 .aph-archive-tag {
-  background: #24283b;
-  border-radius: 6px;
+  background: var(--arch-surface);
+  border-radius: var(--arch-radius-md);
   padding: 2px 8px;
   white-space: nowrap;
 }
 
 .aph-archive-row:hover .aph-archive-tag {
-  background: #343a55;
+  background: var(--arch-raised);
 }
 
 .aph-archive-del {
   flex: 0 0 auto;
   border: none;
   background: transparent;
-  color: #565f89;
+  color: var(--arch-faint);
   font-size: 15px;
-  border-radius: 6px;
+  border-radius: var(--arch-radius-md);
   padding: 2px 8px;
   cursor: pointer;
   opacity: 0;
@@ -190,23 +278,23 @@ html, body {
 }
 
 .aph-archive-del:hover {
-  color: #ff2d55;
-  background: #343a55;
+  color: var(--arch-danger);
+  background: var(--arch-raised);
 }
 
 #aph-archive-empty {
   margin-top: 48px;
   text-align: center;
-  color: #565f89;
+  color: var(--arch-faint);
   font-size: 15px;
 }
 
 #aph-archive-nobridge {
   margin-top: 12px;
   padding: 10px 14px;
-  border-radius: 8px;
-  background: #3a2430;
-  color: #ff9aae;
+  border-radius: var(--arch-radius-lg);
+  background: var(--arch-warn-bg);
+  color: var(--arch-warn-text);
   font-size: 13px;
 }
 
@@ -215,10 +303,10 @@ html, body {
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%) translateY(8px);
-  background: #24283b;
-  color: #e6e8f5;
-  border: 1px solid #343a55;
-  border-radius: 8px;
+  background: var(--arch-surface);
+  color: var(--arch-text);
+  border: 1px solid var(--arch-line);
+  border-radius: var(--arch-radius-lg);
   padding: 8px 18px;
   font-size: 13px;
   opacity: 0;
@@ -233,8 +321,7 @@ html, body {
 
 /* Motion language (§24 in theme.css, same dialect): hovers ease instead
    of snapping; the delete reveal fades. Paint-only throughout, and the
-   reduced-motion block kills every transition including the toast's
-   (which previously had no guard). */
+   reduced-motion block kills every transition including the toast's. */
 .aph-archive-pill {
   transition: color 0.12s ease-out, border-color 0.12s ease-out,
     background-color 0.12s ease-out;

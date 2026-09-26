@@ -268,6 +268,14 @@
     const mk = (value, label) => {
       const b = document.createElement("button");
       b.className = "aph-archive-pill" + (pill === value ? " on" : "");
+      // Workspace identity for paint: archive.css tints [data-ws] pills
+      // with their own hue when active (dock parity). No bridge needed —
+      // the value IS the workspace id.
+      try {
+        if (/^[1-9]$/.test(value)) {
+          b.setAttribute("data-ws", value);
+        }
+      } catch (e) {}
       b.textContent = label;
       b.addEventListener("click", () => {
         pill = value;
