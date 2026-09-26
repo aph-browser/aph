@@ -46,6 +46,7 @@ function makeEnv(prefs, identityService) {
       return null;
     },
     createElement: (tag) => fakeNode(tag),
+    createElementNS: (ns, tag) => fakeNode(tag),
     createXULElement: (localName) => fakeNode(localName),
     createEvent: () => ({ initEvent() {} }),
   };
@@ -200,6 +201,27 @@ describe("workspace dock", () => {
     assert.equal(byWs["2"].textContent, "💼");
     const count = byWs["1"].children.find((c) => c.className === "aph-ws-count");
     assert.equal(count && count.textContent, "2");
+  });
+
+  it("Aph key renders a geometric mark, not text", () => {
+    const env = makeEnv();
+    const a = addTab(env, { label: "a", ws: "1" });
+    env.select(a);
+    env.api.renderDock();
+    const key = env.dock().children.find((c) => c.className === "aph-dock-aph");
+    assert.ok(key, "Aph key present");
+    assert.equal(key.textContent, "");
+    assert.equal(key.getAttribute("aria-label"), "Aph menu");
+    const svg = key.children.find((c) => c.localName === "svg");
+    assert.ok(svg, "mark present");
+    assert.equal(svg.getAttribute("viewBox"), "0 0 14 14");
+    const rects = svg.children.filter((c) => c.localName === "rect");
+    assert.equal(rects.length, 4);
+    assert.equal(rects[0].getAttribute("fill"), "currentColor");
+    for (const r of rects.slice(1)) {
+      assert.equal(r.getAttribute("fill"), "none");
+      assert.equal(r.getAttribute("stroke"), "currentColor");
+    }
   });
 
   it("clicking a pill switches workspace", () => {

@@ -87,10 +87,15 @@ def test_shipped_css_is_sane() -> None:
     # Hover must use a variable Sun actually defines (button hover gold),
     # not the highlight var Sun leaves unset (renders as plain blue).
     assert "--toolbarbutton-background-color-hover" in css
-    # Accent touches only: surfaces may be redefined via variables, but no
-    # rule may set a bare text `color:` (menus keep stock text).
-    bare_color = re.findall(r"(?m)^\s*color\s*:", css)
-    assert not bare_color, bare_color
+    # Canvas ownership: the surface is Aph's (never lwt-accent), and menu
+    # text is Aph ink — bg and fg change together so contrast can't drift
+    # apart under vivid installed themes. No other bare text `color:`.
+    assert "--lwt-accent-color" not in css
+    assert "--aph-surface" in css
+    bare_color = re.findall(r"(?m)^\s*color\s*:(.*)$", css)
+    assert bare_color, "menu text ink went missing"
+    for decl in bare_color:
+        assert "var(--aph-ink" in decl, decl
 
 
 def test_seed_seeds_content_backdrop_alongside(tmp_path: Path) -> None:

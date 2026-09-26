@@ -4242,6 +4242,47 @@
     } catch (_e) {}
   }
 
+  // Aph mark: 2x2 spaces grid, active cell filled. Geometric and
+  // abstract on purpose — a letterform would read as text at 14px.
+  // currentColor throughout, so the ghost (dim) / hover (full) ink
+  // story needs no paint logic here. Namespaced construction (never
+  // innerHTML) so the XUL/XHTML host gets real SVG either way.
+  function makeDockAphMark() {
+    try {
+      const NS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(NS, "svg");
+      svg.setAttribute("viewBox", "0 0 14 14");
+      svg.setAttribute("width", "14");
+      svg.setAttribute("height", "14");
+      svg.setAttribute("aria-hidden", "true");
+      const cells = [
+        { x: 1, y: 1, active: true },
+        { x: 8, y: 1, active: false },
+        { x: 1, y: 8, active: false },
+        { x: 8, y: 8, active: false },
+      ];
+      for (const c of cells) {
+        const r = document.createElementNS(NS, "rect");
+        r.setAttribute("x", String(c.x));
+        r.setAttribute("y", String(c.y));
+        r.setAttribute("width", "5");
+        r.setAttribute("height", "5");
+        r.setAttribute("rx", "1.5");
+        if (c.active) {
+          r.setAttribute("fill", "currentColor");
+        } else {
+          r.setAttribute("fill", "none");
+          r.setAttribute("stroke", "currentColor");
+          r.setAttribute("stroke-width", "1.4");
+        }
+        svg.appendChild(r);
+      }
+      return svg;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function makeDockAph() {
     let btn = null;
     try {
@@ -4249,7 +4290,13 @@
       btn.className = "aph-dock-aph";
       btn.setAttribute("role", "button");
       btn.setAttribute("tabindex", "0");
-      btn.textContent = "Aph";
+      btn.setAttribute("aria-label", "Aph menu");
+      try {
+        const mark = makeDockAphMark();
+        if (mark) {
+          btn.appendChild(mark);
+        }
+      } catch (e) {}
       btn.title = "Aph — menu · click for Aph actions · right-click for workspace actions";
       try {
         btn.addEventListener("click", (e) => {

@@ -67,20 +67,61 @@
   --aph-radius-md: 6px;
   --aph-radius-lg: 8px;
   --aph-radius-xl: 10px;
-  /* Canvas frame (§19): the "desk" the content card sits on. Follows the
-     active lightweight theme via --toolbar-bgcolor (Sun light -> cream,
-     dark themes -> near-black); fallback is Aph's dark chrome. */
-  --aph-desk-bg: var(--toolbar-bgcolor, #17181f);
+  /* Voice: the single accent every Aph-painted surface reads. Default =
+     the theme interaction voice; :root[data-aph-ws] (§21) retunes it to
+     the workspace accent. Fallback keeps the blue wash with no theme.
+     Rules that must stay theme-bound (functional flashes) keep naming
+     the raw hover token — see the voice allowlist test. */
+  --aph-voice: var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28));
+  /* Canvas: Aph owns the room — fixed base + ink per face, so no
+     installed theme (green, red, anything) can tint Aph surfaces. The
+     theme still paints what Firefox owns natively (stock content,
+     native controls); everything below is ours. Faces follow
+     prefers-color-scheme, which tracks the theme's declared scheme —
+     a dark-green theme gets the dark room, a light one the paper room.
+     Dim pairs are contrast-proven (dark 7.47, light 5.09 — see the
+     canvas gate test); touch the hexes and it will tell you. */
+  --aph-base: #17181f;
+  --aph-surface: #202028;
+  --aph-field: #22232f;
+  --aph-ink: #e8e8ec;
+  --aph-ink-dim: #a3a8ba;
+  /* Selection: voice at 45% — legible by the same math as presence. */
+  --aph-select: color-mix(in srgb, var(--aph-voice) 45%, transparent);
+  /* Canvas frame (§19): the "desk" the content card sits on. Ours —
+     never the theme base. */
+  --aph-desk-bg: var(--aph-base);
   --urlbar-container-min-width: 0px !important;
 }
 
-/* 1. Toolbar Shell: Rigid height, zero layout shift */
+/* Light face: warm paper room. Same contracts — ink 11.43, dim 5.09. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --aph-base: #e8e0c9;
+    --aph-surface: #f5efe0;
+    --aph-field: #faf6ea;
+    --aph-ink: #26262b;
+    --aph-ink-dim: #585c64;
+  }
+}
+
+/* 1. Toolbar Shell: Rigid height, zero layout shift. The toolbox is a
+   vertical sibling of #browser — NOT layered over the desk — so
+   transparent here is a hole straight through to the native window
+   background, which Firefox fills with the theme accent color. Any
+   vivid installed theme repaints the top bar through that hole (this
+   was half the old brown-bar effect). The toolbox therefore paints
+   its own Aph base: same flat color as the desk's base, so bar and
+   desk read as one room. Ink is Aph's too — stock toolbar icons
+   inherit it instead of the theme's, so icon contrast always matches
+   the room Aph painted. */
 #navigator-toolbox {
-  background: transparent !important;
+  background: var(--aph-base, #17181f) !important;
   border: none !important;
   box-shadow: none !important;
   margin: 0 !important;
   padding: 0 !important;
+  color: var(--aph-ink, #e8e8ec) !important;
 }
 
 #nav-bar {
@@ -239,16 +280,18 @@
 #urlbar-container {
   flex: 1 1 auto !important;
   min-width: 0px !important;
+  /* At idle: calm centered field, capped so ultrawide windows don't get
+     a runway bar. Auto margins center it in the free space; delayed
+     like the buttons so the whole bar doesn't snap back early. */
+  max-width: 640px !important;
   height: 30px !important;
-  /* At idle: 8% margin centers a slightly narrower bar with clean
-     breathing room. Delayed like the buttons so the whole bar doesn't
-     snap back early. */
-  margin-inline: 8% !important;
+  margin-inline: auto !important;
   transition: margin-inline var(--aph-pop-in) var(--aph-hide-delay) !important;
 }
 
-/* On hover: Margins tighten so buttons fit with room to spare (instant).
-   Also pinned while a popup is open or urlbar dropdown is open. */
+/* On hover: cap lifts and margins tighten so revealed buttons fit with
+   room to spare (instant). Also pinned while a popup is open or the
+   urlbar dropdown is open. */
 #navigator-toolbox:hover #urlbar-container,
 #nav-bar:hover #urlbar-container,
 #nav-bar:focus-within #urlbar-container,
@@ -258,6 +301,7 @@
 #nav-bar[data-aph-popup-open] #urlbar-container,
 #navigator-toolbox:has(#nav-bar #urlbar[open]) #urlbar-container,
 #nav-bar:has(#urlbar[open]) #urlbar-container {
+  max-width: none !important;
   margin-inline: 12px !important;
   transition: margin-inline var(--aph-pop-in) 0s !important;
 }
@@ -281,20 +325,19 @@
 .urlbar-input-container {
   min-height: 28px !important;
   height: 28px !important;
-  padding: 0 8px !important;
+  /* Roomy start so the container badge never kisses the field edge;
+     logical props keep LTR/RTL mirrored. */
+  padding-block: 0 !important;
+  padding-inline-start: 12px !important;
+  padding-inline-end: 10px !important;
 }
 
 /* Solid, opaque backdrop so dropdown suggestions never float transparent.
-   Theme-driven: follows the active lightweight theme (Sun light -> white,
-   Sun dark -> #272429) via Firefox's own variables, which update live on
-   theme switch. Fallback keeps Aph's elevated dark surface when no theme
-   provides the variable. */
+   Aph field surface (per face) — never the theme field, so a vivid
+   installed theme can't repaint the urlbar. */
 .urlbar-background,
 .urlbarView {
-  background-color: var(
-    --toolbar-field-background-color-focus,
-    var(--aph-bg-elevated, #202028)
-  ) !important;
+  background-color: var(--aph-field, #202028) !important;
 }
 
 /* Clean square hamburger icon */
@@ -311,16 +354,16 @@
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  min-width: 24px !important;
+  min-width: 28px !important;
   max-width: 200px !important;
   overflow: hidden !important;
   white-space: nowrap !important;
   text-overflow: ellipsis !important;
-  /* 28px: the urlbar rhythm (input is 28px). 24px sat 3px off every
-     neighbor; now the pill, urlbar, and 30px buttons read as one row. */
+  /* 28px: the urlbar rhythm (input is 28px). The pill, urlbar, and 30px
+     buttons read as one row. Solid ink — never faded text. */
   height: 28px !important;
   margin-inline: 2px 6px !important;
-  padding: 0 4px !important;
+  padding: 0 10px !important;
   box-sizing: border-box !important;
   font-size: 13px !important;
   font-weight: 600 !important;
@@ -328,8 +371,9 @@
   border-radius: var(--aph-radius-md) !important;
   /* Theme-driven tint: subtle wash of the toolbar text color, so the pill
      reads on cream (Sun light) and dark toolbars alike. */
-  background: color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 10%, transparent) !important;
-  opacity: 0.85 !important;
+  background: color-mix(in srgb, var(--aph-ink, #e8e8ec) 10%, transparent) !important;
+  color: var(--aph-ink, #e8e8ec) !important;
+  opacity: 1 !important;
   user-select: none !important;
   cursor: pointer !important;
   transition: background-color 0.2s ease, color 0.2s ease !important;
@@ -352,12 +396,11 @@
 }
 
 #aph-ws-indicator[data-aph-ws-pulse="1"] {
-  /* Formerly hardcoded crimson — the only off-palette color in chrome.
-     Now the shared hover token so the flash reads as Aph, and the text
-     color follows the toolbar button color (dark-on-gold in Sun light,
-     light-on-brown in Sun dark) instead of assuming a dark backdrop. */
-  background: var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) !important;
-  color: var(--toolbarbutton-color, white) !important;
+  /* Attention flash: voice bg + Aph ink (contrast-proven by the
+     presence gate). The canvas owns both ends, so no installed theme
+     can mute or tint the signal. */
+  background: var(--aph-voice, rgba(125, 190, 255, 0.28)) !important;
+  color: var(--aph-ink, #e8e8ec) !important;
   opacity: 1 !important;
 }
 
@@ -407,11 +450,14 @@ tab[data-aph-bound-match="1"] .tab-context-line,
    exempt: pending+selected is transient (reload fires on select).
    ========================================================================== */
 
+/* Pending = icon signal only: the favicon dims + desaturates while the
+   label keeps its normal (§22) ink, so unloaded tabs remain scannable.
+   Selected is exempt: pending+selected is transient (reload fires on
+   select). */
 tab[pending]:not([selected]) .tab-icon-image,
-tab[pending]:not([selected]) .tab-label,
-.tabbrowser-tab[pending]:not([selected]) .tab-icon-image,
-.tabbrowser-tab[pending]:not([selected]) .tab-label {
-  opacity: 0.6 !important;
+.tabbrowser-tab[pending]:not([selected]) .tab-icon-image {
+  opacity: 0.55 !important;
+  filter: grayscale(0.6) !important;
 }
 
 /* ==========================================================================
@@ -429,13 +475,13 @@ tab[pending]:not([selected]) .tab-label,
   max-width: 60ch !important;
   padding: 8px 14px !important;
   border-radius: var(--aph-radius-lg) !important;
-  /* Theme-driven: panel surface/text, slightly translucent. */
+  /* Aph surface/ink, slightly translucent. */
   background: color-mix(
     in srgb,
-    var(--panel-background-color, #14141a) 92%,
+    var(--aph-surface, #14141a) 92%,
     transparent
   ) !important;
-  color: var(--panel-text-color, #f0f0f4) !important;
+  color: var(--aph-ink, #f0f0f4) !important;
   font-size: 13px !important;
   line-height: 1.4 !important;
   white-space: nowrap !important;
@@ -475,10 +521,10 @@ tab[pending]:not([selected]) .tab-label,
 /* ==========================================================================
    11. Inline tab-rename editor: borderless floating field over the tab's
    label (geometry is set inline by tabrename.js — this rule owns ALL
-   paint). Theme field surface/text so it reads on cream and dark tab
-   strips alike; separation comes from fill + a soft shadow, never a
-   border. box-sizing + zero padding keep the outer box exactly on the
-   label rect so it never sticks out of the tab.
+   paint). Aph field surface/ink so it reads in both faces; separation
+   comes from fill + a soft shadow, never a border. box-sizing + zero
+   padding keep the outer box exactly on the label rect so it never
+   sticks out of the tab.
    ========================================================================== */
 
 #aph-tab-rename-input {
@@ -488,31 +534,30 @@ tab[pending]:not([selected]) .tab-label,
   border: none !important;
   outline: none !important;
   border-radius: var(--aph-radius-sm) !important;
-  background: var(--toolbar-field-background-color, #24283b) !important;
-  color: var(--toolbar-field-text-color, #e6e8f5) !important;
+  background: var(--aph-field, #24283b) !important;
+  color: var(--aph-ink, #e6e8f5) !important;
   font: inherit !important;
   font-size: 12px !important;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
 }
 
-/* Tab-rename selection: same paint as the selected tab (§13), matching
-   the urlbar rule above. */
+/* Tab-rename selection: the Aph select token (voice 45%), shared with
+   the palette input and the urlbar highlight below. */
 #aph-tab-rename-input::selection {
-  background-color: color-mix(
-    in srgb,
-    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 70%,
-    transparent
-  ) !important;
+  background-color: var(--aph-select, rgba(125, 190, 255, 0.28)) !important;
 }
 
 /* ==========================================================================
-   13. Selected tab presence: a solid pill on the desk, not a wash. The
-   old translucent mix sank into the desk (§19) and read as "hover,
-   committed" only against the previous shine-through. Mixing toward
-   --toolbar-bgcolor (not transparent) keeps the pill opaque and
-   theme-true on cream and dark desks alike; radius follows the Aph
-   scale and a hairline ring lifts it off the strip. Exempt from the
-   §12 hover rule by its :not([selected]) guard, so the two never
+   13. Selected tab presence: workspace owns it. The fill is the live
+   workspace accent (45% over transparent — the exact dock-current
+   recipe, §21), so strip top and dock bottom rhyme as one system.
+   Rule of the house: local presence speaks workspace, global
+   interaction (hovers §12, urlbar §14, palette, menus) speaks the
+   theme — the two never share a surface. Fallback mirrors the
+   loading-burst pattern (busy sweep, §24): unstamped windows get the
+   blue wash instead of transparency. Radius follows the Aph scale and
+   a neutral hairline ring lifts the pill off the strip. Exempt from
+   the §12 hover rule by its :not([selected]) guard, so the two never
    fight. Container identity lines and pending dim keep working
    untouched; background-only, both tab-strip orientations.
    ========================================================================== */
@@ -521,13 +566,15 @@ tab[pending]:not([selected]) .tab-label,
 tab[selected] > .tab-stack > .tab-background {
   background-color: color-mix(
     in srgb,
-    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 55%,
-    var(--toolbar-bgcolor, #23252f)
+    var(--aph-ws-accent, rgb(125, 190, 255)) 45%,
+    transparent
   ) !important;
-  border-radius: var(--aph-radius-xl) !important;
+  /* lg (8px): one corner language with rest/hover (§22) — the selected
+     tab asserts via fill + hairline only, never a larger radius. */
+  border-radius: var(--aph-radius-lg) !important;
   box-shadow: 0 0 0 1px color-mix(
     in srgb,
-    var(--toolbar-text-color, #ffffff) 12%,
+    var(--aph-ink, #ffffff) 12%,
     transparent
   ) !important;
 }
@@ -536,44 +583,40 @@ tab[selected] > .tab-stack > .tab-background {
    14. URL-bar border + selection theme.
    The urlbar internals are light-DOM children of the moz-urlbar host but
    carry CLASSES, not ids (UrlbarInput #markup) — reach them as
-   .urlbar-background / .urlbar-input, never #ids. Focus outline and text
-   selection are painted from stock variables, so one :root block themes
-   both, tracking the selected tab (§13) via the same token and mix.
-   When a theme defines its own values, the lightweight-theme consumer
-   writes these variables inline and wins automatically. Borders use a
-   shared sharpened accent below: the hover token with saturation pushed
-   (red themes read redder, green themes greener — hue preserved,
-   vividness raised) so it stays clearly brighter than dark toolbar
-   backgrounds. Fully opaque — a translucent 1px line blends into its
-   backdrop and reads as invisible.
+   .urlbar-background / .urlbar-input, never #ids. Focus border reads
+   the shared sharpened accent (voice with saturation pushed —
+   hue preserved, vividness raised). Text selection reads the Aph
+   select token, which also redefines the stock highlight var so the
+   native urlbar selection follows: one selection paint everywhere.
+   Selected-tab presence itself lives in §13 and speaks workspace,
+   never these tokens. Borders are fully opaque — a translucent 1px
+   line blends into its backdrop and reads as invisible.
    ========================================================================== */
 
 :root {
   --aph-urlbar-accent: hsl(
-    from var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.85))
+    from var(--aph-voice, rgba(125, 190, 255, 0.85))
     h calc(s * 1.6) l
   ) !important;
   --toolbar-field-border-color-focus: var(--aph-urlbar-accent) !important;
-  --lwt-toolbar-field-highlight: color-mix(
-    in srgb,
-    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 70%,
-    transparent
-  ) !important;
+  --lwt-toolbar-field-highlight: var(--aph-select, rgba(125, 190, 255, 0.28)) !important;
   /* Selected suggestion row (auto-selected while typing): the palette
-     sibling (§25) — hover-token wash with an inset accent border,
-     never the opaque vivid block. Row text stays the theme field text
-     (Nova already maps --urlbarview-text-color-selected there), so
-     hierarchy survives selection. Covers urlbar + search popups,
-     which read the same variable. */
+     sibling (§25) — voice wash with an inset accent border, never the
+     opaque vivid block. Row text stays Aph ink, so hierarchy survives
+     selection on both faces. Covers urlbar + search popups, which read
+     the same variable. */
   --urlbarview-background-color-selected: color-mix(
     in srgb,
-    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 55%,
+    var(--aph-voice, rgba(125, 190, 255, 0.28)) 55%,
     transparent
   ) !important;
 }
 
+/* Quiet rest: no glowing edge around an empty field. Separation comes
+   from the field fill above; the sharpened accent arrives on focus via
+   --toolbar-field-border-color-focus, and while the dropdown is open. */
 .urlbar:not([focused]) .urlbar-background {
-  border-color: var(--aph-urlbar-accent) !important;
+  border-color: transparent !important;
 }
 
 /* ==========================================================================
@@ -586,27 +629,28 @@ tab[selected] > .tab-stack > .tab-background {
   scrollbar-width: thin !important;
   scrollbar-color: color-mix(
       in srgb,
-      var(--toolbar-text-color, #e8e8ec) 30%,
+      var(--aph-ink, #e8e8ec) 30%,
       transparent
     )
     transparent !important;
 }
 
 /* ==========================================================================
-   12. Tab hover: whisper of the theme hover token (same token as menu
-   hover — Sun gold #FDE8B5 light / #5F3100 dark, Aph blue wash
-   fallback), so tabs share the menu hover language instead of stock
-   gray. Background-only, never layout: container identity lines and the
+   12. Tab hover: whisper of the voice (theme hover by default — Sun
+   gold #FDE8B5 light / #5F3100 dark — workspace accent once §21 flips
+   it), so tabs share the menu hover language instead of stock gray.
+   Background-only, never layout: container identity lines and the
    pending-tab dim keep working untouched, and the selector hits both
    horizontal and vertical strips (.tab-background exists in both).
-   Selected is exempt — it already has strong styling that hover must
-   not fight. 45% keeps label contrast safe on cream and dark strips.
+   Selected is exempt — presence (45%, §13) must always outread hover.
+   30% keeps label contrast safe on cream and dark strips while
+   staying visibly quieter than selection.
    ========================================================================== */
 
 .tabbrowser-tab:not([selected]):hover > .tab-stack > .tab-background {
   background-color: color-mix(
     in srgb,
-    var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 45%,
+    var(--aph-voice, rgba(125, 190, 255, 0.28)) 30%,
     transparent
   ) !important;
 }
@@ -627,9 +671,11 @@ tab[selected] > .tab-stack > .tab-background {
   /* Stock orientation is horizontal (plain XUL box): without this the
      trailing dock squeezes in beside the tab list instead of settling
      underneath it. Both properties: -moz-box for XUL box layout, flex
-     direction in case the box ever renders as flex. */
+     direction in case the box ever renders as flex. Ink is Aph's, so
+     stock strip icons match the room, not the theme. */
   -moz-box-orient: vertical !important;
   flex-direction: column !important;
+  color: var(--aph-ink, #e8e8ec) !important;
 }
 
 #aph-ws-dock {
@@ -639,12 +685,13 @@ tab[selected] > .tab-stack > .tab-background {
   align-items: center !important;
   justify-content: center !important;
   gap: 4px !important;
-  /* No top border: the dock melts into the strip (pills + Aph key carry
-     the footer read on their own — the line rendered as a harsh split). */
+  /* No top border: the dock melts into the strip (pills carry the
+     footer read on their own — the line rendered as a harsh split). */
   border-top: none !important;
-  /* Tight bottom so the stock gear footer below sits close — one bottom
-     block (pills / Aph / gear) instead of two floating footers. */
-  padding: 6px 4px 4px !important;
+  /* Bottom breathing room: the dock floats above the window edge instead
+     of sitting jammed against it. The stock gear footer (when shown)
+     still lands close — one bottom block, not two. */
+  padding: 6px 4px 8px !important;
 }
 
 #aph-ws-dock[hidden] {
@@ -657,45 +704,47 @@ tab[selected] > .tab-stack > .tab-background {
   align-items: center !important;
   justify-content: center !important;
   gap: 4px !important;
-  min-width: 26px !important;
-  height: 26px !important;
-  padding: 0 6px !important;
+  /* 28px: the urlbar rhythm — pills, indicator, and urlbar read as one
+     system. Solid ink throughout; quiet comes from the fill, never
+     faded text. */
+  min-width: 28px !important;
+  height: 28px !important;
+  padding: 0 7px !important;
   box-sizing: border-box !important;
   font-size: 12px !important;
   font-weight: 600 !important;
   line-height: 1 !important;
   border-radius: var(--aph-radius-md) !important;
-  background: color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 10%, transparent) !important;
-  color: var(--toolbar-text-color, #e8e8ec) !important;
-  opacity: 0.85 !important;
+  background: color-mix(in srgb, var(--aph-ink, #e8e8ec) 10%, transparent) !important;
+  color: var(--aph-ink, #e8e8ec) !important;
+  opacity: 1 !important;
   user-select: none !important;
   cursor: pointer !important;
-  /* Anchor for the corner count badge (no offsets — layout untouched). */
-  position: relative !important;
 }
 
 .aph-ws-pill:hover {
   opacity: 1 !important;
-  background: var(--toolbarbutton-background-color-hover, rgba(255, 255, 255, 0.12)) !important;
+  /* Hover spend (30%) stays visibly quieter than current (45%, §21). */
+  background: color-mix(in srgb, var(--aph-voice, rgba(255, 255, 255, 0.12)) 30%, transparent) !important;
 }
 
 .aph-ws-pill[data-current="1"] {
   opacity: 1 !important;
-  background: var(--toolbarbutton-background-color-hover, rgba(255, 255, 255, 0.12)) !important;
+  background: var(--aph-voice, rgba(255, 255, 255, 0.12)) !important;
   color: var(--toolbarbutton-color, white) !important;
 }
 
 .aph-ws-pill.drop-target {
-  outline: 2px solid var(--lwt-toolbar-field-highlight, rgba(125, 190, 255, 0.9)) !important;
+  outline: 2px solid var(--aph-voice, rgba(125, 190, 255, 0.9)) !important;
   outline-offset: -2px !important;
   opacity: 1 !important;
-  background: color-mix(in srgb, var(--lwt-toolbar-field-highlight, #7dbeff) 30%, transparent) !important;
+  background: color-mix(in srgb, var(--aph-voice, #7dbeff) 30%, transparent) !important;
 }
 
 /* Drag-mode: empty workspaces appear as dashed drop targets. */
 .aph-ws-pill[data-empty="1"] {
   opacity: 0.55 !important;
-  border: 1px dashed color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 35%, transparent) !important;
+  border: 1px dashed color-mix(in srgb, var(--aph-ink, #e8e8ec) 35%, transparent) !important;
 }
 
 #aph-ws-dock[data-aph-dragging="1"] .aph-ws-pill[data-current="1"] {
@@ -707,35 +756,18 @@ tab[selected] > .tab-stack > .tab-background {
   opacity: 1 !important;
 }
 
-/* Tab count: tiny corner badge riding the pill's top inline-end corner
-   instead of inline text (which stretched every pill). Own fill + ring so
-   it reads over the strip; logical inset keeps LTR/RTL mirrored. */
+/* Tab counts live in tooltips + palette — not on the chrome. The old
+   corner badges were the highest-frequency noise in the window (tiny
+   overlapping dots fighting every pill edge). JS still renders
+   .aph-ws-count in the DOM (dock.test.js) and counts still feed
+   tooltips/titles; paint stays off so the dock reads as calm furniture.
+   display:none (not opacity) so hidden badges never intercept layout. */
 .aph-ws-count {
-  position: absolute !important;
-  top: -5px !important;
-  inset-inline-end: -5px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  min-width: 14px !important;
-  height: 14px !important;
-  padding: 0 3px !important;
-  box-sizing: border-box !important;
-  /* 10px: single-glyph badge text — Inter needs the extra pixel to stay
-     legible next to the 14px tab titles. Still fits the 14px badge. */
-  font-size: 10px !important;
-  font-weight: 600 !important;
-  line-height: 1 !important;
-  border-radius: 999px !important;
-  background: var(--toolbar-bgcolor, #23252f) !important;
-  color: var(--toolbar-text-color, #e8e8ec) !important;
-  border: 1px solid color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 30%, transparent) !important;
-  opacity: 1 !important;
-  pointer-events: none !important;
+  display: none !important;
 }
 
 .aph-ws-add {
-  opacity: 0.55 !important;
+  opacity: 0.8 !important;
 }
 
 .aph-ws-add:hover {
@@ -746,36 +778,49 @@ tab[selected] > .tab-stack > .tab-background {
    the wrap onto a fresh line; content stays centered). Separate class so
    pill queries + drop logic ignore it; bolder glyph so it reads as a
    logo rather than a workspace number. */
+/* Aph key: a quiet signature under the pills — geometric spaces-grid
+   mark (65-dock.js), not text. Transparent fill, dimmer ink; hover
+   blooms to full ink + wash. Shorter than the pills (22px) so it never
+   competes with workspace jewelry. */
 .aph-dock-aph {
   flex: 1 1 100% !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  min-height: 26px !important;
-  height: 26px !important;
-  margin-top: 2px !important;
+  min-height: 22px !important;
+  height: 22px !important;
+  margin-top: 5px !important;
   padding: 0 6px !important;
   box-sizing: border-box !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
-  line-height: 1 !important;
   border-radius: var(--aph-radius-md) !important;
-  background: color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 10%, transparent) !important;
-  color: var(--toolbar-text-color, #e8e8ec) !important;
-  opacity: 0.85 !important;
+  background: transparent !important;
+  color: color-mix(in srgb, var(--aph-ink, #e8e8ec) 55%, transparent) !important;
+  opacity: 1 !important;
   user-select: none !important;
   cursor: pointer !important;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out !important;
+}
+
+/* The mark rides currentColor (dim at rest, full on hover — no paint
+   logic in JS). Clicks must land on the button, never the glyphs. */
+.aph-dock-aph svg {
+  display: block !important;
+  flex: none !important;
+  width: 14px !important;
+  height: 14px !important;
+  pointer-events: none !important;
 }
 
 .aph-dock-aph:hover {
   opacity: 1 !important;
-  background: var(--toolbarbutton-background-color-hover, rgba(255, 255, 255, 0.12)) !important;
+  color: var(--aph-ink, #e8e8ec) !important;
+  background: color-mix(in srgb, var(--aph-voice, rgba(255, 255, 255, 0.12)) 30%, transparent) !important;
 }
 
 /* Collapsed strip: dots only. Counts hide, pills compress to icon width. */
 sidebar-main:not([expanded]) #aph-ws-dock {
   gap: 3px !important;
-  padding: 4px 2px 4px !important;
+  padding: 4px 2px 6px !important;
 }
 
 sidebar-main:not([expanded]) .aph-ws-pill {
@@ -788,7 +833,6 @@ sidebar-main:not([expanded]) .aph-ws-pill {
 sidebar-main:not([expanded]) .aph-dock-aph {
   min-height: 22px !important;
   height: 22px !important;
-  font-size: 11px !important;
 }
 
 sidebar-main:not([expanded]) .aph-ws-count {
@@ -840,13 +884,14 @@ tab[data-aph-starred="1"] .tab-close-button,
 }
 /* ==========================================================================
    19. Canvas frame: the webpage as an elevated card on a desk (Arc/Zen
-   look). #browser paints the desk (also behind the transparent toolbox,
-   §1); #tabbrowser-tabbox becomes the card. Flush to the vertical tab
-   strip (logical start, so RTL mirrors correctly), gapped everywhere
-   else. Theme-aware: desk follows --toolbar-bgcolor with a text-tinted
-   top sheen + bottom vignette for depth, ring is a wash of
-   the toolbar text color, and the ambient shadow alpha derives from
-   desk brightness (softer on cream) — no hardcoded palette.
+   look). #browser paints the desk; the toolbox (§1, a vertical sibling,
+   never layered over the desk) paints its own flat Aph base, so bar
+   and desk read as one room with no hole to the native window behind.
+   #tabbrowser-tabbox becomes the card. Uniform 8px gutter on all four
+   sides (logical margins, so RTL mirrors correctly) — the card floats
+   off strip and window edges alike. All Aph canvas: base, neutral ink
+   top sheen + bottom vignette for depth, ink-wash ring, and ambient
+   shadow alpha derived from base brightness (softer on paper).
    Clipping: `overflow: clip` (not hidden) so no scroll container is
    created inside chrome. DOM fullscreen drops the frame entirely so
    video fills the screen with square corners.
@@ -855,29 +900,34 @@ tab[data-aph-starred="1"] .tab-close-button,
    ========================================================================== */
 
 #browser {
-  /* Desk depth: flat base, a top sheen tinted by the toolbar text color
-     (light glow on dark themes, soft shade on cream) and a faint bottom
-     vignette — spatial instead of sticker-flat. All washes, so any
-     lightweight theme keeps working. */
+  /* Desk depth: flat base with a short top light-kiss and a faint bottom
+     vignette — near-flat so strip and toolbox share one ink instead of
+     drifting warm-top / dark-bottom. All washes, so any lightweight
+     theme keeps working. Stops are short on purpose: the sheen kisses
+     the top edge (never tints the room) and the vignette grounds only
+     the bottom edge. */
   background:
     linear-gradient(
       /* Overridable per workspace (§21): unset = neutral text tint. */
-      var(--aph-desk-sheen, color-mix(in srgb, var(--toolbar-text-color, #ffffff) 7%, transparent)),
-      transparent 32%
+      var(--aph-desk-sheen, color-mix(in srgb, var(--aph-ink, #ffffff) 5%, transparent)),
+      transparent 24%
     ),
-    linear-gradient(transparent 62%, color-mix(in srgb, black 12%, transparent)),
+    linear-gradient(transparent 68%, color-mix(in srgb, black 8%, transparent)),
     var(--aph-desk-bg) !important;
 }
 
 #tabbrowser-tabbox {
-  margin-top: 6px !important;
+  /* Floating card: uniform 8px desk gutter on all four sides so the
+     frame reads intentional — never half-flush. Logical margins keep
+     LTR/RTL mirrored; fullscreen still drops the frame entirely. */
+  margin-top: 8px !important;
   margin-bottom: 8px !important;
-  margin-inline-start: 0 !important;
+  margin-inline-start: 8px !important;
   margin-inline-end: 8px !important;
   border-radius: var(--aph-radius-xl) !important;
   overflow: clip !important;
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--toolbar-text-color, #ffffff) 10%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--aph-ink, #ffffff) 10%, transparent),
     0 12px 32px -16px rgba(0, 0, 0, 0.5) !important;
 }
 
@@ -889,8 +939,8 @@ tab[data-aph-starred="1"] .tab-close-button,
 @supports (box-shadow: rgb(from black r g b / 0.5)) {
   #tabbrowser-tabbox {
     box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--toolbar-text-color, #ffffff) 10%, transparent),
-      0 12px 32px -16px rgb(from var(--toolbar-bgcolor, #17181f) 0 0 0 / calc(0.55 - 0.3 * ((r + g + b) / 765))) !important;
+      0 0 0 1px color-mix(in srgb, var(--aph-ink, #ffffff) 10%, transparent),
+      0 12px 32px -16px rgb(from var(--aph-base, #17181f) 0 0 0 / calc(0.55 - 0.3 * ((r + g + b) / 765))) !important;
   }
 }
 
@@ -943,12 +993,16 @@ menupopup > menuitem:last-child {
    21. Per-workspace accents: color as orientation (Arc spaces). The
    window carries data-aph-ws (60-indicator-switch.js stampWindowWs, set
    on every switch + at birth), so :root knows the live workspace and
-   exposes --aph-ws-accent. The accent tints exactly three surfaces —
-   desk sheen (§19 hook), indicator pill (§6), selected-tab ring (§13),
-   dock pills (own data-ws identity) — always as washes over theme
-   surfaces, never as text or fills, so contrast on cream and dark
-   stays stock-safe. Unset (no stamp yet) drops each override and the
-   neutral rules above show through untouched.
+   exposes --aph-ws-accent. The accent fills exactly three presence
+   surfaces — selected-tab fill (§13), indicator pill (§6), dock
+   current pill (own data-ws identity below) — all on the same 45%
+   recipe so strip top, tab, and dock bottom rhyme. The desk stays
+   neutral on every workspace (no sheen override — the room never
+   changes white balance). Load feedback (§24) reuses the accent
+   transiently. Unset (no stamp yet) falls back to the blue wash via
+   each rule's own var() fallback. Contrast is gated by
+   test_workspace_presence_contrast — a failing hue gets muted, never
+   hand-tuned.
    ========================================================================== */
 :root {
   --aph-ws-1: #d9a521;
@@ -970,33 +1024,26 @@ menupopup > menuitem:last-child {
 :root[data-aph-ws="7"] { --aph-ws-accent: var(--aph-ws-7); }
 :root[data-aph-ws="8"] { --aph-ws-accent: var(--aph-ws-8); }
 :root[data-aph-ws="9"] { --aph-ws-accent: var(--aph-ws-9); }
+/* The flip: stamped windows retune the voice from theme interaction to
+   workspace presence. One line moves every repointed surface together;
+   revert is deleting it. Unstamped windows keep the theme voice via
+   each rule's own var() fallback. */
 :root[data-aph-ws] {
-  --aph-desk-sheen: color-mix(in srgb, var(--aph-ws-accent) 13%, transparent);
+  --aph-voice: var(--aph-ws-accent);
 }
-
-/* Indicator pill (§6): accent wash behind the number/name. Text color
-   untouched — the wash is translucent over the toolbar. */
+/* Indicator pill (§6): same 45% recipe as the dock current pill below
+   and the selected fill (§13) — top, tab, and bottom rhyme as one
+   system. Text stays toolbar ink throughout. */
 :root[data-aph-ws] #aph-ws-indicator {
-  background: color-mix(
-    in srgb,
-    var(--aph-ws-accent) 24%,
-    color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 10%, transparent)
-  ) !important;
+  background: color-mix(in srgb, var(--aph-ws-accent) 45%, transparent) !important;
+  color: var(--aph-ink, #e8e8ec) !important;
   opacity: 1 !important;
 }
 
-/* Selected tab ring (§13): accent edge + soft accent glow. Fill stays
-   the §13 opaque pill — contrast-safe, hue only at the border. */
-:root[data-aph-ws] .tabbrowser-tab[selected] > .tab-stack > .tab-background,
-:root[data-aph-ws] tab[selected] > .tab-stack > .tab-background {
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--aph-ws-accent) 55%, transparent),
-    0 4px 14px -8px color-mix(in srgb, var(--aph-ws-accent) 60%, transparent) !important;
-}
-
-/* Dock pills: each pill wears its OWN workspace color (data-ws set in
-   65-dock.js), quiet at rest, solid on current. Text stays toolbar
-   color throughout — identity without contrast risk. */
+/* Dock pills: monochrome rest, color on current only (data-ws set in
+   65-dock.js still defines each pill's --aph-ws-accent, but only the
+   current pill spends it). Rest pills share one neutral furniture fill
+   so the dock reads calm; text stays toolbar color throughout. */
 .aph-ws-pill[data-ws="1"] { --aph-ws-accent: var(--aph-ws-1); }
 .aph-ws-pill[data-ws="2"] { --aph-ws-accent: var(--aph-ws-2); }
 .aph-ws-pill[data-ws="3"] { --aph-ws-accent: var(--aph-ws-3); }
@@ -1006,27 +1053,25 @@ menupopup > menuitem:last-child {
 .aph-ws-pill[data-ws="7"] { --aph-ws-accent: var(--aph-ws-7); }
 .aph-ws-pill[data-ws="8"] { --aph-ws-accent: var(--aph-ws-8); }
 .aph-ws-pill[data-ws="9"] { --aph-ws-accent: var(--aph-ws-9); }
-.aph-ws-pill[data-ws] {
-  background: color-mix(
-    in srgb,
-    var(--aph-ws-accent) 16%,
-    color-mix(in srgb, var(--toolbar-text-color, #e8e8ec) 10%, transparent)
-  ) !important;
+.aph-ws-pill[data-ws]:not([data-current="1"]) {
+  background: color-mix(in srgb, var(--aph-ink, #e8e8ec) 10%, transparent) !important;
 }
 .aph-ws-pill[data-ws][data-current="1"] {
   background: color-mix(in srgb, var(--aph-ws-accent) 45%, transparent) !important;
-  color: var(--toolbar-text-color, #e8e8ec) !important;
+  color: var(--aph-ink, #e8e8ec) !important;
 }
 
 /* ==========================================================================
    22. Sidebar finish: the strip as furniture, not a toolbar (Arc recipe
    adapted). Rest rows are explicitly transparent — the strip reads as
    one calm surface and only hover/active assert themselves. Titles set
-   13px so long sidebars stay scannable; rows get the md radius so the
-   hover wash (§12) and selected pill (§13) share one corner language.
-   A 1px vertical breath per row keeps density while ending the
-   cramped stock stacking — padding only, never margins, so collapse
-   and multiselect geometry pass through untouched.
+   13px/500 so long sidebars stay scannable; rows share the lg radius
+   so rest, hover wash (§12), and selected pill (§13) speak one corner
+   language. Favicons ride quiet wash tiles (dropdown parity, §25) so
+   site colors never vibrate against the desk. A 1px vertical breath
+   per row keeps density while ending the cramped stock stacking —
+   padding only, never margins, so collapse and multiselect geometry
+   pass through untouched.
    ========================================================================== */
 .tabbrowser-tab:not([selected]):not(:hover) > .tab-stack > .tab-background,
 tab:not([selected]):not(:hover) > .tab-stack > .tab-background {
@@ -1035,10 +1080,64 @@ tab:not([selected]):not(:hover) > .tab-stack > .tab-background {
 
 .tabbrowser-tab .tab-label,
 tab .tab-label {
-  /* 14px: Inter draws lighter than the hinted system fonts it replaces,
-     so it takes +1px to hold the same visual weight at tab distance. */
-  font-size: 14px !important;
+  /* 13px/500: the strip is a scannable list, not a headline wall. 14px
+     set every row shouting; 13px medium holds weight (Inter draws
+     light) while letting the selected row lead by fill, not size. */
+  font-size: 13px !important;
+  font-weight: 500 !important;
   letter-spacing: var(--aph-tracking-ui) !important;
+}
+
+/* Label ink: unselected rows read dim, selected reads full — hierarchy
+   by ink as well as fill. Both pairs are contrast-gated (dim gate). */
+.tabbrowser-tab:not([selected]) .tab-label,
+tab:not([selected]) .tab-label {
+  color: var(--aph-ink-dim, #a3a8ba) !important;
+}
+.tabbrowser-tab[selected] .tab-label,
+tab[selected] .tab-label {
+  color: var(--aph-ink, #e8e8ec) !important;
+}
+
+/* Favicon tiles: every loaded site icon sits on the same quiet wash
+   tile so colorful favicons stop vibrating against the desk. Same wash
+   + md corners as the urlbar dropdown icons (§25) — one tile language.
+   Stack (not the img) carries the tile so transparent glyphs keep
+   their shape; fixed 20px box centers icons without shifting rows.
+   [image] guards iconless tabs (no favicon yet) so they never show an
+   empty tile. */
+.tabbrowser-tab[image] .tab-icon-stack,
+tab[image] .tab-icon-stack {
+  width: 20px !important;
+  height: 20px !important;
+  /* inline-flex: the stack is a XUL box by default, where flex
+     align/justify props are ignored — without this the icon sat
+     top-start inside the fixed tile. inline-flex keeps row flow
+     intact while truly centering; the -moz-box pair covers any
+     XUL box layout that survives underneath. */
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  -moz-box-align: center !important;
+  -moz-box-pack: center !important;
+  background-color: color-mix(
+    in srgb,
+    var(--aph-ink, #e8e8ec) 10%,
+    transparent
+  ) !important;
+  border-radius: var(--aph-radius-md) !important;
+  padding: 2px !important;
+  box-sizing: border-box !important;
+}
+.tabbrowser-tab[image] .tab-icon-image,
+tab[image] .tab-icon-image {
+  width: 14px !important;
+  height: 14px !important;
+  /* Centered flex item: no stock margins pulling it off the tile core,
+     never a flex-grow that stretches glyphs. */
+  flex: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 /* Small-text tracking companions: dock pills (12px), the indicator
@@ -1053,7 +1152,9 @@ tab .tab-label {
 
 .tabbrowser-tab > .tab-stack > .tab-background,
 tab > .tab-stack > .tab-background {
-  border-radius: var(--aph-radius-md) !important;
+  /* lg (8px): rest, hover (§12), and selected (§13) share one corner —
+     rows never shape-shift between states. */
+  border-radius: var(--aph-radius-lg) !important;
 }
 
 .tabbrowser-tab:not([pinned]) > .tab-stack,
@@ -1160,7 +1261,7 @@ tab[selected][busy] > .tab-stack > .tab-background {
   .urlbarView {
     --urlbarview-background-color-hover: color-mix(
       in srgb,
-      var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28)) 55%,
+      var(--aph-voice, rgba(125, 190, 255, 0.28)) 55%,
       transparent
     ) !important;
     --urlbarView-row-border-radius: var(--aph-radius-md) !important;
@@ -1184,7 +1285,7 @@ tab[selected][busy] > .tab-stack > .tab-background {
   .urlbarView-type-icon {
     background-color: color-mix(
       in srgb,
-      var(--toolbar-text-color, #e8e8ec) 10%,
+      var(--aph-ink, #e8e8ec) 10%,
       transparent
     ) !important;
     border-radius: var(--aph-radius-md) !important;
@@ -1194,13 +1295,74 @@ tab[selected][busy] > .tab-stack > .tab-background {
 /* ==========================================================================
    26. Toolbar rhythm: one designed row. The indicator pill now matches
    the 28px urlbar height (§6), and every nav-bar icon button shares the
-   tab/dock hover language — same wash token, md corners. Deliberately
-   radius-only: the §3/§4 show/hide transitions own the `transition`
-   shorthand on these buttons, so no transition is declared here (a
-   second shorthand would silently replace the slide timing). Window
-   controls and the identity box are untouched (OS-native, and phase 3
-   territory, respectively).
+   tab/dock hover language — same wash token, md corners. Window
+   controls stay OS-native and untouched.
    ========================================================================== */
 #nav-bar toolbarbutton:hover {
   border-radius: var(--aph-radius-md) !important;
+}
+
+/* ==========================================================================
+   26b. Icon hovers speak voice — on the SAME elements native paints.
+   Native (.toolbarbutton-1 in toolbarbuttons.css) paints hover/open
+   fills on the INNER icon/text/badge-stack, never the button box: an
+   outer-box wash plus the native inner pill renders as a doubled
+   highlight. These rules repaint exactly those inners — voice at hover
+   spend (30%), pressed/open at presence spend (45%) — and clear the
+   native hover outline ring, which would otherwise double the wash.
+   Covers nav-bar buttons (back, reload, home, extensions, hamburger),
+   strip buttons, the sidebar launcher, and the urlbar identity button
+   (mirroring native's own state scope — cert states keep native paint).
+   The :not(:focus-visible) guard mirrors native: keyboard focus rings
+   keep working untouched. Background + outline-color only, never
+   radius (the close X keeps its native circle; §26 owns nav-bar
+   corners). Deliberately no `transition` shorthand here either: §3/§4
+   own it on nav-bar buttons, and a second shorthand would silently
+   replace the slide timing.
+   ========================================================================== */
+#nav-bar toolbarbutton:not([disabled]):not(:focus-visible):hover > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
+#vertical-tabs toolbarbutton:not([disabled]):not(:focus-visible):hover > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
+sidebar-main toolbarbutton:not([disabled]):not(:focus-visible):hover > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack) {
+  background-color: color-mix(
+    in srgb,
+    var(--aph-voice, rgba(255, 255, 255, 0.12)) 30%,
+    transparent
+  ) !important;
+  outline-color: transparent !important;
+}
+
+#nav-bar toolbarbutton:not([disabled]):is(:hover:active, [open], [checked]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
+#vertical-tabs toolbarbutton:not([disabled]):is(:hover:active, [open], [checked]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
+sidebar-main toolbarbutton:not([disabled]):is(:hover:active, [open], [checked]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack) {
+  background-color: color-mix(
+    in srgb,
+    var(--aph-voice, rgba(255, 255, 255, 0.12)) 45%,
+    transparent
+  ) !important;
+  outline-color: transparent !important;
+}
+
+/* Reload flicker guard: the temporarily-disabled reload button keeps a
+   native hover pill (toolbarbuttons.css) — clear it so no theme flash
+   survives the swap. */
+#nav-bar #reload-button[disabled]:hover > .toolbarbutton-icon {
+  background-color: transparent !important;
+}
+
+/* Identity button: native paints .identity-box-button (not the box) in
+   exactly these states — mirror the scope, repaint the same element. */
+#urlbar #identity-box[pageproxystate="valid"]:is(.notSecureText, .chromeUI, .extensionPage) > .identity-box-button:hover:not([open]) {
+  background-color: color-mix(
+    in srgb,
+    var(--aph-voice, rgba(255, 255, 255, 0.12)) 30%,
+    transparent
+  ) !important;
+}
+
+#urlbar #identity-box[pageproxystate="valid"]:is(.notSecureText, .chromeUI, .extensionPage) > .identity-box-button:is(:hover:active, [open]) {
+  background-color: color-mix(
+    in srgb,
+    var(--aph-voice, rgba(255, 255, 255, 0.12)) 45%,
+    transparent
+  ) !important;
 }
