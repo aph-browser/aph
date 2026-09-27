@@ -7,10 +7,29 @@
   <project_license>MPL-2.0</project_license>
   <name>Aph</name>
   <summary>Firefox-based, workspaces-first web browser</summary>
+  <developer>
+    <name>Aph Browser</name>
+  </developer>
+  <keywords>
+    <keyword>browser</keyword>
+    <keyword>web</keyword>
+    <keyword>workspaces</keyword>
+    <keyword>firefox</keyword>
+    <keyword>privacy</keyword>
+  </keywords>
+  <url type="homepage">https://aph-browser.github.io/</url>
+  <url type="bugtracker">https://github.com/aph-browser/aph/issues</url>
+  <url type="help">https://github.com/aph-browser/aph</url>
   <description>
     <p>
       Aph is a Firefox-based browser with native workspace, command-palette,
       and tab-archive overrides plus hardened privacy defaults.
+    </p>
+    <p>
+      Organize tabs into nine workspaces per window, jump with a
+      Raycast-style command palette, park tabs in the archive with
+      workspace and container restore, and browse with telemetry and
+      Normandy switched off.
     </p>
   </description>
   <launchable type="desktop-id">io.github.aph_browser.Aph.desktop</launchable>
@@ -26,6 +45,6 @@
     <mediatype>x-scheme-handler/https</mediatype>
   </provides>
   <releases>
-    <release version="0.1.1" date="2026-09-22"/>
+    <release version="0.2.0" date="2026-09-27"/>
   </releases>
 </component>

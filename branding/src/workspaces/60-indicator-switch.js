@@ -15,7 +15,7 @@
       el = document.createElement("div");
       el.id = "aph-ws-indicator";
       el.textContent = isValidId(current) ? current : "1";
-      el.title = "Workspace (Alt+Shift+1..9, ]/[ to cycle, Tab for last)";
+      el.title = "Workspace (Alt+1..9 switch, Alt+Shift+]/[ cycle, Alt+Shift+Tab last)";
       try {
         el.addEventListener("click", () => {
           try {
@@ -39,21 +39,16 @@
         const cur = isValidId(current) ? current : "1";
         const name = getWsName(cur);
         el.textContent = name ? `${cur}: ${name}` : cur;
-        // Bound container: colored dot + tooltip (theme.css §6 renders the
-        // dot from data-aph-bound + --aph-ws-dot). Attribute + var driven
-        // so the fixed-height pill never shifts layout, and the filled
-        // dot reads on light and dark toolbars alike.
-        let title = `Workspace ${cur}${name ? `: ${name}` : ""} (Alt+Shift+1..9 · ]/[ cycle · Tab toggles last · click to rename)`;
-        let color = "";
+        // Bound container: tooltip only, no color marker — bound pills
+        // read identical to unbound ones (monochrome chrome). The palette
+        // Bind rows are the editor; this title is the checker.
+        let title = `Workspace ${cur}${name ? `: ${name}` : ""} (Alt+1..9 switch · Alt+Shift+]/[ cycle · Alt+Shift+Tab last · click to rename)`;
         try {
           const bid = getWsContainerId(cur);
           if (bid) {
             const d = describeContainer(bid);
             if (d && d.name) {
               title = `Workspace ${cur}${name ? `: ${name}` : ""} · ${d.name} container (Ctrl+T opens here · click to rename)`;
-            }
-            if (d && d.color && CONTAINER_HEX[d.color]) {
-              color = CONTAINER_HEX[d.color];
             }
           }
         } catch (e) {}
@@ -70,17 +65,6 @@
           }
         } catch (e) {}
         el.title = title;
-        try {
-          if (color) {
-            // Var first: if the style write throws (minimal stubs), the
-            // attribute never lands and no var-less dot renders.
-            el.style.setProperty("--aph-ws-dot", color);
-            el.setAttribute("data-aph-bound", "1");
-          } else {
-            el.removeAttribute("data-aph-bound");
-            el.style.removeProperty("--aph-ws-dot");
-          }
-        } catch (e) {}
       }
       // Dock repaints with the badge: switch/rename/bind/pref-sync covered.
       // Tab open/close/restore/pin call renderDock from their own handlers.
@@ -107,6 +91,14 @@
   let origBrowserOpenTab = null;
   function pulseWorkspaceIndicator() {
     try {
+      try {
+        if (
+          typeof window.matchMedia === "function" &&
+          window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ) {
+          return;
+        }
+      } catch (e) {}
       const el = gBrowser.tabContainer;
       el.setAttribute("data-aph-ws-pulse", "1");
       const badge = document.getElementById("aph-ws-indicator");
@@ -141,6 +133,14 @@
   // Fail-silent throughout (test tabs have no classList, which just
   // no-ops; test documents return null for the card, also a no-op).
   function animateIncomingTabs(tabs) {
+    try {
+      if (
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
+        return;
+      }
+    } catch (e) {}
     let animated = null;
     try {
       for (const t of tabs || []) {

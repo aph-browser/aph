@@ -1,6 +1,8 @@
 """Seed-once prefs: launchers must never overwrite an existing profile/user.js."""
 
+import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -89,27 +91,24 @@ def test_sync_refuses_while_running(tmp_path: Path) -> None:
 
 def test_resolve_launch_defaults_to_dev_profile(tmp_path: Path) -> None:
     root = tmp_path / "root"
-    profile, extra, no_remote = resolve_launch([], root)
+    profile, extra = resolve_launch([], root)
     assert profile == root / "profile"
     assert extra == []
-    assert no_remote is True
 
 
 def test_resolve_launch_passthrough_kept(tmp_path: Path) -> None:
     root = tmp_path / "root"
-    profile, extra, no_remote = resolve_launch(["https://example.com", "-new-tab"], root)
+    profile, extra = resolve_launch(["https://example.com", "-new-tab"], root)
     assert profile == root / "profile"
     assert extra == ["https://example.com", "-new-tab"]
-    assert no_remote is True
 
 
 def test_resolve_launch_daily_strips_flag(tmp_path: Path) -> None:
     root = tmp_path / "root"
     for flag in ("--daily", "--local"):
-        profile, extra, no_remote = resolve_launch([flag, "https://example.com"], root)
+        profile, extra = resolve_launch([flag, "https://example.com"], root)
         assert profile == Path.home() / ".config" / "aph" / "profile"
         assert extra == ["https://example.com"]
-        assert no_remote is False
 
 
 def _write_policies(root: Path, data: dict) -> None:
@@ -164,3 +163,42 @@ def test_ensure_rebranded_reports_false_without_omni(tmp_path: Path) -> None:
     root = tmp_path / "root"
     (root / "build" / "firefox").mkdir(parents=True)
     assert ensure_rebranded(root) is False
+
+
+def test_no_default_theme_is_installed_or_pinned() -> None:
+    """Aph owns its canvas, so no lightweight theme may ship as the default.
+
+    A theme leaked through three structural tokens: `tab_line` (drove the
+    orange active-tab outline via --tab-selected-outline-color),
+    `--card-border-color` (drove the content separators), and
+    --toolbarbutton-background-color-hover (the old --aph-voice default —
+    nova-sun set it to a brown rgba(178,97,0,0.25)). All three are now
+    claimed by theme.css, so nothing needs installing.
+
+    Two things must NOT appear: an active theme pinned in prefs, and a
+    layout.css.prefers-color-scheme override. The second matters because
+    removing a theme must not decide the room — the room stays on
+    prefers-color-scheme and the OS, exactly as before.
+    """
+    root = Path(__file__).resolve().parent.parent
+    overrides = (root / "config" / "user-overrides.js").read_text(encoding="utf-8")
+    user_js = (root / "config" / "user.js").read_text(encoding="utf-8")
+    policies = json.loads((root / "config" / "policies.json").read_text(encoding="utf-8"))
+
+    for name, text in (("user-overrides.js", overrides), ("user.js", user_js)):
+        code = re.sub(r"//.*", "", text)
+        assert "extensions.activeThemeID" not in code, (
+            f"config/{name} must not pin a theme; Aph claims the canvas itself"
+        )
+        assert "prefers-color-scheme.content-override" not in code, (
+            f"config/{name} must not pin the room — leave it to the OS"
+        )
+
+    ext = policies["policies"]["ExtensionSettings"]
+    assert "nova-sun@mozilla.org" not in ext, "policies.json must not install a theme"
+    for key, spec in ext.items():
+        if key == "*":
+            continue
+        assert "install_url" not in spec or "nova" not in key, (
+            f"ExtensionSettings must not install a theme by URL (got {key})"
+        )

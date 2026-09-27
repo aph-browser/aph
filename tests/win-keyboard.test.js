@@ -197,6 +197,49 @@ describe("AltGr (Windows international keyboards)", () => {
   });
 });
 
+describe("Alt+digit workspace switching", () => {
+  const api = () => sb.window.AphWorkspaces;
+  function reset() {
+    tabVals.get(home).aphWs = "1";
+    sb.gBrowser.selectedTab = home;
+    if (api().getCurrent() !== "1") api().switchTo("1");
+    sb.document.getElementById = () => null;
+  }
+
+  it("Alt+2 switches to workspace 2", () => {
+    reset();
+    const e = fireKey({ code: "Digit2", altKey: true, altGraph: false });
+    assert.equal(e._pd, true, "Alt+digit must be claimed");
+    assert.equal(e._ps, true);
+    assert.equal(api().getCurrent(), "2");
+  });
+
+  it("Alt+Shift+2 still switches (deprecated alias)", () => {
+    reset();
+    const e = fireKey({ code: "Digit2", altKey: true, shiftKey: true, altGraph: false });
+    assert.equal(e._pd, true);
+    assert.equal(api().getCurrent(), "2");
+  });
+
+  it("Alt+digit yields to the open palette (quick-pick owns it)", () => {
+    reset();
+    sb.document.getElementById = (id) =>
+      id === "aph-palette-overlay" ? { hidden: false } : null;
+    const e = fireKey({ code: "Digit2", altKey: true, altGraph: false });
+    assert.equal(e._pd, false, "must not claim while palette handles quick-pick");
+    assert.equal(e._ps, false);
+    assert.equal(api().getCurrent(), "1");
+    sb.document.getElementById = () => null;
+  });
+
+  it("Alt+digit switches without moving the tab", () => {
+    reset();
+    fireKey({ code: "Digit3", altKey: true, altGraph: false });
+    assert.equal(tabVals.get(home).aphWs, "1", "switch must retag nothing");
+    assert.equal(api().getCurrent(), "3");
+  });
+});
+
 describe("unbound Ctrl+Alt+Arrow keys", () => {
   it("Ctrl+Alt+Right passes through unclaimed", () => {
     sb.gBrowser.selectedTab = home;

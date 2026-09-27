@@ -67,6 +67,21 @@
     return m ? m[1] : null;
   }
 
+  // True while the command palette owns Alt+digit (its Nth-row quick-pick):
+  // switching workspaces underneath it would double-fire. DOM-read per
+  // press, so bundle load order never matters; absent overlay = closed.
+  function paletteOpen() {
+    try {
+      const o =
+        typeof document !== "undefined" && typeof document.getElementById === "function"
+          ? document.getElementById("aph-palette-overlay")
+          : null;
+      return !!(o && !o.hidden);
+    } catch (e) {
+      return false;
+    }
+  }
+
   // True when the key event targets editable text (page inputs, urlbar).
   function isEditableTarget(t) {
     try {
@@ -255,7 +270,13 @@
       try {
         sendTabTo(d);
       } catch (err) {}
-    } else if (e.shiftKey) {
+    } else {
+      // Alt+digit switches workspace (bare Alt, no Ctrl — Shift accepted
+      // as a deprecated alias so old muscle memory keeps working).
+      // Yields to the open palette, whose Alt+digit quick-picks rows.
+      if (paletteOpen()) {
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       switchTo(d);

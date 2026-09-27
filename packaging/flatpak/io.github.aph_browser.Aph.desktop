@@ -8,5 +8,9 @@ Type=Application
 Categories=Network;WebBrowser;
 Terminal=false
 StartupNotify=true
+# NOTE: must stay `firefox` — the Flatpak launcher execs the stock
+# firefox binary directly (no --class override exists), so the window's
+# WM_CLASS is firefox. Changing this orphans the running window from
+# its launcher icon. True per-app grouping needs a binary rename.
 StartupWMClass=firefox
 MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;

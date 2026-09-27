@@ -409,15 +409,14 @@
       } else if (isEmpty) {
         title += " · empty";
       }
+      // Bound container: tooltip name only, no color underline —
+      // monochrome dock (pill-dot removal parity).
       try {
         const bid = getWsContainerId(id);
         if (bid) {
           const d = describeContainer(bid);
           if (d && d.name) {
             title += ` · ${d.name} container`;
-          }
-          if (d && d.color && CONTAINER_HEX[d.color]) {
-            pill.style.boxShadow = `inset 0 -2px 0 ${CONTAINER_HEX[d.color]}`;
           }
         }
       } catch (e) {}

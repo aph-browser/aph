@@ -1,5 +1,5 @@
 /* GENERATED — do not edit by hand. Edit branding/src/, then run: python scripts/build_assets.py */
-/* Aph workspaces: IDs "1"-"9", zero UI. Alt+Shift+1..9 jumps to a workspace,
+/* Aph workspaces: IDs "1"-"9", zero UI. Alt+1..9 jumps to a workspace,
  * Alt+Shift+]/Right cycles next active, Alt+Shift+[/Left cycles previous,
  * Alt+Shift+Tab toggles the last two used (MRU),
  * Window-scoped model (Vivaldi/Zen): every window has its own workspaces
@@ -1888,62 +1888,6 @@
     } catch (e) {}
   }
 
-  function findTabOwnerWindow(tab) {
-    try {
-      if (!tab) {
-        return null;
-      }
-      for (const w of listAphWindows()) {
-        try {
-          if (w && !w.closed && w.gBrowser && w.gBrowser.tabs && w.gBrowser.tabs.includes(tab)) {
-            return w;
-          }
-        } catch (e) {}
-      }
-    } catch (e) {}
-    return null;
-  }
-
-  // Adoption swaps in a NEW tab element in the destination
-  // (Tabbrowser.sys.mjs: adoptTab(aTab, {tabIndex, selectTab}) fires
-  // TabOpen with detail.adoptedTab there and closes the source tab).
-  // Returns the new tab, or null. Callers must work with the returned
-  // element — never the (now closed) source.
-  function adoptOneTab(tab, destBrowser) {
-    try {
-      if (!tab || tab.closing || tab.pinned) {
-        return null;
-      }
-      const gb = destBrowser || gBrowser;
-      if (!gb || typeof gb.adoptTab !== "function") {
-        return null;
-      }
-      let ownerWin = null;
-      try {
-        ownerWin = findTabOwnerWindow(tab);
-      } catch (e) {}
-      let index = 0;
-      try {
-        index = (gb.tabs && gb.tabs.length) || 0;
-      } catch (e) {}
-      let nt = null;
-      try {
-        nt = gb.adoptTab(tab, { tabIndex: index }) || null;
-      } catch (e) {}
-      if (!nt) {
-        try {
-          nt = gb.adoptTab(tab) || null;
-        } catch (_e) {}
-      }
-      if (nt && ownerWin) {
-        scrubAdoptionGhost(ownerWin, tab);
-      }
-      return nt;
-    } catch (e) {
-      return null;
-    }
-  }
-
   // Lowest workspace no live window (other than this one) claims. Only a
   // new-window placement hint now — windows no longer de-dupe, so any
   // collision is harmless (independent tab sets).
@@ -2077,7 +2021,7 @@
       el = document.createElement("div");
       el.id = "aph-ws-indicator";
       el.textContent = isValidId(current) ? current : "1";
-      el.title = "Workspace (Alt+Shift+1..9, ]/[ to cycle, Tab for last)";
+      el.title = "Workspace (Alt+1..9 switch, Alt+Shift+]/[ cycle, Alt+Shift+Tab last)";
       try {
         el.addEventListener("click", () => {
           try {
@@ -2101,21 +2045,16 @@
         const cur = isValidId(current) ? current : "1";
         const name = getWsName(cur);
         el.textContent = name ? `${cur}: ${name}` : cur;
-        // Bound container: colored dot + tooltip (theme.css §6 renders the
-        // dot from data-aph-bound + --aph-ws-dot). Attribute + var driven
-        // so the fixed-height pill never shifts layout, and the filled
-        // dot reads on light and dark toolbars alike.
-        let title = `Workspace ${cur}${name ? `: ${name}` : ""} (Alt+Shift+1..9 · ]/[ cycle · Tab toggles last · click to rename)`;
-        let color = "";
+        // Bound container: tooltip only, no color marker — bound pills
+        // read identical to unbound ones (monochrome chrome). The palette
+        // Bind rows are the editor; this title is the checker.
+        let title = `Workspace ${cur}${name ? `: ${name}` : ""} (Alt+1..9 switch · Alt+Shift+]/[ cycle · Alt+Shift+Tab last · click to rename)`;
         try {
           const bid = getWsContainerId(cur);
           if (bid) {
             const d = describeContainer(bid);
             if (d && d.name) {
               title = `Workspace ${cur}${name ? `: ${name}` : ""} · ${d.name} container (Ctrl+T opens here · click to rename)`;
-            }
-            if (d && d.color && CONTAINER_HEX[d.color]) {
-              color = CONTAINER_HEX[d.color];
             }
           }
         } catch (e) {}
@@ -2132,17 +2071,6 @@
           }
         } catch (e) {}
         el.title = title;
-        try {
-          if (color) {
-            // Var first: if the style write throws (minimal stubs), the
-            // attribute never lands and no var-less dot renders.
-            el.style.setProperty("--aph-ws-dot", color);
-            el.setAttribute("data-aph-bound", "1");
-          } else {
-            el.removeAttribute("data-aph-bound");
-            el.style.removeProperty("--aph-ws-dot");
-          }
-        } catch (e) {}
       }
       // Dock repaints with the badge: switch/rename/bind/pref-sync covered.
       // Tab open/close/restore/pin call renderDock from their own handlers.
@@ -2169,6 +2097,14 @@
   let origBrowserOpenTab = null;
   function pulseWorkspaceIndicator() {
     try {
+      try {
+        if (
+          typeof window.matchMedia === "function" &&
+          window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ) {
+          return;
+        }
+      } catch (e) {}
       const el = gBrowser.tabContainer;
       el.setAttribute("data-aph-ws-pulse", "1");
       const badge = document.getElementById("aph-ws-indicator");
@@ -2203,6 +2139,14 @@
   // Fail-silent throughout (test tabs have no classList, which just
   // no-ops; test documents return null for the card, also a no-op).
   function animateIncomingTabs(tabs) {
+    try {
+      if (
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
+        return;
+      }
+    } catch (e) {}
     let animated = null;
     try {
       for (const t of tabs || []) {
@@ -3639,15 +3583,14 @@
       } else if (isEmpty) {
         title += " · empty";
       }
+      // Bound container: tooltip name only, no color underline —
+      // monochrome dock (pill-dot removal parity).
       try {
         const bid = getWsContainerId(id);
         if (bid) {
           const d = describeContainer(bid);
           if (d && d.name) {
             title += ` · ${d.name} container`;
-          }
-          if (d && d.color && CONTAINER_HEX[d.color]) {
-            pill.style.boxShadow = `inset 0 -2px 0 ${CONTAINER_HEX[d.color]}`;
           }
         }
       } catch (e) {}
@@ -5239,6 +5182,21 @@
     return m ? m[1] : null;
   }
 
+  // True while the command palette owns Alt+digit (its Nth-row quick-pick):
+  // switching workspaces underneath it would double-fire. DOM-read per
+  // press, so bundle load order never matters; absent overlay = closed.
+  function paletteOpen() {
+    try {
+      const o =
+        typeof document !== "undefined" && typeof document.getElementById === "function"
+          ? document.getElementById("aph-palette-overlay")
+          : null;
+      return !!(o && !o.hidden);
+    } catch (e) {
+      return false;
+    }
+  }
+
   // True when the key event targets editable text (page inputs, urlbar).
   function isEditableTarget(t) {
     try {
@@ -5427,7 +5385,13 @@
       try {
         sendTabTo(d);
       } catch (err) {}
-    } else if (e.shiftKey) {
+    } else {
+      // Alt+digit switches workspace (bare Alt, no Ctrl — Shift accepted
+      // as a deprecated alias so old muscle memory keeps working).
+      // Yields to the open palette, whose Alt+digit quick-picks rows.
+      if (paletteOpen()) {
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       switchTo(d);

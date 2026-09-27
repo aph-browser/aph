@@ -6,11 +6,17 @@ version matching the documented first release, and a calendar date.
 """
 
 import re
+import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 METAINFO = ROOT / "packaging/flatpak/io.github.aph_browser.Aph.metainfo.xml"
+
+
+def _project_version() -> str:
+    with open(ROOT / "pyproject.toml", "rb") as f:
+        return tomllib.load(f)["project"]["version"]
 
 
 def test_metainfo_has_current_release() -> None:
@@ -20,5 +26,5 @@ def test_metainfo_has_current_release() -> None:
     entries = releases.findall("release")
     assert len(entries) == 1
     entry = entries[0]
-    assert entry.get("version") == "0.1.1"
+    assert entry.get("version") == _project_version()
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", entry.get("date") or "")

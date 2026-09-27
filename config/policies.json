@@ -4,7 +4,7 @@
     "DisableFirefoxStudies": true,
     "DisablePocket": true,
     "DisableFeedbackCommands": true,
-    "OverrideFirstRunPage": "",
+    "OverrideFirstRunPage": "https://aph-browser.github.io/",
     "OverridePostUpdatePage": "",
     "DontCheckDefaultBrowser": true,
     "DisableDefaultBrowserAgent": true,
@@ -12,7 +12,6 @@
     "PasswordManagerEnabled": false,
     "DisableRemoteImprovements": true,
     "DisableAppUpdate": true,
-    "AppUpdateURL": "https://localhost",
     "NoDefaultBookmarks": true,
     "SkipTermsOfUse": true,
     "HttpsOnlyMode": "enabled",
@@ -64,7 +63,7 @@
     },
     "EnableTrackingProtection": {
       "Category": "standard",
-      "Locked": true,
+      "Locked": false,
       "BaselineExceptions": true,
       "ConvenienceExceptions": true
     },
@@ -79,7 +78,7 @@
       "Fallback": true,
       "Locked": false
     },
-    "CaptivePortal": false,
+    "CaptivePortal": true,
     "UserMessaging": {
       "ExtensionRecommendations": false,
       "FeatureRecommendations": false,
@@ -94,7 +93,7 @@
     },
     "SupportMenu": {
       "Title": "Aph",
-      "URL": "https://localhost/"
+      "URL": "https://aph-browser.github.io/"
     },
     "ExtensionSettings": {
       "*": {
@@ -108,10 +107,6 @@
         "installation_mode": "normal_installed",
         "private_browsing": true,
         "default_area": "navbar"
-      },
-      "nova-sun@mozilla.org": {
-        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/nova-sun/latest.xpi",
-        "installation_mode": "normal_installed"
       }
     },
     "3rdparty": {

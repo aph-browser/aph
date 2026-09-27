@@ -12,10 +12,15 @@
       together, so contrast can't drift apart).
    2. Hover/open: voice at hover spend (30%), 6px rows matching the
       palette.
+   3. Separators: ink-wash hairlines with breathing room, never the
+      stock ThreeDShadow groove.
+   4. Disabled items: dimmed in place (opacity only, never layout).
+   5. Item insets: context-menu rows ride 4px side margins so hover
+      pills float off the popup edge like cards.
 
    Deliberately NOT a full menu skin: Mozilla rewrites the underlying
    stock rules regularly (see panelUI-shared.css), and these rules
-   inherit everything else (borders, separators, icons) so they survive
+   inherit everything else (borders, icons, checks) so they survive
    upstream changes.
    ========================================================================== */
 
@@ -52,5 +57,34 @@ panelview :is(.subviewbutton, toolbarbutton):is(:hover, [_moz-menuactive="true"]
     var(--aph-voice, var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28))) 30%,
     transparent
   ) !important;
-  border-radius: 6px !important;
+  border-radius: var(--aph-radius-md, 6px) !important;
+}
+
+/* 3. Separator hairlines: kill the native groove (appearance:none) and
+   draw a single 1px ink wash with vertical breathing room. Covers
+   context menus (menuseparator) and panels (toolbarseparator). */
+menupopup menuseparator,
+panelview toolbarseparator {
+  appearance: none !important;
+  -moz-appearance: none !important;
+  background: transparent !important;
+  border: none !important;
+  border-top: 1px solid color-mix(in srgb, var(--aph-ink, WindowText) 8%, transparent) !important;
+  margin: 4px 8px !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+}
+
+/* 4. Disabled items: dim in place. Opacity only — geometry, ink, and
+   layout pass through untouched. */
+menupopup > :is(menu, menuitem)[disabled="true"],
+panelview :is(.subviewbutton, toolbarbutton)[disabled="true"] {
+  opacity: 0.45 !important;
+}
+
+/* 5. Item insets: constant 4px side margins (rest AND hover — margin
+   never changes between states, so hover can't reflow the list) so
+   the 6px hover pills float off the popup edge. */
+menupopup > :is(menu, menuitem) {
+  margin-inline: 4px !important;
 }

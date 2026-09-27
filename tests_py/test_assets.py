@@ -28,3 +28,25 @@ def test_dock_after_indicator_in_bundle() -> None:
     60-indicator-switch.js (same IIFE scope) — order matters."""
     order = BUNDLES["workspaces.js"]
     assert order.index("workspaces/60-indicator-switch.js") < order.index("workspaces/65-dock.js")
+
+
+def test_deleted_helpers_stay_deleted() -> None:
+    """modePrefix / splitWorkspaceCommands / adoptOneTab / findTabOwnerWindow
+    were dead (defined, never called) and removed from src. They must not
+    reappear in src or in the generated bundles."""
+    root = Path(__file__).resolve().parent.parent
+    dead = (
+        "modePrefix",
+        "splitWorkspaceCommands",
+        "adoptOneTab",
+        "findTabOwnerWindow",
+    )
+    haystacks = []
+    for rel in ("branding/src",):
+        for p in (root / rel).rglob("*.js"):
+            haystacks.append(p.read_text(encoding="utf-8"))
+    for bundle in BUNDLES:
+        haystacks.append((root / "branding" / bundle).read_text(encoding="utf-8"))
+    for name in dead:
+        for i, text in enumerate(haystacks):
+            assert f"function {name}(" not in text, f"{name} reappeared (source {i})"

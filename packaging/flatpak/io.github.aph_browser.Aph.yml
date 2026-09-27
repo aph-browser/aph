@@ -68,7 +68,15 @@ modules:
       - install -Dm755 stage/aph /app/bin/aph
       - install -Dm644 stage/io.github.aph_browser.Aph.desktop -t /app/share/applications/
       - install -Dm644 stage/io.github.aph_browser.Aph.metainfo.xml -t /app/share/metainfo/
-      - install -Dm644 stage/aph.png /app/share/icons/hicolor/128x128/apps/io.github.aph_browser.Aph.png
+      # Hicolor icon set, sliced from branding/aph.png in CI (see the
+      # Stage Flatpak sources step) — every standard size, no 456px file
+      # masquerading as 128x128.
+      - install -Dm644 stage/icons/hicolor/16x16/apps/io.github.aph_browser.Aph.png -t /app/share/icons/hicolor/16x16/apps/
+      - install -Dm644 stage/icons/hicolor/32x32/apps/io.github.aph_browser.Aph.png -t /app/share/icons/hicolor/32x32/apps/
+      - install -Dm644 stage/icons/hicolor/48x48/apps/io.github.aph_browser.Aph.png -t /app/share/icons/hicolor/48x48/apps/
+      - install -Dm644 stage/icons/hicolor/64x64/apps/io.github.aph_browser.Aph.png -t /app/share/icons/hicolor/64x64/apps/
+      - install -Dm644 stage/icons/hicolor/128x128/apps/io.github.aph_browser.Aph.png -t /app/share/icons/hicolor/128x128/apps/
+      - install -Dm644 stage/icons/hicolor/256x256/apps/io.github.aph_browser.Aph.png -t /app/share/icons/hicolor/256x256/apps/
     sources:
       - type: dir
         path: ../../build/flatpak-stage

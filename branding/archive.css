@@ -39,34 +39,52 @@
 }
 
 :root {
-  color-scheme: dark;
+  color-scheme: dark light;
   --arch-font: "Inter", system-ui, "Segoe UI", Roboto, "Noto Sans",
     Ubuntu, Cantarell, sans-serif;
+  /* One room (Decision 2): theme tokens win. bg/surface/text mirror
+     --aph-base/surface/ink; raised/muted mirror --aph-field/ink-dim —
+     never alien grays. */
   --arch-bg: #17181f;
   --arch-surface: #202028;
-  --arch-raised: #2a2c3a;
+  --arch-raised: #22232f;
   --arch-text: #e8e8ec;
-  --arch-muted: #9aa5ce;
+  --arch-muted: #a3a8ba;
   --arch-faint: #626880;
   --arch-line: rgba(255, 255, 255, 0.09);
   --arch-danger: #ff5d73;
   --arch-warn-bg: #3a2430;
   --arch-warn-text: #ff9aae;
-  --arch-radius-sm: 4px;
   --arch-radius-md: 6px;
   --arch-radius-lg: 8px;
   --arch-radius-xl: 10px;
-  /* Workspace hues — mirror of theme.css §21 (parity-tested). Spent
-     only on [data-ws] filter pills, never on page chrome. */
-  --arch-ws-1: #d9a521;
-  --arch-ws-2: #8b7cf6;
-  --arch-ws-3: #2fb3a3;
-  --arch-ws-4: #ef6f5c;
-  --arch-ws-5: #4da3e8;
-  --arch-ws-6: #e5488c;
-  --arch-ws-7: #62b15c;
-  --arch-ws-8: #e8933c;
-  --arch-ws-9: #6b8afd;
+  /* Workspace hues — mirror of theme.css §21 (parity-tested). WS3 is
+     the muted Amber stop (presence-gate mute, see theme.css). */
+  --arch-ws-1: #e54666;
+  --arch-ws-2: #f76808;
+  --arch-ws-3: #f5b301;
+  --arch-ws-4: #29a383;
+  --arch-ws-5: #00a2c7;
+  --arch-ws-6: #0090ff;
+  --arch-ws-7: #8e4ec6;
+  --arch-ws-8: #d6409f;
+  --arch-ws-9: #707885;
+}
+
+/* Light face: theme paper room (theme.css light). Same contracts —
+   raised/surface/bg track --aph-field/surface/base, text/muted track
+   --aph-ink/ink-dim. */
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --arch-bg: #e8e0c9;
+    --arch-surface: #f5efe0;
+    --arch-raised: #faf6ea;
+    --arch-text: #26262b;
+    --arch-muted: #585c64;
+    --arch-faint: #6b6f78;
+    --arch-line: rgba(38, 38, 43, 0.12);
+  }
 }
 
 html, body {
@@ -87,8 +105,13 @@ html, body {
 #aph-archive-head {
   position: sticky;
   top: 0;
-  background: var(--arch-bg);
+  background: color-mix(in srgb, var(--arch-bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+  backdrop-filter: blur(12px) saturate(1.1);
+  border-bottom: 1px solid var(--arch-line);
   padding: 8px 0 16px;
+  margin: 0 -24px;
+  padding-inline: 24px;
   z-index: 2;
 }
 
@@ -183,7 +206,7 @@ html, body {
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: var(--arch-faint);
   margin: 0 0 8px 2px;
 }
@@ -214,6 +237,12 @@ html, body {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+}
+
+/* Real favicons float clean — the raised tile is only for the fallback
+   letter. :has keeps letter rows untouched. */
+.aph-archive-fav:has(img) {
+  background: transparent;
 }
 
 .aph-archive-fav img {
@@ -283,10 +312,12 @@ html, body {
 }
 
 #aph-archive-empty {
-  margin-top: 48px;
+  margin: 56px auto 0;
+  max-width: 46ch;
   text-align: center;
-  color: var(--arch-faint);
-  font-size: 15px;
+  color: var(--arch-muted);
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 #aph-archive-nobridge {
@@ -307,6 +338,7 @@ html, body {
   color: var(--arch-text);
   border: 1px solid var(--arch-line);
   border-radius: var(--arch-radius-lg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   padding: 8px 18px;
   font-size: 13px;
   opacity: 0;

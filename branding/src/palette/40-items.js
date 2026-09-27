@@ -50,23 +50,6 @@
     }
   }
 
-  function splitWorkspaceCommands(cmds) {
-    const ws = [];
-    const rest = [];
-    try {
-      for (const c of cmds || []) {
-        if (isWorkspaceCommandTitle(c && c.title)) {
-          tag(c, "workspace", "Workspaces");
-          ws.push(c);
-        } else {
-          tag(c, "command", "Commands");
-          rest.push(c);
-        }
-      }
-    } catch (e) {}
-    return { ws, rest };
-  }
-
   function getCachedCommands() {
     try {
       if (!cachedCommands) {
@@ -608,7 +591,7 @@
       const n = String(i);
       cmds.push({
         title: `Switch to ${wsFull(api, n)}`,
-        hint: `Alt+Shift+${n}`,
+        hint: `Alt+${n}`,
         run: () => api && api.switchTo(n),
       });
     }

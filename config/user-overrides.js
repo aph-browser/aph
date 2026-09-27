@@ -42,12 +42,19 @@ user_pref("devtools.debugger.remote-enabled", true);
 // 11. Enable Nova
 user_pref("browser.nova.enabled", true);
 
-// 11b. Nova "Sun" theme (radiant gold) as the default, user-switchable.
-// Installed via ExtensionSettings policy (config/policies.json).
-// NOTE: Sun requires Firefox >= 156 (min version on AMO); on older builds
-// it stays dormant and the default theme applies until the next Firefox
-// update. normal_installed (not locked) so it can be changed in about:addons.
-user_pref("extensions.activeThemeID", "nova-sun@mozilla.org");
+// 11b. No default theme. Aph paints its own canvas, and a lightweight theme
+// leaked through three structural tokens: `tab_line` (drove the orange
+// active-tab outline via --tab-selected-outline-color), `--card-border-color`
+// (drove the content separators), and --toolbarbutton-background-color-hover
+// (the old --aph-voice default — nova-sun set it to a brown
+// rgba(178,97,0,0.25), warming every hover on an unstamped window). All three
+// are claimed by Aph now (see branding/theme.css), so there is nothing to
+// install and nothing left to leak.
+//
+// Deliberately no extensions.activeThemeID and no
+// layout.css.prefers-color-scheme.content-override: the room is left to
+// prefers-color-scheme and the OS, exactly as before. Removing the theme
+// must not decide the room.
 
 // 12. Workspace tab unloading: manual via palette ("Unload Inactive Tabs").
 // Set true to also discard eligible hidden-workspace tabs after each switch.

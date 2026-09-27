@@ -43,31 +43,6 @@
     return "help";
   }
 
-  function modePrefix(mode) {
-    if (mode === "commands") {
-      return ">";
-    }
-    if (mode === "tabs") {
-      return "@";
-    }
-    if (mode === "workspaces") {
-      return "#";
-    }
-    if (mode === "bookmarks") {
-      return "b:";
-    }
-    if (mode === "history") {
-      return "h:";
-    }
-    if (mode === "archive") {
-      return "a:";
-    }
-    if (mode === "help") {
-      return "?";
-    }
-    return "";
-  }
-
   function placeholderFor(mode) {
     try {
       return MODE_PLACEHOLDERS[mode] || PLACEHOLDER;

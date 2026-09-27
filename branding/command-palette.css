@@ -28,7 +28,7 @@
    voice kiss ties the slab to the room without going candy, and the
    voice (selection, marks, urlbar border) shines through. */
 #aph-palette-overlay {
-  --aph-palette-bg: color-mix(in srgb, var(--aph-voice, #7dbeff) 7%, #161722);
+  --aph-palette-bg: color-mix(in srgb, var(--aph-voice, #0090ff) 7%, #161722);
   --aph-palette-fg: #e8e8ec;
 }
 #aph-palette {
@@ -41,12 +41,19 @@
   background: var(--aph-palette-bg) !important;
   color: var(--aph-palette-fg) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  border-radius: var(--aph-radius-xl, 12px) !important;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 2px 12px rgba(0, 0, 0, 0.35) !important;
+  border-radius: var(--aph-radius-xl, 10px) !important;
+  /* Card language (L3): ring + top highlight + contact + far diffuse.
+     Always-dark slab (§Decision 1 Spotlight model) — never follows the
+     paper room. */
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 2px 12px rgba(0, 0, 0, 0.35),
+    0 24px 80px rgba(0, 0, 0, 0.6) !important;
   font: inherit !important;
 }
 #aph-palette.aph-palette-anim {
-  animation: aph-palette-pop 160ms cubic-bezier(0.2, 0.9, 0.3, 1.2) !important;
+  animation: aph-palette-pop 180ms var(--aph-pop-in, 0.2s cubic-bezier(0.16, 1, 0.3, 1)) !important;
   transform-origin: top center !important;
 }
 @keyframes aph-palette-pop {
@@ -56,19 +63,19 @@
 /* Animated exit: backdrop fades, panel sinks + shrinks, then JS sets
    hidden (see close() in 60-control.js, ~130ms timer). */
 #aph-palette-overlay.aph-palette-closing {
-  animation: aph-palette-fade-out 120ms ease-in forwards !important;
+  animation: aph-palette-fade-out 150ms ease-out forwards !important;
 }
 @keyframes aph-palette-fade-out {
   from { opacity: 1; }
   to { opacity: 0; }
 }
 #aph-palette.aph-palette-closing {
-  animation: aph-palette-pop-out 130ms ease-in forwards !important;
+  animation: aph-palette-pop-out 150ms ease-out forwards !important;
   transform-origin: top center !important;
 }
 @keyframes aph-palette-pop-out {
   from { opacity: 1; transform: translateY(0) scale(1); }
-  to { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 0; transform: translateY(-10px) scale(0.98); }
 }
 #aph-palette-input {
   width: 100% !important;
@@ -83,7 +90,7 @@
   outline: none !important;
 }
 #aph-palette-input::selection {
-  background-color: var(--aph-select, rgba(125, 190, 255, 0.28)) !important;
+  background-color: var(--aph-select, rgba(0, 144, 255, 0.45)) !important;
 }
 #aph-palette-list {
   overflow-y: auto !important;
@@ -97,14 +104,14 @@
   font-weight: 600 !important;
   letter-spacing: 0.06em !important;
   text-transform: uppercase !important;
-  opacity: 0.5 !important;
+  opacity: 0.65 !important;
 }
 .aph-palette-item {
   display: flex !important;
   align-items: flex-start !important;
   gap: 9px !important;
   padding: 8px 10px !important;
-  border-radius: var(--aph-radius-md, 8px) !important;
+  border-radius: var(--aph-radius-md, 6px) !important;
   cursor: pointer !important;
   line-height: 1.3 !important;
   border: 1px solid transparent !important;
@@ -119,14 +126,15 @@
   background: color-mix(in srgb, var(--aph-voice, rgba(255, 255, 255, 0.12)) 55%, transparent) !important;
 }
 .aph-palette-item.selected {
-  /* Voice-driven selection: theme voice by default (Sun light ->
-     #FDE8B5 gold tint, Sun dark -> #5F3100 brown), workspace accent
-     once §21 retunes --aph-voice. Fallback keeps the neutral wash. */
-  background: var(
-    --aph-voice,
-    rgba(255, 255, 255, 0.12)
+  /* Wash selection (55% voice + inset accent ring) — urlbar sibling
+     (§25), never the opaque vivid block. Always-dark slab keeps light
+     ink, so hierarchy survives on both faces. */
+  background: color-mix(
+    in srgb,
+    var(--aph-voice, rgba(255, 255, 255, 0.12)) 55%,
+    transparent
   ) !important;
-  border-color: color-mix(in srgb, var(--aph-urlbar-accent, rgba(125, 190, 255, 0.5)) 45%, transparent) !important;
+  border-color: color-mix(in srgb, var(--aph-urlbar-accent, rgba(0, 144, 255, 0.5)) 45%, transparent) !important;
 }
 .aph-palette-icon,
 .aph-palette-icon-img {
@@ -134,7 +142,7 @@
   width: 22px !important;
   height: 22px !important;
   margin-top: 1px !important;
-  border-radius: 6px !important;
+  border-radius: var(--aph-radius-md, 6px) !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -144,7 +152,7 @@
 }
 .aph-palette-icon-img {
   object-fit: contain !important;
-  background: rgba(255, 255, 255, 0.08) !important;
+  background: transparent !important;
   padding: 2px !important;
   box-sizing: border-box !important;
 }
@@ -200,7 +208,7 @@
 }
 #aph-palette-footer {
   padding: 7px 12px !important;
-  font-size: 11.5px !important;
+  font-size: 12px !important;
   opacity: 0.6 !important;
   border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
   white-space: nowrap !important;
@@ -211,7 +219,7 @@
 /* Fuzzy-match highlight: why this row matched the query. The Aph
    select token — one selection paint with the inputs and urlbar. */
 .aph-palette-mark {
-  background: var(--aph-select, rgba(125, 190, 255, 0.28)) !important;
+  background: var(--aph-select, rgba(0, 144, 255, 0.45)) !important;
   border-radius: 3px !important;
   padding: 0 1px !important;
   color: inherit !important;

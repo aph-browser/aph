@@ -379,7 +379,9 @@
       }
       if (selEl) {
         try {
-          selEl.scrollIntoView({ block: "nearest" });
+          // Instant scroll by design (no behavior:smooth) — safe under
+          // reduced-motion, explicit so a future smooth never slips in.
+          selEl.scrollIntoView({ block: "nearest", behavior: "auto" });
         } catch (e) {}
       }
     }

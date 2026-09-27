@@ -2,7 +2,9 @@
 # Aph Flatpak launcher — mirrors scripts/dev.py and packaging/AppRun:
 # seed first-run prefs, then run the bundled Firefox with the Aph profile.
 set -eu
-APH_PROFILE="${APH_PROFILE:-$HOME/.aph/profile}"
+APH_PROFILE="${APH_PROFILE:-$HOME/.config/aph/profile}"
+# One-time move off the legacy path (never use ~/.aph/profile).
+if [ ! -e "$APH_PROFILE" ] && [ -e "$HOME/.aph/profile" ]; then mkdir -p "$(dirname "$APH_PROFILE")"; mv "$HOME/.aph/profile" "$APH_PROFILE"; fi
 mkdir -p "$APH_PROFILE"
 # Seed-once defaults: never overwrite an existing user.js (user edits persist).
 if [ ! -f "$APH_PROFILE/user.js" ]; then cp -f "/app/share/aph/user.js" "$APH_PROFILE/user.js"; fi

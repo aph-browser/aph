@@ -1,4 +1,4 @@
-/* Aph workspaces: IDs "1"-"9", zero UI. Alt+Shift+1..9 jumps to a workspace,
+/* Aph workspaces: IDs "1"-"9", zero UI. Alt+1..9 jumps to a workspace,
  * Alt+Shift+]/Right cycles next active, Alt+Shift+[/Left cycles previous,
  * Alt+Shift+Tab toggles the last two used (MRU),
  * Window-scoped model (Vivaldi/Zen): every window has its own workspaces

@@ -168,62 +168,6 @@
     } catch (e) {}
   }
 
-  function findTabOwnerWindow(tab) {
-    try {
-      if (!tab) {
-        return null;
-      }
-      for (const w of listAphWindows()) {
-        try {
-          if (w && !w.closed && w.gBrowser && w.gBrowser.tabs && w.gBrowser.tabs.includes(tab)) {
-            return w;
-          }
-        } catch (e) {}
-      }
-    } catch (e) {}
-    return null;
-  }
-
-  // Adoption swaps in a NEW tab element in the destination
-  // (Tabbrowser.sys.mjs: adoptTab(aTab, {tabIndex, selectTab}) fires
-  // TabOpen with detail.adoptedTab there and closes the source tab).
-  // Returns the new tab, or null. Callers must work with the returned
-  // element — never the (now closed) source.
-  function adoptOneTab(tab, destBrowser) {
-    try {
-      if (!tab || tab.closing || tab.pinned) {
-        return null;
-      }
-      const gb = destBrowser || gBrowser;
-      if (!gb || typeof gb.adoptTab !== "function") {
-        return null;
-      }
-      let ownerWin = null;
-      try {
-        ownerWin = findTabOwnerWindow(tab);
-      } catch (e) {}
-      let index = 0;
-      try {
-        index = (gb.tabs && gb.tabs.length) || 0;
-      } catch (e) {}
-      let nt = null;
-      try {
-        nt = gb.adoptTab(tab, { tabIndex: index }) || null;
-      } catch (e) {}
-      if (!nt) {
-        try {
-          nt = gb.adoptTab(tab) || null;
-        } catch (_e) {}
-      }
-      if (nt && ownerWin) {
-        scrubAdoptionGhost(ownerWin, tab);
-      }
-      return nt;
-    } catch (e) {
-      return null;
-    }
-  }
-
   // Lowest workspace no live window (other than this one) claims. Only a
   // new-window placement hint now — windows no longer de-dupe, so any
   // collision is harmless (independent tab sets).

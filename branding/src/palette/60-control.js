@@ -74,14 +74,25 @@
     } catch (e) {}
     cancelCloseTimer();
     overlay.hidden = false;
-    // Pop-in animation: re-trigger on every open.
+    // Pop-in animation: re-trigger on every open, skipped under
+    // reduced-motion (parity with close() instant-hide).
     try {
-      overlay.classList.remove("aph-palette-anim");
-      const box = overlay.querySelector && overlay.querySelector("#aph-palette");
-      if (box) {
-        box.classList.remove("aph-palette-anim");
-        void box.offsetWidth;
-        box.classList.add("aph-palette-anim");
+      let reduce = false;
+      try {
+        reduce = !!(
+          window.matchMedia &&
+          window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        );
+      } catch (e) {}
+      if (!reduce) {
+        overlay.classList.remove("aph-palette-anim");
+        const box =
+          overlay.querySelector && overlay.querySelector("#aph-palette");
+        if (box) {
+          box.classList.remove("aph-palette-anim");
+          void box.offsetWidth;
+          box.classList.add("aph-palette-anim");
+        }
       }
     } catch (e) {}
     input.value = "";
@@ -227,7 +238,7 @@
             }
           }
         } catch (e) {}
-      }, 130);
+      }, 150);
     } catch (e) {
       try {
         overlay.hidden = true;

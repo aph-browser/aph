@@ -1,11 +1,11 @@
 """Aph nav-bar theme: branding/theme.css stays parseable and keeps its
 download-activity carve-out.
 
-The theme auto-hides every nav-bar button at idle; the
-#downloads-button:is([progress], [attention]) rule is the only exception
-that lets download progress and the panel anchor show. If it is removed
-or neutered, downloads start with zero UI and Firefox logs
-"Downloads button cannot be found".
+The theme dims (never hides) secondary buttons at idle while keeping
+essentials (back/forward/reload/home + hamburger) at full ink; the
+#downloads-button:is([progress], [attention]) rule lifts download progress
+and the panel anchor to full ink. Layout never moves — stable footprint,
+opacity-only.
 """
 
 import re
@@ -33,10 +33,167 @@ def test_download_activity_carve_out_present() -> None:
     assert "opacity: 1" in body
 
 
-def test_carve_out_comes_after_hide_rules() -> None:
-    """Later + !important beats the §3 hide rules on equal specificity."""
+def test_stock_nova_gradient_border_is_killed() -> None:
+    """Stock Nova paints the active tab a 1px violet->orange gradient ring
+    (tabs.css: `border: 1px solid transparent` + `background-clip: border-box`
+    + `background: var(--tab-border-color-accent) border-box border-area`, where
+    the token is a hardcoded 96deg violet-30 -> orange-30 gradient). Aph setting
+    `background-color` never reset those `background-image` layers, so the ring
+    drew over our hairline. It is gated on `:root[theme-in-app]`, so it came and
+    went with theme state and read as a random, mostly-orange border.
+
+    The selected-tab rule must therefore clear background-image, and the busy
+    sweep must re-set it afterwards so loading tabs keep their sheen."""
     css = _css()
-    assert css.find("Negative Margins at Idle") < css.find(CARVE_OUT)
+    sel = ".tabbrowser-tab[selected] > .tab-stack > .tab-background"
+    head = css.find(sel)
+    assert head != -1, "selected-tab rule missing"
+    body = css[head : css.find("}", head)]
+    assert "background-image: none" in body, (
+        "stock Nova's violet->orange gradient ring must be cleared on the "
+        "active tab — background-color alone does not reset background-image"
+    )
+    assert "border-color: transparent" in body, (
+        "active tab must not keep a themed border color under the hairline"
+    )
+    # The §13 busy sweep repaints background-image; it has to come AFTER the
+    # clearing rule or it would be wiped along with the gradient.
+    busy = css.find("[selected][busy] > .tab-stack > .tab-background")
+    assert busy != -1, "busy sweep rule missing"
+    assert busy > head, "busy sweep must follow the background-image reset"
+    assert "background-image: linear-gradient" in css[busy : css.find("}", busy)]
+
+
+def test_hairline_is_one_shared_token() -> None:
+    """§13 selected tab and §19 content card share a single ring value. They
+    were two hand-picked alphas (tab 12%, card 10%) that drifted, and the card
+    stacked a second inset top highlight so its top edge composited to ~22%
+    while its sides were 10%. One token, one alpha, no doubled edge."""
+    css = _css()
+    assert "--aph-hairline:" in css, "hairline token must be defined on :root"
+    # Both surfaces must read the token, not a private literal. Match with a
+    # regex: the formatter wraps `var(\n    --aph-hairline,\n    ...)` across
+    # lines whenever the inline fallback is long.
+    for sel in (
+        ".tabbrowser-tab[selected] > .tab-stack > .tab-background",
+        "#tabbrowser-tabbox {",
+    ):
+        head = css.find(sel)
+        assert head != -1, f"{sel} missing"
+        assert re.search(r"var\(\s*--aph-hairline", css[head : css.find("}", head)]), (
+            f"{sel} must consume --aph-hairline"
+        )
+    # The card no longer doubles its own top edge.
+    card = css.find("#tabbrowser-tabbox {")
+    assert card != -1
+    assert "inset 0 1px 0" not in css[card : css.find("}", css.find("}", card) + 1)], (
+        "card must not stack an inset top highlight on its own ring"
+    )
+    # Stamped workspaces tint the ring; alpha stays put (12% total) so the
+    # edge gains hue without gaining weight.
+    m = re.search(r":root\[data-aph-ws\][^{]*\{([^}]*--aph-hairline[^}]*)\}", css)
+    assert m, "stamped workspaces must define a tinted hairline"
+    assert "var(--aph-ws-accent)" in m.group(1)
+
+
+def test_themed_tab_outline_cannot_paint_aph_surfaces() -> None:
+    """A lightweight theme repaints the active tab through
+    `--tab-selected-outline-color`. tabs.css, under `&[lwtheme]`, sets it to
+    `var(--lwt-tab-line-color, currentColor)`; `.tab-background` consumes that
+    as `outline-color` at `outline-offset: -1px` — a 1px outline drawn just
+    inside the tab, in the theme's `tab_line` color. Aph set only box-shadow
+    and never outline-color, so the ring survived every Aph repaint and wore
+    the theme's hue (nova-sun ships tab_line #f3a81e — pure orange) on every
+    workspace, since a theme token is not workspace-scoped.
+
+    Aph owns its surfaces (see the canvas-face and menu-skin contracts), so
+    the selected tab must clear outline-color. Transparent, not `none`: the
+    1px geometry stays and outline never affects layout, so nothing shifts."""
+    css = _css()
+    sel = ".tabbrowser-tab[selected] > .tab-stack > .tab-background"
+    head = css.find(sel)
+    assert head != -1, "selected-tab rule missing"
+    body = css[head : css.find("}", head)]
+    assert "outline-color: transparent" in body, (
+        "active tab must clear the themed --tab-selected-outline-color; "
+        "otherwise the installed theme's tab_line draws a competing ring"
+    )
+    # --lwt-tab-line-color must never be *consumed* anywhere in the theme.
+    # Comments are stripped first: the rule's own comment names the token to
+    # explain why it is being overridden.
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    assert "--lwt-tab-line-color" not in code, (
+        "theme must not read the lightweight-theme tab_line token"
+    )
+
+
+def test_content_separators_are_aph_owned() -> None:
+    """Stock threads `--chrome-content-separator-color` through every
+    structural edge of the content area — .browserContainer's block-start /
+    inline-start / inline-end borders, the sidebar border, assorted
+    block-end rules — and browser-colors.css defines it as
+    `var(--card-border-color)`, i.e. theme-owned. Under a lightweight theme
+    that token carries the theme's hue (nova-sun), which is why a border
+    appeared around the content only outside fullscreen; stock drops the
+    separators when the content covers the window.
+
+    Aph must repoint the token at its own hairline so no consumer can be
+    theme-colored, and must drop the content's block-start edge specifically:
+    the card ring already draws that boundary a pixel outboard, so leaving
+    it stacks a second hairline flush against the first."""
+    css = _css()
+    assert "--chrome-content-separator-color" in css, "theme must claim the content separator token"
+    m = re.search(r"--chrome-content-separator-color\s*:\s*([^;]+);", css)
+    assert m, "separator token must be assigned"
+    assert "var(--aph-hairline)" in m.group(1), (
+        f"separator must read --aph-hairline, got {m.group(1)!r}"
+    )
+    # !important: the stock declaration is equal-specificity on :root.
+    tail = css[m.start() : css.find(";", m.start()) + 1]
+    assert "!important" in tail, "equal-specificity :root declarations need !important to win"
+    head = css.find("#tabbrowser-tabpanels > :not(.split-view-panel) .browserContainer")
+    assert head != -1, "browserContainer separator rule missing"
+    body = css[head : css.find("}", head)]
+    assert "border-block-start-color: transparent" in body, (
+        "content top edge must not double against the card ring"
+    )
+    # The inline edges are the only divider between sidebar and content
+    # (Aph draws none) — they must survive, so only block-start is cleared.
+    assert "border-inline-start-color" not in body
+    assert "border-inline-end-color" not in body
+
+
+def test_workspace_accent_has_a_root_default() -> None:
+    """`--aph-ws-accent` is only defined per-workspace, and both stamp paths
+    guard on `isValidId`. Unstamped, every `var(--aph-ws-accent, ...)` consumer
+    fell back to a hardcoded rgb(125,190,255) — a blue outside the nine
+    workspace stops. The root default must resolve to an in-palette stop so the
+    off-palette blue is unreachable."""
+    css = _css()
+    m = re.search(r":root\s*\{[^}]*--aph-ws-accent\s*:\s*([^;]+);", css, re.S)
+    assert m, "--aph-ws-accent needs a :root default"
+    default = m.group(1).strip()
+    assert "var(--aph-ws-" in default, f"root default must name a palette stop, got {default!r}"
+    stop = re.search(r"var\((--aph-ws-\d+)\)", default).group(1)
+    assert f"{stop}:" in css, f"{stop} must be defined on :root"
+    assert stop != "--aph-ws-accent", "default must not self-reference"
+
+
+def test_carve_out_comes_after_hide_rules() -> None:
+    """Later + !important beats the §3 dim rules on equal specificity."""
+    css = _css()
+    assert css.find("Stable Dim Tiers") < css.find(CARVE_OUT)
+
+
+def test_bar_never_moves_layout() -> None:
+    """Stable footprint: no negative-margin collapse, no urlbar expand.
+    Dim is opacity-only; footprint identical at idle/hover/open."""
+    css = _css()
+    assert "margin-inline-start: -34px" not in css
+    assert "margin-inline-end: -34px" not in css
+    assert "margin-inline-end: -38px" not in css
+    assert "max-width: none" not in css
+    assert "--aph-secondary-opacity:" in css
 
 
 def test_carve_out_uses_visibility_not_display() -> None:
@@ -187,10 +344,11 @@ def test_desk_has_depth_and_adaptive_shadow() -> None:
 def test_workspace_accents_cover_all_nine() -> None:
     """Per-workspace accents (§21): all nine workspaces define an accent,
     consumed by the three presence surfaces — selected fill (§13),
-    indicator, dock current — never as text. The desk stays neutral:
-    no [data-aph-ws] rule may override --aph-desk-sheen (the room never
-    changes white balance), and no accent edge rule may remain on the
-    selected tab (the fill is the single signal)."""
+    indicator, dock current — never as text. The desk keeps a subtle
+    4% accent kiss (§19 sheen) for orientation without changing the
+    room's white balance. The selected tab's hairline DOES carry the
+    accent (--aph-hairline, §13) — it may tint the edge, but never grow
+    past hairline weight, and never replace the fill as the signal."""
     css = _css()
     for n in "123456789":
         assert f"--aph-ws-{n}:" in css, f"missing accent var for ws{n}"
@@ -198,11 +356,20 @@ def test_workspace_accents_cover_all_nine() -> None:
     assert "--aph-ws-accent:" in css
     assert ":root[data-aph-ws] #aph-ws-indicator" in css
     assert '.aph-ws-pill[data-ws][data-current="1"]' in css
+    # A per-workspace RULE may not repaint the selected tab's background or
+    # outline — the fill token owns that. The hairline tint is allowed to
+    # live in :root[data-aph-ws] (it does, via --aph-hairline).
     assert ":root[data-aph-ws] .tabbrowser-tab[selected]" not in css, (
-        "accent edge on selected tab is gone — the §13 fill is the signal"
+        "no per-workspace rule may repaint the selected tab — the §13 "
+        "fill token owns its background"
     )
-    assert not re.search(r":root\[data-aph-ws\][^{]*\{[^}]*--aph-desk-sheen", css), (
-        "desk sheen must stay neutral on every workspace"
+    m = re.search(r":root\[data-aph-ws\][^{]*\{[^}]*--aph-desk-sheen\s*:\s*([^;]+);", css)
+    assert m, "desk sheen must be defined for stamped workspaces"
+    # Subtle only: 4% accent kiss, never a repaint.
+    assert "var(--aph-ws-accent)" in m.group(1)
+    pct = re.search(r"(\d+(?:\.\d+)?)\s*%", m.group(1))
+    assert pct and float(pct.group(1)) <= 5, (
+        f"desk sheen must stay subtle (<=5%), got {m.group(1)!r}"
     )
 
 
@@ -454,7 +621,11 @@ def test_toolbar_icon_hovers_speak_voice() -> None:
     css = _css()
     head = css.find("26b. Icon hovers speak voice")
     assert head != -1
-    block = css[head:]
+    tail = css[head:]
+    # Bound to §26b: §26c (New Tab full-row) legitimately owns
+    # border-radius/transition on the button box (close X keeps native).
+    end = tail.find("26c.", 10)
+    block = tail[:end] if end != -1 else tail
     inners = "> :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack)"
     assert block.count(inners) >= 2, "hover must paint native's inner elements"
     assert ".identity-box-button:is(:hover" in block
@@ -465,6 +636,72 @@ def test_toolbar_icon_hovers_speak_voice() -> None:
     assert "transition:" not in block
     assert "border-radius:" not in block
     assert "--toolbarbutton-background-color-hover" not in block
+
+
+def test_newtab_hover_is_full_row_wash() -> None:
+    """New Tab button (§26c): single full-row wash with lg corners, inners
+    cleared to transparent — never separate pills around plus + label."""
+    css = _css()
+    assert "26c. New Tab button" in css
+    assert "#tabs-newtab-button" in css
+    head = css.find("26c. New Tab button")
+    block = css[head:]
+    assert "--aph-radius-lg" in block
+    assert "30%" in block and "45%" in block
+    assert ":not(:focus-visible)" in block
+
+
+def test_tab_group_radix_remap() -> None:
+    """Tab group remap (§27): stock 9-name palette retuned to the row
+    colors — base solids plus hover/invert/pale/text variants per name,
+    both grey spellings, behind the forced-colors guard. Amber alone
+    takes dark text on solid."""
+    css = _css()
+    assert "27. Tab group color remap" in css
+    assert "@media not (forced-colors)" in css
+    head = css.find("27. Tab group color remap")
+    block = css[head:]
+    solids = {
+        "--tab-group-red:": "#e54666",
+        "--tab-group-orange:": "#f76808",
+        "--tab-group-yellow:": "#ffc53d",
+        "--tab-group-green:": "#29a383",
+        "--tab-group-cyan:": "#00a2c7",
+        "--tab-group-blue:": "#0090ff",
+        "--tab-group-purple:": "#8e4ec6",
+        "--tab-group-pink:": "#d6409f",
+        "--tab-group-grey:": "#707885",
+        "--tab-group-gray:": "#707885",
+    }
+    lowered = block.lower()
+    for token, hexval in solids.items():
+        assert token in lowered, f"missing {token}"
+        assert hexval in lowered, f"missing solid {hexval} for {token}"
+    for variant in ("-hover:", "-invert:", "-pale:", "-text:", "-text-invert:"):
+        for name in ("red", "blue", "grey", "gray"):
+            assert f"--tab-group-{name}{variant}" in lowered
+    assert "--tab-group-yellow-text: #21201c" in lowered.replace("  ", " ")
+
+
+def test_tab_group_labels_are_wash_not_solid() -> None:
+    """Group labels (§27): 45% hue wash + ink text on the label (never solid
+    vivid pills) — the same presence recipe as workspace selected tabs;
+    hover holds the wash with an inset ring instead of a fill jump. The
+    collapsed state inherits the base label rule — no duplicate block."""
+    css = _css()
+    head = css.find("27. Tab group color remap")
+    assert head != -1
+    block = css[head:]
+    assert ".tab-group-label" in block
+    assert "var(--tab-group-color) 45%" in block
+    assert "var(--tab-group-color) 50%" not in block, (
+        "group wash must match the 45% presence recipe"
+    )
+    assert "var(--aph-ink" in block
+    assert "tab-group[collapsed] > .tab-group-label-container" not in block, (
+        "collapsed label must inherit the base wash, not duplicate it"
+    )
+    assert "--tab-group-line-color" in block
 
 
 def test_toolbox_paints_own_base() -> None:
@@ -498,3 +735,79 @@ def test_inter_small_size_tracking_is_scoped() -> None:
     ):
         assert sel in css
     assert "letter-spacing: var(--aph-tracking-ui)" in css
+
+
+def test_overridden_paint_rules_stay_deleted() -> None:
+    """Rules that a later, more-specific rule always beat are dead weight.
+
+    .aph-ws-pill[data-current="1"] set background+color, but every such pill
+    also carries data-ws, so .aph-ws-pill[data-ws][data-current="1"] always
+    won (it also carried the theme-ink leak, now gone with the rule). The
+    rest wash, the collapsed .aph-ws-count hide, and the collapsed
+    tab-group-label block duplicated live values under narrower selectors.
+    --arch-radius-sm was defined with zero readers.
+    """
+    css = _css()
+    # The deleted rule set background+color on [data-current] without
+    # [data-ws]; the live drag-dim rule only sets opacity+cursor and must
+    # not trip this guard, so assert on the dead declarations, not the
+    # selector substring.
+    for m in re.finditer(r"\.aph-ws-pill\[data-current=\"1\"\]\s*\{([^}]*)\}", css):
+        body = m.group(1)
+        assert "background" not in body and "color:" not in body, (
+            "dead current-pill paint resurrected"
+        )
+    assert "--toolbarbutton-color" not in re.sub(r"/\*.*?\*/", "", css, flags=re.S), (
+        "theme ink read resurrected"
+    )
+    assert ".aph-ws-pill[data-ws]:not([data-current=" not in css, "dead rest-wash rule resurrected"
+    assert "sidebar-main:not([expanded]) .aph-ws-count" not in css, (
+        "dead collapsed-count rule resurrected"
+    )
+    assert "tab-group[collapsed] > .tab-group-label-container" not in css, (
+        "dead collapsed-label rule resurrected"
+    )
+    arch = (ROOT / "branding" / "archive.css").read_text(encoding="utf-8")
+    assert "--arch-radius-sm" not in arch, "dead radius token resurrected"
+
+
+def test_no_live_theme_color_reads() -> None:
+    """Aph paints no surface from a theme-owned token.
+
+    The last two live reads are gone: the current-pill text (died with its
+    rule) and the starred-tab tint (now hardcoded gold). What remains is
+    exactly one nested airbag — userChrome.css keeps a theme-hover fallback
+    behind --aph-voice for the state where the Aph layer failed to load —
+    plus comments. Strip comments, then assert no live paint read survives.
+    """
+    root = Path(__file__).resolve().parent.parent
+    theme = (root / "branding" / "theme.css").read_text(encoding="utf-8")
+    code = re.sub(r"/\*.*?\*/", "", theme, flags=re.S)
+    assert "--toolbarbutton-color" not in code, "theme ink read resurrected"
+    assert "--toolbarbutton-background-color-hover" not in code, "theme hover read resurrected"
+    # The starred tint is hardcoded gold, never a token.
+    head = code.find('[data-aph-starred="1"]:not([selected])')
+    assert head != -1
+    assert "rgba(255, 200, 80, 0.28)" in code[head : code.find("}", head)]
+
+
+def test_fallbacks_match_root_definitions() -> None:
+    """Unreachable fallbacks must still tell the truth.
+
+    Every var() below is always defined on :root, so these never fire — but
+    the old values named alien hexes and off-palette blues that would have
+    painted wrong in exactly the failure state the fallback exists for.
+    The hue-neutral white washes and the userChrome airbag are intentional
+    and exempt.
+    """
+    css = _css()
+    for stale in (
+        "#14141a",
+        "#24283b",
+        "#f0f0f4",
+        "#e6e8f5",
+        "#7dbeff",
+        "rgb(125, 190, 255)",
+        "rgba(125, 190, 255,",
+    ):
+        assert stale not in css, f"stale fallback value resurrected: {stale}"

@@ -83,6 +83,7 @@ jobs:
           cp branding/userChrome.css build/AppDir/usr/share/aph/userChrome.css
           cp branding/aph.png build/AppDir/aph.png
           cp branding/aph.png build/AppDir/usr/share/icons/hicolor/128x128/apps/aph.png
+          python -c "from PIL import Image; im=Image.open('branding/aph.png').convert('RGBA'); import os; [(os.makedirs(f'build/AppDir/usr/share/icons/hicolor/{s}x{s}/apps', exist_ok=True), im.resize((s,s), Image.LANCZOS).save(f'build/AppDir/usr/share/icons/hicolor/{s}x{s}/apps/aph.png')) for s in (16,32,48,64,256)]"
           cp packaging/aph.desktop build/AppDir/aph.desktop
           cp packaging/AppRun build/AppDir/AppRun
           chmod +x build/AppDir/AppRun
@@ -147,6 +148,7 @@ jobs:
           cp "packaging/flatpak/io.github.aph_browser.Aph.desktop" build/flatpak-stage/
           cp "packaging/flatpak/io.github.aph_browser.Aph.metainfo.xml" build/flatpak-stage/
           cp branding/aph.png build/flatpak-stage/aph.png
+          python -c "from PIL import Image; im=Image.open('branding/aph.png').convert('RGBA'); import os; [(os.makedirs(f'build/flatpak-stage/icons/hicolor/{s}x{s}/apps', exist_ok=True), im.resize((s,s), Image.LANCZOS).save(f'build/flatpak-stage/icons/hicolor/{s}x{s}/apps/io.github.aph_browser.Aph.png')) for s in (16,32,48,64,128,256)]"
 
       - name: Build Flatpak
         run: |

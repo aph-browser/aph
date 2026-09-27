@@ -124,31 +124,6 @@
     return "help";
   }
 
-  function modePrefix(mode) {
-    if (mode === "commands") {
-      return ">";
-    }
-    if (mode === "tabs") {
-      return "@";
-    }
-    if (mode === "workspaces") {
-      return "#";
-    }
-    if (mode === "bookmarks") {
-      return "b:";
-    }
-    if (mode === "history") {
-      return "h:";
-    }
-    if (mode === "archive") {
-      return "a:";
-    }
-    if (mode === "help") {
-      return "?";
-    }
-    return "";
-  }
-
   function placeholderFor(mode) {
     try {
       return MODE_PLACEHOLDERS[mode] || PLACEHOLDER;
@@ -1379,23 +1354,6 @@
     }
   }
 
-  function splitWorkspaceCommands(cmds) {
-    const ws = [];
-    const rest = [];
-    try {
-      for (const c of cmds || []) {
-        if (isWorkspaceCommandTitle(c && c.title)) {
-          tag(c, "workspace", "Workspaces");
-          ws.push(c);
-        } else {
-          tag(c, "command", "Commands");
-          rest.push(c);
-        }
-      }
-    } catch (e) {}
-    return { ws, rest };
-  }
-
   function getCachedCommands() {
     try {
       if (!cachedCommands) {
@@ -1937,7 +1895,7 @@
       const n = String(i);
       cmds.push({
         title: `Switch to ${wsFull(api, n)}`,
-        hint: `Alt+Shift+${n}`,
+        hint: `Alt+${n}`,
         run: () => api && api.switchTo(n),
       });
     }
@@ -3130,7 +3088,9 @@
       }
       if (selEl) {
         try {
-          selEl.scrollIntoView({ block: "nearest" });
+          // Instant scroll by design (no behavior:smooth) — safe under
+          // reduced-motion, explicit so a future smooth never slips in.
+          selEl.scrollIntoView({ block: "nearest", behavior: "auto" });
         } catch (e) {}
       }
     }
@@ -3243,14 +3203,25 @@
     } catch (e) {}
     cancelCloseTimer();
     overlay.hidden = false;
-    // Pop-in animation: re-trigger on every open.
+    // Pop-in animation: re-trigger on every open, skipped under
+    // reduced-motion (parity with close() instant-hide).
     try {
-      overlay.classList.remove("aph-palette-anim");
-      const box = overlay.querySelector && overlay.querySelector("#aph-palette");
-      if (box) {
-        box.classList.remove("aph-palette-anim");
-        void box.offsetWidth;
-        box.classList.add("aph-palette-anim");
+      let reduce = false;
+      try {
+        reduce = !!(
+          window.matchMedia &&
+          window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        );
+      } catch (e) {}
+      if (!reduce) {
+        overlay.classList.remove("aph-palette-anim");
+        const box =
+          overlay.querySelector && overlay.querySelector("#aph-palette");
+        if (box) {
+          box.classList.remove("aph-palette-anim");
+          void box.offsetWidth;
+          box.classList.add("aph-palette-anim");
+        }
       }
     } catch (e) {}
     input.value = "";
@@ -3396,7 +3367,7 @@
             }
           }
         } catch (e) {}
-      }, 130);
+      }, 150);
     } catch (e) {
       try {
         overlay.hidden = true;
