@@ -852,3 +852,34 @@ def test_container_line_softened_unselected_only() -> None:
     # Bound-match hiding (§7) still precedes and is intact.
     hide = css.find('[data-aph-bound-match="1"] .tab-context-line')
     assert hide != -1 and hide < head
+
+
+def test_sidebar_joins_toolbar_room() -> None:
+    """§22b: stock paints the sidebar box its own -moz-sidebar flat plus a
+    separator border, reading as separate things next to the Aph-base
+    toolbar. The sidebar background token is reclaimed to Aph base and
+    the box border goes transparent (width kept, so geometry never
+    shifts)."""
+    css = _css()
+    assert "--sidebar-background-color: var(--aph-base" in css, (
+        "strip must drink the toolbar base, not stock -moz-sidebar"
+    )
+    sel = "#sidebar-box {"
+    head = css.find(sel)
+    assert head != -1, "sidebar-box separator rule missing"
+    body = css[head : css.find("}", head)]
+    assert "border-color: transparent" in body
+
+
+def test_rest_rows_whisper() -> None:
+    """§22: unselected unhovered rows wear a whisper fill (not full
+    transparency) so the strip reads as rows at rest. Hover (§12) and
+    selected (§13) are mutually exclusive with the rest selector, so
+    they still win their states."""
+    css = _css()
+    sel = ".tabbrowser-tab:not([selected]):not(:hover) > .tab-stack > .tab-background"
+    head = css.find(sel)
+    assert head != -1, "rest-row rule missing"
+    body = css[head : css.find("}", head)]
+    assert "4%" in body and "color-mix" in body, "rest rows must whisper, not vanish"
+    assert "background: transparent" not in body

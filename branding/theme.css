@@ -1157,19 +1157,38 @@ menupopup > menuitem:last-child {
 
 /* ==========================================================================
    22. Sidebar finish: the strip as furniture, not a toolbar (Arc recipe
-   adapted). Rest rows are explicitly transparent — the strip reads as
-   one calm surface and only hover/active assert themselves. Titles set
-   13px/500 so long sidebars stay scannable; rows share the lg radius
-   so rest, hover wash (§12), and selected pill (§13) speak one corner
-   language. Favicons ride quiet wash tiles (dropdown parity, §25) so
-   site colors never vibrate against the desk. A 1px vertical breath
-   per row keeps density while ending the cramped stock stacking —
-   padding only, never margins, so collapse and multiselect geometry
-   pass through untouched.
+   adapted). Rest rows wear a whisper fill so the strip reads as rows
+   even at rest — hover wash (§12) and selected pill (§13) rise from
+   whisper instead of nothing. Titles set 13px/500 so long sidebars
+   stay scannable; rows share the lg radius so rest, hover wash (§12),
+   and selected pill (§13) speak one corner language. Favicons ride
+   quiet wash tiles (dropdown parity, §25) so site colors never vibrate
+   against the desk. A 1px vertical breath per row keeps density while
+   ending the cramped stock stacking — padding only, never margins, so
+   collapse and multiselect geometry pass through untouched.
    ========================================================================== */
 .tabbrowser-tab:not([selected]):not(:hover) > .tab-stack > .tab-background,
 tab:not([selected]):not(:hover) > .tab-stack > .tab-background {
-  background: transparent !important;
+  background: color-mix(in srgb, var(--aph-ink, #e8e8ec) 4%, transparent) !important;
+}
+
+/* ==========================================================================
+   22b. One room: the strip joins the toolbar instead of sitting beside
+   it. Stock paints the sidebar box its own -moz-sidebar flat (dark:
+   rgb(28,27,34) vs Aph base #17181f; light: white vs Aph paper) and
+   boxes it with a --chrome-content-separator-color border — two
+   near-but-different surfaces plus a line reading as separate things.
+   Reclaiming the sidebar background token to Aph base melts strip and
+   toolbar into one surface (bookmarks/history sidebars drink from the
+   same token and join the room too); the separator border goes
+   transparent (kept width, so geometry never shifts — the §19 card
+   keeps its own content-side separation).
+   ========================================================================== */
+:root {
+  --sidebar-background-color: var(--aph-base, #17181f) !important;
+}
+#sidebar-box {
+  border-color: transparent !important;
 }
 
 .tabbrowser-tab .tab-label,
