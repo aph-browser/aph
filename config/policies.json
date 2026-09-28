@@ -11,6 +11,15 @@
     "DisableFirefoxAccounts": true,
     "PasswordManagerEnabled": false,
     "DisableRemoteImprovements": true,
+    "AppUpdateURL": "https://localhost",
+    "WebsiteFilter": {
+      "Block": [
+        "https://localhost/*"
+      ],
+      "Exceptions": [
+        "https://localhost/*"
+      ]
+    },
     "DisableAppUpdate": true,
     "NoDefaultBookmarks": true,
     "SkipTermsOfUse": true,
@@ -71,12 +80,6 @@
     "AutofillCreditCardEnabled": false,
     "SearchEngines": {
       "Default": "DuckDuckGo"
-    },
-    "DNSOverHTTPS": {
-      "Enabled": true,
-      "ProviderURL": "https://cloudflare-dns.com/dns-query",
-      "Fallback": true,
-      "Locked": false
     },
     "CaptivePortal": true,
     "UserMessaging": {

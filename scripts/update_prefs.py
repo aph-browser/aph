@@ -15,6 +15,7 @@ are appended after Betterfox and take precedence on conflicts.
 """
 
 import argparse
+import re
 import sys
 import urllib.request
 from pathlib import Path
@@ -35,6 +36,28 @@ BANNER = (
 )
 
 
+# Prefs stripped from the upstream Betterfox block on every merge.
+# browser.contentblocking.category: Betterfox pins "strict"; Aph ships the
+# stock default instead (policies.json EnableTrackingProtection already
+# defaults to standard, unlocked), so tracking protection is never
+# force-hardened and the user's choice sticks.
+# privacy.resistFingerprinting / privacy.clearOnShutdown.cookies: not set
+# by upstream today, but either would break usability (spoofed timezone /
+# wiped cookies) if a future Betterfox started pinning it — strip
+# pre-emptively so Aph stays on stock behavior.
+# browser.cache.disk.enable: Betterfox disables the disk cache; Aph keeps
+# stock (enabled) — memory-only caching re-downloads everything on every
+# restart while cookies/history stay on disk anyway.
+BETTERFOX_STRIP_PREFS = (
+    "browser.contentblocking.category",
+    "privacy.resistFingerprinting",
+    "privacy.clearOnShutdown.cookies",
+    "browser.cache.disk.enable",
+)
+
+_PREF_RE = re.compile(r"""user_pref\("([^"]+)""")
+
+
 def fetch_betterfox() -> str:
     req = urllib.request.Request(BETTERFOX_URL, headers={"User-Agent": "aph-update-prefs"})
     with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
@@ -46,7 +69,12 @@ def fetch_betterfox() -> str:
 
 
 def merge(betterfox: str, overrides: str) -> str:
-    parts = [BANNER.rstrip("\n"), "", betterfox.rstrip("\n"), "", overrides.strip("\n"), ""]
+    kept = [
+        line
+        for line in betterfox.rstrip("\n").splitlines()
+        if (m := _PREF_RE.search(line)) is None or m.group(1) not in BETTERFOX_STRIP_PREFS
+    ]
+    parts = [BANNER.rstrip("\n"), "", "\n".join(kept).rstrip("\n"), "", overrides.strip("\n"), ""]
     return "\n".join(parts)
 
 

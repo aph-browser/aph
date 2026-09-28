@@ -2,10 +2,6 @@
 // Seed-once defaults: copied into a profile on first launch only, so user
 // changes via about:config / Settings persist. Re-apply with: just sync-prefs
 
-// 1. Usability / Timezone / Dark mode
-user_pref("privacy.resistFingerprinting", false);
-user_pref("privacy.clearOnShutdown.cookies", false);
-
 // 2. DRM Playback (Netflix / Spotify)
 user_pref("media.eme.enabled", true);
 user_pref("media.gmp-widevinecdm.enabled", true);
@@ -18,8 +14,16 @@ user_pref("sidebar.verticalTabs", true);
 user_pref("sidebar.visibility", "always-show");
 user_pref("sidebar.main.tools", "none");
 
-// 4. Disable pre-rendered New Tab cache during development
-user_pref("browser.startup.homepage.abouthome_cache.enabled", false);
+// 4. Pre-rendered New Tab cache: left at stock (enabled).
+// browser.startup.homepage.abouthome_cache.enabled gates the about:home /
+// about:newtab document Firefox caches in cache2. Its version check keys
+// on appinfo.appBuildID only, so it does NOT notice Aph-side default
+// changes — but Aph pins no wallpaper defaults anymore, and both mutation
+// paths already purge (`just sync-prefs` / `just sync-chrome` wipe the
+// caches; a rebrand forces a -purgecaches launch), so the stale-document
+// hazard is covered and regular users keep the faster first paint.
+// Deliberately no pref line: stock is enabled, and omitting it (rather
+// than pinning true) leaves the setting user-changeable.
 
 // 5. Keep window open when last tab is closed
 user_pref("browser.tabs.closeWindowWithLastTab", false);
@@ -33,11 +37,13 @@ user_pref("browser.startup.page", 3);
 // 8. Never show bookmarks toolbar
 user_pref("browser.toolbars.bookmarks.visibility", "never");
 
-// 9. Enable Chrome devtools
+// 9. Enable Chrome devtools (kept: the bug-report flow evaluates
+// chrome-privileged JS in the Browser Console, which needs this).
 user_pref("devtools.chrome.enabled", true);
 
-// 10. Enable remote debugging
-user_pref("devtools.debugger.remote-enabled", true);
+// 10. Remote debugging: left at stock (disabled). Regular users gain
+// nothing from the debugger server, so it stays off; developers can flip
+// devtools.debugger.remote-enabled in about:config and it sticks.
 
 // 11. Enable Nova
 user_pref("browser.nova.enabled", true);
@@ -95,14 +101,22 @@ user_pref("aph.stars.ctrlWUnloads", true);
 // Customize Sidebar stays reachable via the Aph menu either way.
 user_pref("aph.sidebar.hideFooter", true);
 
-// 13. Default New Tab wallpaper: Celestial "eclipse-time-lapse" (dark).
-// NOTE: this pref stores the wallpaper *title*, not the record ID/UUID.
-// (title eclipse-time-lapse; attachment main-workspace/newtab-wallpapers-v2/55b678ff-15c3-49d5-bdbc-40f8413cfb8a.avif;
-// record ID 2868b784-19d5-4f9b-9f77-047917484b19. Ships in
-// defaults/settings/main/newtab-wallpapers-v2.json so it resolves offline.)
-user_pref("browser.newtabpage.activity-stream.newtabWallpapers.enabled", true);
-user_pref("browser.newtabpage.activity-stream.newtabWallpapers.wallpaper", "eclipse-time-lapse");
-user_pref("browser.newtabpage.activity-stream.newtabWallpapers.user.enabled", true);
+// 13. New Tab look: Aph's own desk, no forced wallpaper.
+// branding/userContent.css paints the designed gradient on html with body
+// forced transparent, so Activity Stream's wallpaper (body
+// background-image) covers the desk naturally when set. We deliberately
+// set NO
+// newtabWallpapers.* pref: pinning one (it used to be "eclipse-time-lapse")
+// forced a photo on every launch and overwrote any wallpaper the user
+// picked. Leaving the prefs absent means stock default (no wallpaper), so
+// the desk shows — and the wallpaper picker still works if you want a
+// photo, in which case the body image covers the desk.
+// One stale-cache caveat, handled by tooling rather than by disabling
+// features: Mozilla's messaging can set newtabWallpapers.initialWallpaper
+// at runtime, and the cached about:newtab document (see item 4) can carry
+// that baked-in body style past the pref change. `just sync-prefs` and
+// `just sync-chrome` wipe the caches, so a changed default is never
+// shadowed by a stale document.
 
 /****************************************************************************
  * END: APH NATIVE OVERRIDES

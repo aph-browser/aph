@@ -187,13 +187,43 @@ def seed_chrome_css(root: Path, profile: Path) -> str:
     return "kept"
 
 
+# Caches that can outlive the defaults they were built from. cache2 holds
+# the about:home / about:newtab document Firefox serves to the privileged
+# about-content process; its version check keys on appinfo.appBuildID only,
+# so a document baked with an old body inline style (e.g. an Activity Stream
+# `--newtab-wallpaper: url(...)`) survives a pref change. startupCache holds
+# chrome/resource mappings, stale after a rebrand. Wiping both after a sync
+# is what makes a changed default actually take effect on next launch.
+STALE_CACHE_DIRS = ("cache2", "startupCache")
+
+
+def wipe_caches(profile: Path) -> list[str]:
+    """Delete STALE_CACHE_DIRS under profile. Returns the names removed.
+
+    Callers must have already established the profile is unlocked
+    (_sync_file refuses while Firefox holds the lock).
+    """
+    removed = []
+    for name in STALE_CACHE_DIRS:
+        target = profile / name
+        try:
+            if target.is_dir():
+                shutil.rmtree(target)
+                removed.append(name)
+        except OSError as e:
+            print(f"Warning: could not remove {target}: {e}", file=sys.stderr)
+    return removed
+
+
 def _sync_file(
     src: Path, dst: Path, profile: Path, backup_name: str, missing_hint: str = ""
 ) -> None:
     """Force re-apply src over dst (explicit opt-in).
 
     Backs up dst to backup_name first, refuses while Firefox holds the
-    profile lock. All user-facing messages match the historical wording.
+    profile lock, then wipes the stale caches so the new defaults are not
+    shadowed by a cached document. All user-facing messages match the
+    historical wording.
     """
     if not src.is_file():
         print(f"ERROR: {src} not found.{missing_hint}", file=sys.stderr)
@@ -206,14 +236,19 @@ def _sync_file(
         shutil.copy2(dst, dst.parent / backup_name)
     shutil.copy2(src, dst)
     print(f"Synced {src} -> {dst} (previous saved as {backup_name})")
+    removed = wipe_caches(profile)
+    if removed:
+        print(f"Wiped stale cache: {', '.join(removed)} (cached newtab/chrome data)")
 
 
 def sync_user_js(root: Path, profile: Path) -> None:
     """Force re-apply config/user.js over the profile (explicit opt-in).
 
     Backs up the existing profile/user.js to user.js.bak first. Refuses while
-    Firefox holds the profile lock. Next launch, Firefox applies the synced
-    file over prefs.js — user edits to listed prefs are overwritten.
+    Firefox holds the profile lock. Wipes cache2/startupCache so a pref that
+    changed is not shadowed by a cached about:newtab document. Next launch,
+    Firefox applies the synced file over prefs.js — user edits to listed
+    prefs are overwritten.
     """
     _sync_file(
         root / "config" / "user.js",
@@ -229,7 +264,9 @@ def sync_chrome_css(root: Path, profile: Path) -> None:
     userChrome.css plus userContent.css (new-tab backdrop).
 
     Same contract as sync_user_js: backs up to *.bak first, refuses
-    while Firefox holds the profile lock.
+    while Firefox holds the profile lock, and wipes the stale caches —
+    userContent.css is the new-tab backdrop, so a cached about:newtab
+    document would otherwise keep painting the old one.
     """
     _sync_file(
         root / "branding" / "userChrome.css",
@@ -252,6 +289,92 @@ def sync_chrome_css(root: Path, profile: Path) -> None:
 
 
 DAILY_FLAGS = ("--daily", "--local")
+
+
+# One-time migration: Aph used to ship defaults it no longer does, and
+# profiles seeded earlier still carry them — the line in profile/user.js
+# (re-applied every launch) and the value in prefs.js. Each (pref, stale
+# value) pair below is a value that can only have come from the old
+# default, so scrubbing it never destroys user intent; anything else
+# implies deliberate action (or stock) and is left alone.
+# Runs only while Firefox is NOT holding the profile; otherwise it safely
+# no-ops until the next cold launch.
+RETIRED_PREFS = (
+    # Betterfox-inherited strict pin; the EnableTrackingProtection policy
+    # already enforces standard and locks the category.
+    ("browser.contentblocking.category", '"strict"'),
+    # Disk cache is back at stock (enabled).
+    ("browser.cache.disk.enable", "false"),
+    # Pre-rendered New Tab cache is back at stock (enabled).
+    ("browser.startup.homepage.abouthome_cache.enabled", "false"),
+    # Remote debugger stays off for regular users.
+    ("devtools.debugger.remote-enabled", "true"),
+)
+
+
+def _is_retired_stale(line: str) -> bool:
+    """True if line sets a retired pref to its old shipped value."""
+    text = line.strip()
+    if not text.startswith('user_pref("') or not text.endswith(");"):
+        return False
+    name, sep, value = text[len('user_pref("') : -len(");")].partition('",')
+    if not sep:
+        return False
+    return (name, value.strip()) in RETIRED_PREFS
+
+
+def _scrub_lines(path: Path) -> bool:
+    """Remove retired-default lines from path. Returns True if changed."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    lines = text.splitlines()
+    kept = [line for line in lines if not _is_retired_stale(line)]
+    if len(kept) == len(lines):
+        return False
+    out = "\n".join(kept)
+    if text.endswith("\n"):
+        out += "\n"
+    try:
+        path.write_text(out, encoding="utf-8")
+    except OSError as e:
+        print(f"Warning: could not scrub {path}: {e}", file=sys.stderr)
+        return False
+    return True
+
+
+def scrub_retired_prefs(profile: Path) -> list[str]:
+    """Drop Aph's retired defaults from profile/user.js + prefs.js.
+
+    Returns the names of files changed. Backs up user.js to user.js.bak
+    first (only if no backup exists yet) — prefs.js needs none, it is
+    Firefox-managed and rewritten every session.
+    """
+    if profile_locked(profile):
+        return []
+    changed: list[str] = []
+    user_js = profile / "user.js"
+    if user_js.is_file():
+        try:
+            has_stale = any(
+                _is_retired_stale(line) for line in user_js.read_text(encoding="utf-8").splitlines()
+            )
+        except OSError:
+            has_stale = False
+        if has_stale:
+            bak = profile / "user.js.bak"
+            if not bak.exists():
+                try:
+                    shutil.copy2(user_js, bak)
+                except OSError as e:
+                    print(f"Warning: could not back up {user_js}: {e}", file=sys.stderr)
+                    has_stale = False
+            if has_stale and _scrub_lines(user_js):
+                changed.append("user.js")
+    if _scrub_lines(profile / "prefs.js"):
+        changed.append("prefs.js")
+    return changed
 
 
 def resolve_launch(argv: list[str], root: Path) -> tuple[Path, list[str]]:
@@ -283,6 +406,12 @@ def main() -> None:
     # Seed-once menu accents (same contract: never overwrite user edits).
     if seed_chrome_css(root, profile) == "seeded":
         print(f"Seeded menu accents: {profile / 'chrome' / 'userChrome.css'}")
+
+    # One-time migration: drop Aph's retired defaults from profiles
+    # seeded before their removal. Skips while Firefox holds the profile.
+    scrubbed = scrub_retired_prefs(profile)
+    if scrubbed:
+        print(f"Removed retired defaults from: {', '.join(scrubbed)}")
 
     # Auto-merge enterprise policies & extensions
     merge_policies(root)
