@@ -84,24 +84,15 @@
   }
 
 
-  // Disposable container tabs (Ctrl+Alt+T). moz-src path first: it is the
-  // canonical URI in packaged builds (every internal importer uses it, and
-  // resource://gre/modules/... does not exist in omni.ja — importing it
-  // first throws a "Missing chrome or resource URL" console error on every
-  // launch on every OS). gre/modules kept as fallback for older layouts.
-  // Wrapped so the shortcut never dies if both fail.
+  // Disposable container tabs (Ctrl+Alt+T). moz-src path: the canonical
+  // URI in packaged builds (every internal importer uses it). Wrapped so
+  // the shortcut never dies if the import fails.
   let IdentityService = null;
   try {
     ({ ContextualIdentityService: IdentityService } = ChromeUtils.importESModule(
       "moz-src:///toolkit/components/contextualidentity/ContextualIdentityService.sys.mjs"
     ));
-  } catch (e) {
-    try {
-      ({ ContextualIdentityService: IdentityService } = ChromeUtils.importESModule(
-        "resource://gre/modules/ContextualIdentityService.sys.mjs"
-      ));
-    } catch (e2) {}
-  }
+  } catch (e) {}
   let tempCounter = 1;
   const tempContainers = new Set(); // userContextIds created here
 
