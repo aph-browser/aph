@@ -9,5 +9,7 @@ if not exist "%PROFILE%\user.js" copy /Y "%~dp0config\user.js" "%PROFILE%\user.j
 rem Seed-once menu accents (dev.py parity): never overwrite user edits.
 if not exist "%PROFILE%\chrome" mkdir "%PROFILE%\chrome"
 if not exist "%PROFILE%\chrome\userChrome.css" copy /Y "%~dp0config\userChrome.css" "%PROFILE%\chrome\userChrome.css" >nul
+rem Seed-once new-tab backdrop (dev.py parity): never overwrite user edits.
+if not exist "%PROFILE%\chrome\userContent.css" copy /Y "%~dp0config\userContent.css" "%PROFILE%\chrome\userContent.css" >nul
 rem No --no-remote so external links reuse the running instance.
 start "" "%~dp0firefox\firefox.exe" --profile "%PROFILE%" %*

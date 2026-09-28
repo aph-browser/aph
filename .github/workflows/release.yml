@@ -90,6 +90,7 @@ jobs:
           cp -r build/firefox/. build/AppDir/usr/bin/
           cp config/user.js build/AppDir/usr/share/aph/user.js
           cp branding/userChrome.css build/AppDir/usr/share/aph/userChrome.css
+          cp branding/userContent.css build/AppDir/usr/share/aph/userContent.css
           cp branding/aph.png build/AppDir/aph.png
           cp branding/aph.png build/AppDir/usr/share/icons/hicolor/128x128/apps/aph.png
           python -c "from PIL import Image; im=Image.open('branding/aph.png').convert('RGBA'); import os; [(os.makedirs(f'build/AppDir/usr/share/icons/hicolor/{s}x{s}/apps', exist_ok=True), im.resize((s,s), Image.LANCZOS).save(f'build/AppDir/usr/share/icons/hicolor/{s}x{s}/apps/aph.png')) for s in (16,32,48,64,256)]"
@@ -160,6 +161,7 @@ jobs:
           cp -a build/firefox build/flatpak-stage/firefox
           cp config/user.js build/flatpak-stage/user.js
           cp branding/userChrome.css build/flatpak-stage/userChrome.css
+          cp branding/userContent.css build/flatpak-stage/userContent.css
           cp packaging/flatpak/aph build/flatpak-stage/aph
           cp "packaging/flatpak/io.github.aph_browser.Aph.desktop" build/flatpak-stage/
           cp "packaging/flatpak/io.github.aph_browser.Aph.metainfo.xml" build/flatpak-stage/
@@ -217,6 +219,7 @@ jobs:
           cp -a build/firefox build/win-portable/firefox
           cp config/user.js build/win-portable/config/user.js
           cp branding/userChrome.css build/win-portable/config/userChrome.css
+          cp branding/userContent.css build/win-portable/config/userContent.css
           cp packaging/aph.bat build/win-portable/aph.bat
 
       - name: Smoke test
@@ -294,7 +297,7 @@ jobs:
            - Aph version: __VER__
            - Firefox base: __FXVER__ (recorded from application.ini at build time)
            - Profiles: Linux `~/.config/aph/profile` (daily install) ·
-             Windows `%APPDATA%\Aph\profile` (seed-once user.js + userChrome.css)
+              Windows `%APPDATA%\Aph\profile` (seed-once user.js + userChrome.css + userContent.css)
 
            ### What's new in 0.2.0
 

@@ -11,5 +11,7 @@ if [ ! -f "$APH_PROFILE/user.js" ]; then cp -f /usr/share/aph/user.js "$APH_PROF
 # Seed-once menu accents: never overwrite user edits.
 mkdir -p "$APH_PROFILE/chrome"
 if [ ! -f "$APH_PROFILE/chrome/userChrome.css" ]; then cp -f /usr/share/aph/userChrome.css "$APH_PROFILE/chrome/userChrome.css"; fi
+# Seed-once new-tab backdrop: never overwrite user edits.
+if [ ! -f "$APH_PROFILE/chrome/userContent.css" ]; then cp -f /usr/share/aph/userContent.css "$APH_PROFILE/chrome/userContent.css"; fi
 # No --no-remote so external links reuse the running instance.
 exec /opt/aph/firefox --profile "$APH_PROFILE" "$@"

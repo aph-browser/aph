@@ -116,17 +116,27 @@ status:
     @echo "omni.ja: $(test -f build/firefox/browser/omni.ja.bak && echo rebranded || echo original)"
     @test -f build/firefox/browser/omni.ja && uv run python -c "print(open('build/firefox/browser/omni.ja','rb').read().find(b'Aph'))" | grep -q "^-1" && echo "brand: Firefox" || echo "brand: Aph"
 
-# Delete profile (full wipe) - explicit command
-nuke:
-    rm -rf profile
-    @echo "profile deleted"
+# Delete the repo profile ./profile (full wipe: prefs, cache2, startupCache,
+# cookies, logins, history). Requires --yes, prints the absolute path it
+# deletes, and refuses while Aph is running on it — same contract as
+# nuke-local/nuke-everything, which are the only other wipe recipes.
+# REPO profile only: the daily driver (~/.config/aph/profile) is
+# `just nuke-local --yes`; both plus build/ is `just nuke-everything --yes`.
+nuke *args:
+    @if [ "{{args}}" != "--yes" ] && [ "{{args}}" != "-y" ]; then echo "This deletes {{justfile_directory()}}/profile (cookies, logins, history, cache). Re-run with --yes: just nuke --yes"; echo "Daily profile instead: just nuke-local --yes"; exit 1; fi
+    @if lock="{{justfile_directory()}}/profile/lock" && [ -L "$lock" ] && pid="$(readlink "$lock")" && pid="${pid##*:}" && pid="${pid#+}" && kill -0 "$pid" 2>/dev/null; then echo "Aph is running on {{justfile_directory()}}/profile - quit it first."; exit 1; fi
+    : "${PWD:?}"
+    rm -rf "{{justfile_directory()}}/profile"
+    @echo "deleted: {{justfile_directory()}}/profile"
 
-# Clean test profile (alias of nuke)
-clean: nuke
+# Alias of nuke (forwards --yes)
+clean *args: (nuke args)
 
-# Alias: clear-profile
-clear-profile: nuke
-wipe: nuke
+# Alias of nuke (forwards --yes)
+clear-profile *args: (nuke args)
+
+# Alias of nuke (forwards --yes)
+wipe *args: (nuke args)
 
 # Restore original omni.ja and policies.json from pristine backups
 restore:

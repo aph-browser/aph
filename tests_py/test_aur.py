@@ -49,4 +49,4 @@ def test_srcinfo_matches_pkgbuild() -> None:
 def test_launcher_exists_and_seeds() -> None:
     text = (AUR / "aph.sh").read_text(encoding="utf-8")
     assert "/opt/aph/firefox" in text
-    assert "user.js" in text and "userChrome.css" in text
+    assert "user.js" in text and "userChrome.css" in text and "userContent.css" in text

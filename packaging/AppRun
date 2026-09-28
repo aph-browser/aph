@@ -12,4 +12,6 @@ if [ ! -f "$APH_PROFILE/user.js" ]; then cp -f "$HERE/usr/share/aph/user.js" "$A
 # Seed-once menu accents (dev.py parity): never overwrite user edits.
 mkdir -p "$APH_PROFILE/chrome"
 if [ ! -f "$APH_PROFILE/chrome/userChrome.css" ]; then cp -f "$HERE/usr/share/aph/userChrome.css" "$APH_PROFILE/chrome/userChrome.css"; fi
+# Seed-once new-tab backdrop (dev.py parity): never overwrite user edits.
+if [ ! -f "$APH_PROFILE/chrome/userContent.css" ]; then cp -f "$HERE/usr/share/aph/userContent.css" "$APH_PROFILE/chrome/userContent.css"; fi
 exec "$HERE/usr/bin/firefox" --profile "$APH_PROFILE" "$@"

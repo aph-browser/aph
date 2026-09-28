@@ -3,7 +3,7 @@
 #
 # Build inputs are staged by CI into build/flatpak-stage/ (rebranded
 # build/firefox + config/user.js + branding/userChrome.css +
-# launcher/desktop/metainfo/icon), so this
+# branding/userContent.css + launcher/desktop/metainfo/icon), so this
 # manifest needs no network access at build time. `type: dir` sources are
 # intentionally local-only: they always rebuild and are not submittable to
 # Flathub as-is (see https://docs.flatpak.org/en/latest/module-sources.html).
@@ -59,11 +59,13 @@ modules:
       # Rebranded Firefox payload (fetch.py + rebrand.py + merge_policies
       # already applied by CI before staging).
       - cp -a stage/firefox /app/aph
-      # Managed prefs, shipped read-only; the launcher copies them into the
-      # profile on every start (dev.py parity).
+      # Managed prefs, shipped read-only; the launcher seeds them once
+      # into the profile (dev.py parity).
       - install -Dm644 stage/user.js /app/share/aph/user.js
-      # Menu accents, seeded once into profile/chrome/ (dev.py parity).
+      # Menu accents + new-tab backdrop, seeded once into profile/chrome/
+      # (dev.py parity).
       - install -Dm644 stage/userChrome.css /app/share/aph/userChrome.css
+      - install -Dm644 stage/userContent.css /app/share/aph/userContent.css
       # Launcher + desktop integration (filenames already match the app-id).
       - install -Dm755 stage/aph /app/bin/aph
       - install -Dm644 stage/io.github.aph_browser.Aph.desktop -t /app/share/applications/
