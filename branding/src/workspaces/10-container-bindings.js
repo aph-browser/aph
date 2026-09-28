@@ -116,7 +116,7 @@
     }
     let ok = false;
     try {
-      ok = !tempContainers.has(id) && !!IdentityService.getPublicIdentityFromId(id);
+      ok = !isTempContainerId(id) && !!IdentityService.getPublicIdentityFromId(id);
     } catch (e) {
       ok = false;
     }
@@ -235,7 +235,7 @@
       return { ok: true, cleared: true };
     }
     try {
-      if (tempContainers.has(id)) {
+      if (isTempContainerId(id)) {
         return { ok: false, reason: "temp" };
       }
     } catch (e) {}
@@ -277,7 +277,7 @@
       return { ok: true, cleared: true };
     }
     try {
-      if (tempContainers.has(nid)) {
+      if (isTempContainerId(nid)) {
         return { ok: false, reason: "temp" };
       }
     } catch (e) {}
@@ -306,7 +306,7 @@
             continue;
           }
           try {
-            if (tempContainers.has(nid)) {
+            if (isTempContainerId(nid)) {
               continue;
             }
           } catch (e) {}

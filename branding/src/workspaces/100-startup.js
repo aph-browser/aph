@@ -116,6 +116,13 @@
     try {
       startupRestore();
     } catch (e) {}
+    // Restore settled: temp-container tabs are all present (or gone), so
+    // the reconcile sweep can tell live tracked ids from leaked ones.
+    try {
+      if (typeof reconcileTempContainers === "function") {
+        reconcileTempContainers();
+      }
+    } catch (e) {}
     // Bulk-restored tabs can arrive with tag/container still settling when
     // their SSTabRestored fires — one full chrome pass once session
     // restore completes, so no tab waits on a binding change for markers.

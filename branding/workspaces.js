@@ -215,7 +215,7 @@
     }
     let ok = false;
     try {
-      ok = !tempContainers.has(id) && !!IdentityService.getPublicIdentityFromId(id);
+      ok = !isTempContainerId(id) && !!IdentityService.getPublicIdentityFromId(id);
     } catch (e) {
       ok = false;
     }
@@ -334,7 +334,7 @@
       return { ok: true, cleared: true };
     }
     try {
-      if (tempContainers.has(id)) {
+      if (isTempContainerId(id)) {
         return { ok: false, reason: "temp" };
       }
     } catch (e) {}
@@ -376,7 +376,7 @@
       return { ok: true, cleared: true };
     }
     try {
-      if (tempContainers.has(nid)) {
+      if (isTempContainerId(nid)) {
         return { ok: false, reason: "temp" };
       }
     } catch (e) {}
@@ -405,7 +405,7 @@
             continue;
           }
           try {
-            if (tempContainers.has(nid)) {
+            if (isTempContainerId(nid)) {
               continue;
             }
           } catch (e) {}
@@ -5128,6 +5128,108 @@
   } else {
     window.addEventListener("load", initSidebarFooter, { once: true });
   }
+  // Disposable temp containers (Ctrl+Alt+T) — lifecycle:
+  // tracked ids live in aph.tempContainers (JSON array pref: shared across
+  // windows AND sessions). The old per-window-only set leaked on window
+  // close, cross-window moves, and restarts — piling up duplicate "Tmp 1"s
+  // when the emptied counter reset under a surviving identity. Creation
+  // now skips taken names; reconcile sweeps (post-restore + window unload)
+  // remove tracked ids with no live tabs plus untracked Tmp N orphans.
+  const TEMP_IDS_PREF = "aph.tempContainers";
+  const TEMP_NAME_PREFIX = "Tmp ";
+  const TEMP_NAME_RE = /^Tmp \d+$/;
+
+  function readTempIds() {
+    try {
+      const raw = Services.prefs.getStringPref(TEMP_IDS_PREF, "[]");
+      const v = JSON.parse(raw);
+      if (Array.isArray(v)) {
+        return new Set(v.filter((n) => Number.isInteger(n) && n > 0));
+      }
+    } catch (e) {}
+    return new Set();
+  }
+
+  function writeTempIds(set) {
+    try {
+      Services.prefs.setStringPref(TEMP_IDS_PREF, JSON.stringify([...set]));
+    } catch (e) {}
+  }
+
+  function trackTempId(id) {
+    try {
+      tempContainers.add(id);
+      const all = readTempIds();
+      all.add(id);
+      writeTempIds(all);
+    } catch (e) {}
+  }
+
+  function untrackTempId(id) {
+    try {
+      tempContainers.delete(id);
+      const all = readTempIds();
+      if (all.delete(id)) {
+        writeTempIds(all);
+      }
+    } catch (e) {}
+  }
+
+  // True for containers Aph created as disposable — local set first,
+  // shared pref as fallback (covers ids born in another window/session).
+  function isTempContainerId(id) {
+    try {
+      if (id && tempContainers.has(id)) {
+        return true;
+      }
+    } catch (e) {}
+    try {
+      if (id && readTempIds().has(id)) {
+        try {
+          tempContainers.add(id);
+        } catch (_e) {}
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function tempNameTaken(name) {
+    try {
+      if (IdentityService && typeof IdentityService.getPublicIdentities === "function") {
+        for (const ident of Array.from(IdentityService.getPublicIdentities() || [])) {
+          try {
+            if (ident && ident.name === name) {
+              return true;
+            }
+          } catch (_e) {}
+        }
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // Never reuse a live name: after a leak or a cross-window birth, "Tmp 1"
+  // may already exist, so bump past every taken name (counter included).
+  function nextTempName() {
+    let n = tempCounter;
+    try {
+      while (tempNameTaken(`${TEMP_NAME_PREFIX}${n}`)) {
+        n++;
+      }
+    } catch (e) {}
+    tempCounter = n + 1;
+    return `${TEMP_NAME_PREFIX}${n}`;
+  }
+
+  function initTempTracking() {
+    try {
+      for (const id of readTempIds()) {
+        tempContainers.add(id);
+      }
+    } catch (e) {}
+  }
+
   // Open a clean disposable container tab in the current workspace. Falls
   // back to a normal tab if the identity service is unavailable.
   function openTempTab(url = "about:newtab") {
@@ -5142,13 +5244,13 @@
       return;
     }
     try {
-      const identity = IdentityService.create(`Tmp ${tempCounter++}`, "fingerprint", "purple");
+      const identity = IdentityService.create(nextTempName(), "fingerprint", "purple");
       const tab = gBrowser.addTrustedTab(url, { userContextId: identity.userContextId });
       // insertAfterCurrent births tabs inside the selected tab's group — eject.
       try {
         gBrowser.ungroupTab(tab);
       } catch (e) {}
-      tempContainers.add(identity.userContextId);
+      trackTempId(identity.userContextId);
       setWs(tab, ws);
       aphShowTab(tab);
       gBrowser.selectedTab = tab;
@@ -5156,8 +5258,137 @@
     } catch (e) {}
   }
 
+  // Live userContextIds across windows (null when blind — callers must
+  // delete nothing then). excludeWindow skips a window whose tabs are
+  // going away anyway (window unload).
+  function liveTempUserIds(excludeWindow) {
+    try {
+      if (typeof Services === "undefined" || !Services.wm) {
+        return null;
+      }
+      const live = new Set();
+      const en = Services.wm.getEnumerator("navigator:browser");
+      while (en.hasMoreElements()) {
+        let w = null;
+        try {
+          w = en.getNext();
+        } catch (_e) {}
+        if (!w || w.closed || !w.gBrowser) {
+          continue;
+        }
+        if (excludeWindow && w === excludeWindow) {
+          continue;
+        }
+        let tabs = [];
+        try {
+          tabs = Array.from(w.gBrowser.tabs || []);
+        } catch (_e) {}
+        for (const t of tabs) {
+          try {
+            if (t && !t.closing && t.userContextId) {
+              live.add(t.userContextId);
+            }
+          } catch (_e) {}
+        }
+      }
+      return live;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Remove tracked temp containers with no live tabs. Fail-closed: when
+  // the window list can't be enumerated, delete nothing. Returns count.
+  function sweepTempContainers(excludeWindow) {
+    let tracked;
+    try {
+      tracked = readTempIds();
+    } catch (e) {
+      return 0;
+    }
+    if (!tracked.size) {
+      return 0;
+    }
+    const live = liveTempUserIds(excludeWindow);
+    if (!live) {
+      return 0;
+    }
+    let n = 0;
+    for (const id of tracked) {
+      if (live.has(id)) {
+        continue;
+      }
+      try {
+        if (IdentityService && typeof IdentityService.remove === "function") {
+          IdentityService.remove(id);
+        }
+      } catch (e) {}
+      untrackTempId(id);
+      n++;
+    }
+    return n;
+  }
+
+  // Heal pre-fix accumulation: untracked "Tmp N" containers with no live
+  // tabs (older builds leaked these on window close, moves, restarts).
+  // Exact-pattern + empty only — a user's own non-empty container is never
+  // touched even if named alike. Returns count.
+  function sweepOrphanTempNames() {
+    let idents = [];
+    try {
+      if (IdentityService && typeof IdentityService.getPublicIdentities === "function") {
+        idents = Array.from(IdentityService.getPublicIdentities() || []);
+      }
+    } catch (e) {
+      return 0;
+    }
+    if (!idents.length) {
+      return 0;
+    }
+    let tracked;
+    try {
+      tracked = readTempIds();
+    } catch (e) {
+      tracked = new Set();
+    }
+    const live = liveTempUserIds(null);
+    if (!live) {
+      return 0;
+    }
+    let n = 0;
+    for (const ident of idents) {
+      let id = 0;
+      let name = "";
+      try {
+        id = Number((ident && ident.userContextId) || 0) || 0;
+        name = String((ident && ident.name) || "");
+      } catch (e) {}
+      if (!id || tracked.has(id) || live.has(id)) {
+        continue;
+      }
+      if (!TEMP_NAME_RE.test(name)) {
+        continue;
+      }
+      try {
+        IdentityService.remove(id);
+        n++;
+      } catch (e) {}
+    }
+    return n;
+  }
+
+  function reconcileTempContainers() {
+    try {
+      sweepTempContainers(null);
+    } catch (e) {}
+    try {
+      sweepOrphanTempNames();
+    } catch (e) {}
+  }
+
   // If a disposable container's last tab closed (any window), remove the
   // identity — remove() also wipes its cookies/storage/cache internally.
+  // Deferred one tick so the closing tab settles out of the tab strip.
   function cleanupTempContainer(tab) {
     let id = null;
     try {
@@ -5165,28 +5396,15 @@
     } catch (e) {
       return;
     }
-    if (!id || !IdentityService || !tempContainers.has(id)) {
+    if (!id || !IdentityService) {
+      return;
+    }
+    if (!isTempContainerId(id)) {
       return;
     }
     setTimeout(() => {
       try {
-        const en = Services.wm.getEnumerator("navigator:browser");
-        while (en.hasMoreElements()) {
-          const w = en.getNext();
-          if (!w || w.closed || !w.gBrowser) {
-            continue;
-          }
-          for (const t of w.gBrowser.tabs) {
-            if (!t.closing && t.userContextId === id) {
-              return; // still in use
-            }
-          }
-        }
-        tempContainers.delete(id);
-        IdentityService.remove(id);
-        if (tempContainers.size === 0) {
-          tempCounter = 1; // Clean slate: next round starts at Tmp 1
-        }
+        sweepTempContainers(null);
       } catch (e) {}
     }, 100);
   }
@@ -7328,6 +7546,13 @@
     try {
       startupRestore();
     } catch (e) {}
+    // Restore settled: temp-container tabs are all present (or gone), so
+    // the reconcile sweep can tell live tracked ids from leaked ones.
+    try {
+      if (typeof reconcileTempContainers === "function") {
+        reconcileTempContainers();
+      }
+    } catch (e) {}
     // Bulk-restored tabs can arrive with tag/container still settling when
     // their SSTabRestored fires — one full chrome pass once session
     // restore completes, so no tab waits on a binding change for markers.
@@ -7656,6 +7881,13 @@
       }
     } catch (e) {}
     welcomeObserver = null;
+    // Closing window's temp tabs never fire TabClose per tab — sweep
+    // tracked ids against the surviving windows so they don't leak.
+    try {
+      if (typeof sweepTempContainers === "function") {
+        sweepTempContainers(window);
+      }
+    } catch (e) {}
     try {
       if (navPopupObserver && typeof navPopupObserver.disconnect === "function") {
         navPopupObserver.disconnect();
@@ -7825,6 +8057,13 @@
       };
     } catch (e) {}
     current = initialWorkspace();
+    // Adopt shared temp-container tracking so bind guards and cleanup see
+    // ids born in other windows/sessions (the per-window set alone leaks).
+    try {
+      if (typeof initTempTracking === "function") {
+        initTempTracking();
+      }
+    } catch (e) {}
     // Stamp the live claim immediately: the restore path can settle without
     // passing through beginWorkspaceSwitch, and other windows must see this
     // window's workspace from birth, not from its first manual switch.

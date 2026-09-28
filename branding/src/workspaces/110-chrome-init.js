@@ -146,6 +146,13 @@
       }
     } catch (e) {}
     welcomeObserver = null;
+    // Closing window's temp tabs never fire TabClose per tab — sweep
+    // tracked ids against the surviving windows so they don't leak.
+    try {
+      if (typeof sweepTempContainers === "function") {
+        sweepTempContainers(window);
+      }
+    } catch (e) {}
     try {
       if (navPopupObserver && typeof navPopupObserver.disconnect === "function") {
         navPopupObserver.disconnect();
@@ -315,6 +322,13 @@
       };
     } catch (e) {}
     current = initialWorkspace();
+    // Adopt shared temp-container tracking so bind guards and cleanup see
+    // ids born in other windows/sessions (the per-window set alone leaks).
+    try {
+      if (typeof initTempTracking === "function") {
+        initTempTracking();
+      }
+    } catch (e) {}
     // Stamp the live claim immediately: the restore path can settle without
     // passing through beginWorkspaceSwitch, and other windows must see this
     // window's workspace from birth, not from its first manual switch.
