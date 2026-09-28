@@ -1,0 +1,63 @@
+name: Lookout (Firefox release watch)
+
+# Daily watch for upstream Firefox releases: opens a pin-bump PR when
+# Mozilla ships something newer than scripts/fetch.py VERSION. The PR
+# carries the human audit checklist (rebrand anchors, smoke); a human
+# merges, main CI builds, release.yml publishes. Never auto-merges.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Check for newer Firefox
+        id: lookout
+        run: python scripts/lookout.py --check
+
+      - name: Open bump PR
+        if: steps.lookout.outputs.update_available == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST: ${{ steps.lookout.outputs.latest }}
+          PINNED: ${{ steps.lookout.outputs.pinned }}
+        run: |
+          set -eu
+          BRANCH="lookout/firefox-$LATEST"
+          if [ -n "$(gh pr list --head "$BRANCH" --state open --jq '.[].number')" ]; then
+            echo "Open PR already exists for $BRANCH — skipping."
+            exit 0
+          fi
+          git checkout -b "$BRANCH"
+          python scripts/lookout.py --apply "$LATEST"
+          git -c user.name="aph-lookout" -c user.email="aph-lookout@users.noreply.github.com" commit -am "chore(fetch): track Firefox $LATEST"
+          git push -u origin "$BRANCH"
+          gh pr create --title "chore(fetch): track Firefox $LATEST" --head "$BRANCH" --base main --body "Tracks upstream Firefox $LATEST (pin was $PINNED).
+
+          Audit checklist (human sign-off before merge):
+          - [ ] \`just refetch && just rebrand && just dev\` boots clean
+          - [ ] about:newtab / about:home render (desk + wallpaper picker)
+          - [ ] rebrand log shows no new fallback-chain use or anchor misses
+          - [ ] merge → main CI builds → cut release via release.yml
+
+          Opened by the lookout bot (\`.github/workflows/lookout.yml\`); never auto-merges."
+          # Close superseded older lookout PRs so rapid Mozilla point
+          # releases don't pile up overlapping bump PRs.
+          for n in $(gh pr list --state open --json number,headRefName --jq '.[] | select(.headRefName | startswith("lookout/")) | select(.headRefName != "'"$BRANCH"'") | .number'); do
+            gh pr close "$n" --comment "Superseded by the Firefox $LATEST bump PR."
+          done

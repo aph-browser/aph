@@ -20,6 +20,11 @@ refetch *args:
     rm -rf build/firefox
     uv run python scripts/fetch.py {{args}}
 
+# Check whether Mozilla released a Firefox newer than the pinned VERSION
+# (same check the lookout bot runs daily; exits 0 either way)
+lookout *args:
+    uv run python scripts/lookout.py {{args}}
+
 # Launch Firefox with Aph profile (replaces ./dev.sh)
 dev *args:
     uv run python scripts/dev.py {{args}}
