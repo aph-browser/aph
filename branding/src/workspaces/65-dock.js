@@ -743,6 +743,25 @@
     } catch (e) {}
   }
 
+  // Reuse one settings tab per window instead of stacking duplicates.
+  function aphOpenSettings() {
+    try {
+      const url = "chrome://browser/content/aph-settings.html";
+      for (const t of Array.from((typeof gBrowser !== "undefined" && gBrowser.tabs) || [])) {
+        try {
+          const spec = t && t.linkedBrowser && t.linkedBrowser.currentURI && t.linkedBrowser.currentURI.spec;
+          if (!t.closing && spec === url) {
+            gBrowser.selectedTab = t;
+            return;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    try {
+      aphOpenTab("chrome://browser/content/aph-settings.html");
+    } catch (e) {}
+  }
+
   function aphArchiveCurrent() {
     try {
       const a = window.AphArchive || null;
@@ -933,12 +952,22 @@
       }
       const prefs = makeDockMenuItem("aph-aph-settings", "Aph Settings…", () => {
         try {
-          aphOpenTab("about:config?filter=aph");
+          aphOpenSettings();
         } catch (err) {}
       });
       if (prefs) {
         try {
           menu.appendChild(prefs);
+        } catch (err) {}
+      }
+      const welcome = makeDockMenuItem("aph-aph-welcome", "Aph Welcome Tour", () => {
+        try {
+          aphOpenWelcome();
+        } catch (err) {}
+      });
+      if (welcome) {
+        try {
+          menu.appendChild(welcome);
         } catch (err) {}
       }
       const about = makeDockMenuItem("aph-aph-about", "About Aph", () => {

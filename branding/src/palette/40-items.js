@@ -753,6 +753,62 @@
         },
       },
       {
+        title: "Open Aph Settings",
+        hint: "",
+        sub: "Toggles for workspaces, archive, tabs, add-ons and sidebar",
+        run: () => {
+          try {
+            const url = "chrome://browser/content/aph-settings.html";
+            for (const t of Array.from((gBrowser && gBrowser.tabs) || [])) {
+              try {
+                const spec =
+                  t && t.linkedBrowser && t.linkedBrowser.currentURI && t.linkedBrowser.currentURI.spec;
+                if (!t.closing && spec === url) {
+                  gBrowser.selectedTab = t;
+                  return;
+                }
+              } catch (_e) {}
+            }
+          } catch (e) {}
+          try {
+            const t = gBrowser.addTrustedTab(
+              "chrome://browser/content/aph-settings.html"
+            );
+            try {
+              gBrowser.selectedTab = t;
+            } catch (_e) {}
+          } catch (e) {}
+        },
+      },
+      {
+        title: "Open Aph Welcome",
+        hint: "",
+        sub: "First-run tour: workspaces, palette and tabs",
+        run: () => {
+          try {
+            const url = "chrome://browser/content/aph-welcome.html";
+            for (const t of Array.from((gBrowser && gBrowser.tabs) || [])) {
+              try {
+                const spec =
+                  t && t.linkedBrowser && t.linkedBrowser.currentURI && t.linkedBrowser.currentURI.spec;
+                if (!t.closing && spec === url) {
+                  gBrowser.selectedTab = t;
+                  return;
+                }
+              } catch (_e) {}
+            }
+          } catch (e) {}
+          try {
+            const t = gBrowser.addTrustedTab(
+              "chrome://browser/content/aph-welcome.html"
+            );
+            try {
+              gBrowser.selectedTab = t;
+            } catch (_e) {}
+          } catch (e) {}
+        },
+      },
+      {
         title: "Copy Text From Page…",
         hint: "Ctrl+Alt+C",
         sub: "Hover to highlight a block · click copies · ↑/↓ adjust · Esc cancels",

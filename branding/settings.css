@@ -1,0 +1,357 @@
+/* Aph settings page — one product with the chrome (theme.css), not a
+   guest skin. System: Inter, the Aph radius scale, neutral desk
+   surfaces (#17181f desk / #202028 elevated / #2a2c3a raised), ink +
+   muted text. Workspace color lives ONLY on rows that carry a
+   workspace identity (data-ws, stamped by aph-settings-page.js for
+   the names/bindings/routes tables) — the page itself is global
+   surface, so toggles and inputs stay neutral. Danger red survives
+   solely as the reset signal (functional, never decorative).
+   Separate document from the browser window, so the hue table is
+   duplicated here by design — test_settings_voice_parity pins it to
+   theme.css §21. */
+
+@font-face {
+  font-family: "Inter";
+  src: url("aph-fonts/inter-400-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("aph-fonts/inter-500-latin.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("aph-fonts/inter-600-latin.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("aph-fonts/inter-700-latin.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark light;
+  --set-font: "Inter", system-ui, "Segoe UI", Roboto, "Noto Sans",
+    Ubuntu, Cantarell, sans-serif;
+  --set-bg: #17181f;
+  --set-surface: #202028;
+  --set-raised: #22232f;
+  --set-text: #e8e8ec;
+  --set-muted: #a3a8ba;
+  --set-faint: #626880;
+  --set-line: rgba(255, 255, 255, 0.09);
+  --set-danger: #ff5d73;
+  --set-accent: #0090ff;
+  --set-radius-md: 6px;
+  --set-radius-lg: 8px;
+  --set-radius-xl: 10px;
+  /* Workspace hues — mirror of theme.css §21 (parity-tested). */
+  --set-ws-1: #e54666;
+  --set-ws-2: #f76808;
+  --set-ws-3: #f5b301;
+  --set-ws-4: #29a383;
+  --set-ws-5: #00a2c7;
+  --set-ws-6: #0090ff;
+  --set-ws-7: #8e4ec6;
+  --set-ws-8: #d6409f;
+  --set-ws-9: #707885;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --set-bg: #e8e0c9;
+    --set-surface: #f5efe0;
+    --set-raised: #faf6ea;
+    --set-text: #26262b;
+    --set-muted: #585c64;
+    --set-faint: #6b6f78;
+    --set-line: rgba(38, 38, 43, 0.12);
+  }
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--set-bg);
+  color: var(--set-text);
+  font: 14px/1.45 var(--set-font);
+  letter-spacing: 0.015em;
+}
+
+#aph-settings {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 28px 24px 60px;
+}
+
+#aph-settings-head {
+  position: sticky;
+  top: 0;
+  background: color-mix(in srgb, var(--set-bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+  backdrop-filter: blur(12px) saturate(1.1);
+  border-bottom: 1px solid var(--set-line);
+  padding: 8px 0 16px;
+  margin: 0 -24px;
+  padding-inline: 24px;
+  z-index: 2;
+}
+
+#aph-settings-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--set-text);
+  margin-bottom: 4px;
+}
+
+#aph-settings-sub {
+  font-size: 13px;
+  color: var(--set-faint);
+}
+
+.aph-settings-group {
+  margin-top: 22px;
+}
+
+.aph-settings-group > h2 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--set-faint);
+  margin: 0 0 8px 2px;
+}
+
+.aph-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--set-radius-xl);
+  cursor: pointer;
+}
+
+.aph-settings-row:hover {
+  background: var(--set-surface);
+}
+
+.aph-settings-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.aph-settings-label {
+  color: var(--set-text);
+  font-weight: 500;
+}
+
+.aph-settings-desc {
+  font-size: 12px;
+  color: var(--set-faint);
+  margin-top: 2px;
+}
+
+.aph-settings-pref {
+  font-size: 11px;
+  color: var(--set-faint);
+  font-family: ui-monospace, monospace;
+  margin-top: 2px;
+}
+
+.aph-settings-toggle {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--set-line);
+  background: color-mix(in srgb, var(--set-text) 10%, transparent);
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+}
+
+.aph-settings-toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--set-muted);
+}
+
+.aph-settings-toggle[aria-checked="true"] {
+  background: color-mix(in srgb, var(--set-accent) 55%, transparent);
+  border-color: transparent;
+}
+
+.aph-settings-toggle[aria-checked="true"]::after {
+  left: 20px;
+  background: var(--set-text);
+}
+
+.aph-settings-number {
+  flex: 0 0 auto;
+  width: 72px;
+  background: var(--set-surface);
+  color: var(--set-text);
+  border: 1px solid var(--set-line);
+  border-radius: var(--set-radius-lg);
+  padding: 6px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+.aph-settings-number:focus {
+  border-color: color-mix(in srgb, var(--set-text) 45%, transparent);
+}
+
+.aph-settings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.aph-settings-table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--set-faint);
+  padding: 6px 12px;
+}
+
+.aph-settings-table td {
+  padding: 6px 12px;
+  border-top: 1px solid var(--set-line);
+  color: var(--set-muted);
+}
+
+.aph-settings-table tr[data-ws] td:first-child {
+  font-weight: 600;
+  color: var(--set-text);
+}
+
+/* Workspace identity rows wear their own hue as a left chip
+   (dock parity) — stamped data-ws at render, same as archive pills. */
+.aph-settings-table tr[data-ws="1"] { --set-ws-accent: var(--set-ws-1); }
+.aph-settings-table tr[data-ws="2"] { --set-ws-accent: var(--set-ws-2); }
+.aph-settings-table tr[data-ws="3"] { --set-ws-accent: var(--set-ws-3); }
+.aph-settings-table tr[data-ws="4"] { --set-ws-accent: var(--set-ws-4); }
+.aph-settings-table tr[data-ws="5"] { --set-ws-accent: var(--set-ws-5); }
+.aph-settings-table tr[data-ws="6"] { --set-ws-accent: var(--set-ws-6); }
+.aph-settings-table tr[data-ws="7"] { --set-ws-accent: var(--set-ws-7); }
+.aph-settings-table tr[data-ws="8"] { --set-ws-accent: var(--set-ws-8); }
+.aph-settings-table tr[data-ws="9"] { --set-ws-accent: var(--set-ws-9); }
+.aph-settings-table tr[data-ws] td:first-child::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--set-ws-accent);
+  margin-right: 8px;
+  vertical-align: baseline;
+}
+
+.aph-settings-empty {
+  padding: 8px 12px;
+  color: var(--set-faint);
+  font-size: 13px;
+}
+
+.aph-settings-hint {
+  padding: 8px 12px;
+  color: var(--set-faint);
+  font-size: 12px;
+}
+
+#aph-settings-foot {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--set-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+#aph-settings-reset-frecency {
+  background: transparent;
+  color: var(--set-danger);
+  border: 1px solid var(--set-line);
+  border-radius: var(--set-radius-lg);
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#aph-settings-reset-frecency:hover {
+  background: var(--set-surface);
+}
+
+#aph-settings-links {
+  font-size: 13px;
+  color: var(--set-faint);
+}
+
+#aph-settings-links a {
+  color: var(--set-muted);
+}
+
+#aph-settings-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(8px);
+  background: var(--set-surface);
+  color: var(--set-text);
+  border: 1px solid var(--set-line);
+  border-radius: var(--set-radius-lg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  padding: 8px 18px;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+}
+
+#aph-settings-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Motion language (§24 in theme.css, same dialect): hovers ease instead
+   of snapping; the toggle knob glides. Reduced-motion kills every
+   transition including the toast's. */
+.aph-settings-row {
+  transition: background-color 0.12s ease-out;
+}
+.aph-settings-toggle {
+  transition: background-color 0.12s ease-out, border-color 0.12s ease-out;
+}
+.aph-settings-toggle::after {
+  transition: left 0.12s ease-out, background-color 0.12s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .aph-settings-row,
+  .aph-settings-toggle,
+  .aph-settings-toggle::after,
+  #aph-settings-toast {
+    transition: none;
+  }
+}

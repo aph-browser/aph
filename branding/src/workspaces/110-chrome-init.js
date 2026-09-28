@@ -138,6 +138,15 @@
     } catch (e) {}
     startupRestoreObserver = null;
     try {
+      if (welcomeObserver && Services.obs) {
+        Services.obs.removeObserver(
+          welcomeObserver,
+          "sessionstore-windows-restored"
+        );
+      }
+    } catch (e) {}
+    welcomeObserver = null;
+    try {
       if (navPopupObserver && typeof navPopupObserver.disconnect === "function") {
         navPopupObserver.disconnect();
       }
@@ -447,6 +456,10 @@
       initRouteListener();
     } catch (e) {}
     scheduleStartupRestore();
+    // First-run tour (show-once per profile; no-ops everywhere else).
+    try {
+      scheduleWelcome();
+    } catch (e) {}
     // Global-service registrations above outlive this window unless removed.
     try {
       window.addEventListener("unload", cleanupWindowObservers, { once: true });

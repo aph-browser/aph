@@ -5,9 +5,11 @@ from .brand import BrandStringsInjector
 from .features import (
     ArchiveInjector,
     PaletteInjector,
+    SettingsInjector,
     TabrenameInjector,
     TextpickInjector,
     ThemeInjector,
+    WelcomeInjector,
     WorkspacesInjector,
 )
 from .logos import LogoInjector
@@ -22,10 +24,12 @@ __all__ = [
     "LogoInjector",
     "PaletteInjector",
     "PatchCounts",
+    "SettingsInjector",
     "TabrenameInjector",
     "TextpickInjector",
     "ThemeInjector",
     "ToolbarDefaultsInjector",
+    "WelcomeInjector",
     "WorkspacesInjector",
     "XhtmlInjector",
 ]

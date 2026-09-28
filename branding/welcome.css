@@ -1,0 +1,205 @@
+/* Aph welcome page — one product with the chrome (theme.css), not a
+   guest skin. System: Inter, the Aph radius scale, neutral desk
+   surfaces (#17181f desk / #202028 elevated / #2a2c3a raised), ink +
+   muted text. The tour is global surface throughout — no workspace
+   identity rows, so no workspace hues here by design (unlike archive
+   and settings, which stamp data-ws and pin their tables to
+   theme.css §21). */
+
+@font-face {
+  font-family: "Inter";
+  src: url("aph-fonts/inter-400-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("aph-fonts/inter-500-latin.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("aph-fonts/inter-600-latin.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("aph-fonts/inter-700-latin.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark light;
+  --wel-font: "Inter", system-ui, "Segoe UI", Roboto, "Noto Sans",
+    Ubuntu, Cantarell, sans-serif;
+  --wel-bg: #17181f;
+  --wel-surface: #202028;
+  --wel-raised: #22232f;
+  --wel-text: #e8e8ec;
+  --wel-muted: #a3a8ba;
+  --wel-faint: #626880;
+  --wel-line: rgba(255, 255, 255, 0.09);
+  --wel-accent: #0090ff;
+  --wel-radius-md: 6px;
+  --wel-radius-lg: 8px;
+  --wel-radius-xl: 10px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --wel-bg: #e8e0c9;
+    --wel-surface: #f5efe0;
+    --wel-raised: #faf6ea;
+    --wel-text: #26262b;
+    --wel-muted: #585c64;
+    --wel-faint: #6b6f78;
+    --wel-line: rgba(38, 38, 43, 0.12);
+  }
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--wel-bg);
+  color: var(--wel-text);
+  font: 14px/1.45 var(--wel-font);
+  letter-spacing: 0.015em;
+}
+
+#aph-welcome {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 28px 24px 60px;
+}
+
+#aph-welcome-head {
+  position: sticky;
+  top: 0;
+  background: color-mix(in srgb, var(--wel-bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+  backdrop-filter: blur(12px) saturate(1.1);
+  border-bottom: 1px solid var(--wel-line);
+  padding: 8px 0 16px;
+  margin: 0 -24px;
+  padding-inline: 24px;
+  z-index: 2;
+}
+
+#aph-welcome-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--wel-text);
+  margin-bottom: 4px;
+}
+
+#aph-welcome-sub {
+  font-size: 13px;
+  color: var(--wel-faint);
+}
+
+.aph-welcome-group {
+  margin-top: 22px;
+}
+
+.aph-welcome-group > h2 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--wel-faint);
+  margin: 0 0 8px 2px;
+}
+
+.aph-welcome-card {
+  padding: 10px 12px;
+  border-radius: var(--wel-radius-xl);
+}
+
+.aph-welcome-card:hover {
+  background: var(--wel-surface);
+}
+
+.aph-welcome-label {
+  color: var(--wel-text);
+  font-weight: 500;
+}
+
+.aph-welcome-desc {
+  font-size: 12px;
+  color: var(--wel-faint);
+  margin-top: 2px;
+}
+
+.aph-welcome-keys {
+  margin-top: 6px;
+}
+
+kbd {
+  font-family: inherit;
+  font-size: 12px;
+  background: var(--wel-surface);
+  border: 1px solid var(--wel-line);
+  border-bottom-width: 2px;
+  border-radius: var(--wel-radius-md);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+#aph-welcome-foot {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--wel-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+#aph-welcome-dismiss {
+  background: color-mix(in srgb, var(--wel-accent) 55%, transparent);
+  color: var(--wel-text);
+  border: 1px solid transparent;
+  border-radius: var(--wel-radius-lg);
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#aph-welcome-dismiss:hover {
+  background: color-mix(in srgb, var(--wel-accent) 70%, transparent);
+}
+
+#aph-welcome-links {
+  font-size: 13px;
+  color: var(--wel-faint);
+}
+
+#aph-welcome-links a {
+  color: var(--wel-muted);
+}
+
+/* Motion language (§24 in theme.css, same dialect): hovers ease instead
+   of snapping. Reduced-motion kills every transition. */
+.aph-welcome-card {
+  transition: background-color 0.12s ease-out;
+}
+#aph-welcome-dismiss {
+  transition: background-color 0.12s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .aph-welcome-card,
+  #aph-welcome-dismiss {
+    transition: none;
+  }
+}

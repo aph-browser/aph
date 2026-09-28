@@ -20,9 +20,11 @@ from .injectors.features import (
     ArchiveInjector,
     FontInjector,
     PaletteInjector,
+    SettingsInjector,
     TabrenameInjector,
     TextpickInjector,
     ThemeInjector,
+    WelcomeInjector,
     WorkspacesInjector,
 )
 from .injectors.logos import LogoInjector
@@ -46,6 +48,8 @@ LEAGCY_LOG_FIELDS = (
     "archive.js",
     "archive-shared.js",
     "archive page files (html/css/page)",
+    "settings page files (html/css/page)",
+    "welcome page files (html/css/page)",
     "tabrename.js",
     "chrome fonts (inter woff2)",
 )
@@ -73,6 +77,8 @@ class BrandPatcher:
                 payloads.archive_shared_js,
                 payloads.archive_page_files,
             ),
+            SettingsInjector(payloads.settings_page_files),
+            WelcomeInjector(payloads.welcome_page_files),
             TabrenameInjector(payloads.tabrename_js),
             FontInjector(payloads.font_files),
         ]
@@ -197,6 +203,8 @@ class BrandPatcher:
             f"{counts.textpick} textpick files (controller/shared/child/parent), "
             f"{counts.archivejs} archive.js, {counts.archiveshared} archive-shared.js, "
             f"{counts.archivepage} archive page files (html/css/page), "
+            f"{counts.settingspage} settings page files (html/css/page), "
+            f"{counts.welcomepage} welcome page files (html/css/page), "
             f"{counts.tabrenamejs} tabrename.js, "
             f"{counts.fonts} chrome fonts (inter woff2)"
         )

@@ -1,0 +1,178 @@
+"""Aph settings page: chrome-system files ship via the rebrand and the
+page covers every aph.* behavior pref (toggles live, JSON prefs
+read-only), reachable from the Aph menu and the palette.
+"""
+
+import re
+import zipfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+HTML = ROOT / "branding" / "settings.html"
+CSS = ROOT / "branding" / "settings.css"
+PAGE_JS = ROOT / "branding" / "settings-page.js"
+
+EXPECTED_PREFS = {
+    "aph.workspaces.unloadOnSwitch",
+    "aph.archive.autoEnabled",
+    "aph.archive.autoStaleMin",
+    "aph.addons.silenceFirstRun",
+    "aph.pins.ctrlWUnloads",
+    "aph.stars.ctrlWUnloads",
+    "aph.sidebar.hideFooter",
+}
+
+READONLY_PREFS = {
+    "aph.workspaces.names",
+    "aph.workspaces.containerBindings",
+    "aph.workspaces.domainRoutes",
+    "aph.archive.tabs",
+    "aph.palette.frecency",
+}
+
+
+def _theme_css() -> str:
+    return (ROOT / "branding" / "theme.css").read_text(encoding="utf-8")
+
+
+def test_settings_sources_exist() -> None:
+    for p in (HTML, CSS, PAGE_JS):
+        assert p.is_file(), f"missing {p.name}"
+
+
+def test_settings_html_is_sane() -> None:
+    text = HTML.read_text(encoding="utf-8")
+    assert text.startswith("<!DOCTYPE html>")
+    assert "chrome://browser/content/aph-settings.css" in text
+    assert "chrome://browser/content/aph-settings-page.js" in text
+    assert "<script>" not in text, "no inline scripts on chrome pages"
+    assert 'id="aph-settings-list"' in text
+    assert 'id="aph-settings-reset-frecency"' in text
+
+
+def test_settings_css_is_sane() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    assert css.count("{") == css.count("}"), "unbalanced braces"
+    assert css.count("/*") == css.count("*/"), "unbalanced comments"
+    for live in (
+        "--set-bg",
+        "--set-surface",
+        "--set-raised",
+        "--set-text",
+        "--set-muted",
+        "--set-radius-md",
+        "--set-radius-xl",
+    ):
+        assert live in css, f"missing chrome-system token: {live}"
+    assert css.count("@font-face {") == 4
+    assert "aph-fonts/inter-" in css
+    assert "prefers-reduced-motion" in css
+    assert "transition: none" in css
+
+
+def test_settings_voice_parity() -> None:
+    """Separate document (no theme.css cascade), so the workspace hue
+    table is duplicated by design — and pinned equal to theme.css §21."""
+    theme_hues = dict(re.findall(r"--aph-ws-([1-9]):\s*(#[0-9a-fA-F]{6})", _theme_css()))
+    set_hues = dict(re.findall(r"--set-ws-([1-9]):\s*(#[0-9a-fA-F]{6})", CSS.read_text()))
+    assert len(theme_hues) == 9 and len(set_hues) == 9
+    for n in "123456789":
+        assert set_hues[n].lower() == theme_hues[n].lower(), (
+            f"ws{n} diverged: settings {set_hues[n]} vs chrome {theme_hues[n]}"
+        )
+
+
+def test_settings_identity_rows_carry_workspace() -> None:
+    js = PAGE_JS.read_text(encoding="utf-8")
+    assert 'setAttribute("data-ws"' in js
+    css = CSS.read_text(encoding="utf-8")
+    assert ".aph-settings-table tr[data-ws]" in css
+    assert "--set-ws-accent" in css
+
+
+def test_settings_page_covers_every_pref() -> None:
+    js = PAGE_JS.read_text(encoding="utf-8")
+    for pref in EXPECTED_PREFS | READONLY_PREFS:
+        assert pref in js, f"settings page ignores {pref}"
+    # Defaults match config/user-overrides.js seed-once values.
+    for pref, val in (
+        ('"aph.workspaces.unloadOnSwitch": false', "unloadOnSwitch"),
+        ('"aph.archive.autoEnabled": false', "autoEnabled"),
+        ('"aph.addons.silenceFirstRun": true', "silenceFirstRun"),
+        ('"aph.pins.ctrlWUnloads": true', "pins"),
+        ('"aph.stars.ctrlWUnloads": true', "stars"),
+        ('"aph.sidebar.hideFooter": true', "hideFooter"),
+    ):
+        assert pref in js, f"wrong default for {val}"
+    assert "STALE_DEFAULT = 5" in js
+
+
+def test_settings_page_uses_services_directly() -> None:
+    """System-principal precedent (same as archive-page.js): the page
+    reads/writes prefs itself, observes them live, and never inlines."""
+    js = PAGE_JS.read_text(encoding="utf-8")
+    assert "Services" in js
+    assert "getBoolPref" in js
+    assert "setBoolPref" in js
+    assert "setIntPref" in js
+    assert "addObserver" in js
+
+
+def test_settings_payloads_load_and_patch(tmp_path) -> None:
+    from scripts.aph_rebrand import BrandPatcher, load_payloads
+    from scripts.aph_rebrand.constants import (
+        SETTINGS_CSS_JA_PATH,
+        SETTINGS_HTML_JA_PATH,
+        SETTINGS_PAGE_JA_PATH,
+        WORKSPACES_XHTML_PATH,
+    )
+
+    payloads = load_payloads({})
+    assert len(payloads.settings_page_files) == 3
+    assert set(payloads.settings_page_files) == {
+        SETTINGS_HTML_JA_PATH,
+        SETTINGS_CSS_JA_PATH,
+        SETTINGS_PAGE_JA_PATH,
+    }
+
+    ja = tmp_path / "omni.ja"
+    with zipfile.ZipFile(ja, "w", compression=zipfile.ZIP_STORED) as z:
+        z.writestr("localization/en-US/brand.ftl", "old")
+        z.writestr("localization/en-US/sync-brand.ftl", "old")
+        z.writestr("localization/en-US/brandings.ftl", "old")
+        z.writestr("chrome/locale/brand.properties", "old")
+        z.writestr("chrome/locale/brand.dtd", "old")
+        z.writestr("chrome/browser/content/branding/about-logo.svg", "old")
+        z.writestr(
+            WORKSPACES_XHTML_PATH,
+            "<html><head>"
+            '<script src="chrome://browser/content/browser-main.js"></script>'
+            "</head><body></body></html>",
+        )
+    counts = BrandPatcher(ja, payloads).patch()
+    assert counts.settingspage == 3
+    with zipfile.ZipFile(ja) as z:
+        names = set(z.namelist())
+        for entry in (
+            SETTINGS_HTML_JA_PATH,
+            SETTINGS_CSS_JA_PATH,
+            SETTINGS_PAGE_JA_PATH,
+        ):
+            assert entry in names, entry
+
+
+def test_settings_entry_points_wired() -> None:
+    dock = (ROOT / "branding" / "src" / "workspaces" / "65-dock.js").read_text(encoding="utf-8")
+    assert "function aphOpenSettings()" in dock
+    assert "aph-settings.html" in dock
+    assert "about:config?filter=aph" not in dock, "dock menu must open the page, not about:config"
+    palette = (ROOT / "branding" / "src" / "palette" / "40-items.js").read_text(encoding="utf-8")
+    assert "Open Aph Settings" in palette
+    assert palette.count("aph-settings.html") >= 2, "palette must dedupe + open"
+    # Generated bundles are fresh (just rebrand rebuilds them first, but
+    # contributors must commit the rebuilt files all the same).
+    assert "aphOpenSettings" in (ROOT / "branding" / "workspaces.js").read_text(encoding="utf-8")
+    assert "Open Aph Settings" in (ROOT / "branding" / "command-palette.js").read_text(
+        encoding="utf-8"
+    )

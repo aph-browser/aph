@@ -111,6 +111,28 @@ TABRENAME_JS_SRC = BRANDING_DIR / "tabrename.js"
 TABRENAME_JA_PATH = "chrome/browser/content/browser/tabrename.js"
 TABRENAME_SCRIPT_TAG = '<script src="chrome://browser/content/tabrename.js"></script>'
 
+# Aph settings: tag-less settings page (HTML/CSS/page script) shipping
+# beside the archive page — loads by chrome:// URL in its own tab, no
+# browser.xhtml tag. Mirrors the ARCHIVE_* trio on purpose.
+SETTINGS_HTML_SRC = BRANDING_DIR / "settings.html"
+SETTINGS_HTML_JA_PATH = "chrome/browser/content/browser/aph-settings.html"
+SETTINGS_CSS_SRC = BRANDING_DIR / "settings.css"
+SETTINGS_CSS_JA_PATH = "chrome/browser/content/browser/aph-settings.css"
+SETTINGS_PAGE_SRC = BRANDING_DIR / "settings-page.js"
+SETTINGS_PAGE_JA_PATH = "chrome/browser/content/browser/aph-settings-page.js"
+SETTINGS_URL = "chrome://browser/content/aph-settings.html"
+
+# First-run welcome: tag-less tour page (HTML/CSS/page script) shipping
+# beside the settings page — loads by chrome:// URL in its own tab, no
+# browser.xhtml tag. Mirrors the SETTINGS_* trio on purpose.
+WELCOME_HTML_SRC = BRANDING_DIR / "welcome.html"
+WELCOME_HTML_JA_PATH = "chrome/browser/content/browser/aph-welcome.html"
+WELCOME_CSS_SRC = BRANDING_DIR / "welcome.css"
+WELCOME_CSS_JA_PATH = "chrome/browser/content/browser/aph-welcome.css"
+WELCOME_PAGE_SRC = BRANDING_DIR / "welcome-page.js"
+WELCOME_PAGE_JA_PATH = "chrome/browser/content/browser/aph-welcome-page.js"
+WELCOME_URL = "chrome://browser/content/aph-welcome.html"
+
 BRAND_PROPERTIES_TEMPLATE = """brandShorterName=Aph
 brandShortName=Aph
 brandFullName=Aph Browser

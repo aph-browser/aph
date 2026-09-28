@@ -16,12 +16,18 @@ from ..constants import (
     ARCHIVE_SHARED_JA_PATH,
     PALETTE_CSS_JA_PATH,
     PALETTE_JA_PATH,
+    SETTINGS_CSS_JA_PATH,
+    SETTINGS_HTML_JA_PATH,
+    SETTINGS_PAGE_JA_PATH,
     TABRENAME_JA_PATH,
     TEXTPICK_CHILD_JA_PATH,
     TEXTPICK_JA_PATH,
     TEXTPICK_PARENT_JA_PATH,
     TEXTPICK_SHARED_JA_PATH,
     THEME_JA_PATH,
+    WELCOME_CSS_JA_PATH,
+    WELCOME_HTML_JA_PATH,
+    WELCOME_PAGE_JA_PATH,
     WORKSPACES_JA_PATH,
 )
 from .base import PatchCounts
@@ -166,6 +172,64 @@ class TabrenameInjector:
             counts.tabrenamejs += 1
             return [(TABRENAME_JA_PATH, self._js)]
         return []
+
+
+class SettingsInjector:
+    """Tag-less settings page files (HTML/CSS/page script).
+
+    Mirrors ArchiveInjector's page group: loads by chrome:// URL in its
+    own tab, never via browser.xhtml, so no tag work is needed.
+    """
+
+    name = "settings"
+
+    def __init__(self, page_files: dict[str, bytes]) -> None:
+        self._page_files = page_files
+
+    def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
+        return data
+
+    def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
+        out: list[tuple[str, bytes]] = []
+        for key in (
+            SETTINGS_HTML_JA_PATH,
+            SETTINGS_CSS_JA_PATH,
+            SETTINGS_PAGE_JA_PATH,
+        ):
+            data = self._page_files.get(key)
+            if data is not None and key not in existing:
+                counts.settingspage += 1
+                out.append((key, data))
+        return out
+
+
+class WelcomeInjector:
+    """Tag-less welcome page files (HTML/CSS/page script).
+
+    Mirrors SettingsInjector: loads by chrome:// URL in its own tab,
+    never via browser.xhtml, so no tag work is needed.
+    """
+
+    name = "welcome"
+
+    def __init__(self, page_files: dict[str, bytes]) -> None:
+        self._page_files = page_files
+
+    def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
+        return data
+
+    def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
+        out: list[tuple[str, bytes]] = []
+        for key in (
+            WELCOME_HTML_JA_PATH,
+            WELCOME_CSS_JA_PATH,
+            WELCOME_PAGE_JA_PATH,
+        ):
+            data = self._page_files.get(key)
+            if data is not None and key not in existing:
+                counts.welcomepage += 1
+                out.append((key, data))
+        return out
 
 
 class FontInjector:

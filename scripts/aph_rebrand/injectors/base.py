@@ -33,6 +33,8 @@ class PatchCounts:
     archivejs: int = 0
     archiveshared: int = 0
     archivepage: int = 0
+    settingspage: int = 0
+    welcomepage: int = 0
     tabrenamejs: int = 0
     fonts: int = 0
 
@@ -53,6 +55,8 @@ class PatchCounts:
             self.archivejs,
             self.archiveshared,
             self.archivepage,
+            self.settingspage,
+            self.welcomepage,
             self.tabrenamejs,
             self.fonts,
         )

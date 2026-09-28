@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aph Settings</title>
+<link rel="stylesheet" href="chrome://browser/content/aph-settings.css" />
+<script src="chrome://browser/content/aph-settings-page.js"></script>
+</head>
+<body>
+<div id="aph-settings">
+  <header id="aph-settings-head">
+    <div id="aph-settings-title">Aph Settings</div>
+    <div id="aph-settings-sub">Workspaces, archive, tabs, add-ons and sidebar. Changes apply immediately and persist.</div>
+  </header>
+  <main id="aph-settings-list"></main>
+  <footer id="aph-settings-foot">
+    <button id="aph-settings-reset-frecency" type="button">Reset command frecency</button>
+    <span id="aph-settings-links">
+      <a id="aph-settings-open-archive" href="chrome://browser/content/aph-archive.html">Open Archive</a>
+      <span aria-hidden="true"> · </span>
+      <a id="aph-settings-advanced" href="about:config?filter=aph">Advanced (about:config)</a>
+    </span>
+  </footer>
+  <div id="aph-settings-toast"></div>
+</div>
+</body>
+</html>

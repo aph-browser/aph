@@ -25,6 +25,12 @@ from .constants import (
     FONT_SRC_PAIRS,
     PALETTE_CSS_SRC,
     PALETTE_JS_SRC,
+    SETTINGS_CSS_JA_PATH,
+    SETTINGS_CSS_SRC,
+    SETTINGS_HTML_JA_PATH,
+    SETTINGS_HTML_SRC,
+    SETTINGS_PAGE_JA_PATH,
+    SETTINGS_PAGE_SRC,
     SYNC_BRAND_FTL_SRC,
     TABRENAME_JS_SRC,
     TEXTPICK_CHILD_JA_PATH,
@@ -35,6 +41,12 @@ from .constants import (
     TEXTPICK_SHARED_JA_PATH,
     TEXTPICK_SHARED_SRC,
     THEME_CSS_SRC,
+    WELCOME_CSS_JA_PATH,
+    WELCOME_CSS_SRC,
+    WELCOME_HTML_JA_PATH,
+    WELCOME_HTML_SRC,
+    WELCOME_PAGE_JA_PATH,
+    WELCOME_PAGE_SRC,
     WORKSPACES_JS_SRC,
 )
 
@@ -54,6 +66,8 @@ class PatchPayloads:
     archive_js: bytes | None = None
     archive_shared_js: bytes | None = None
     archive_page_files: dict[str, bytes] = field(default_factory=dict)
+    settings_page_files: dict[str, bytes] = field(default_factory=dict)
+    welcome_page_files: dict[str, bytes] = field(default_factory=dict)
     tabrename_js: bytes | None = None
     font_files: dict[str, bytes] = field(default_factory=dict)
 
@@ -166,6 +180,24 @@ def load_payloads(icon_buffers: dict[int, bytes]) -> PatchPayloads:
             (ARCHIVE_PAGE_SRC, ARCHIVE_PAGE_JA_PATH),
         ],
         "archive page file",
+    )
+
+    payloads.settings_page_files = _load_map(
+        [
+            (SETTINGS_HTML_SRC, SETTINGS_HTML_JA_PATH),
+            (SETTINGS_CSS_SRC, SETTINGS_CSS_JA_PATH),
+            (SETTINGS_PAGE_SRC, SETTINGS_PAGE_JA_PATH),
+        ],
+        "settings page file",
+    )
+
+    payloads.welcome_page_files = _load_map(
+        [
+            (WELCOME_HTML_SRC, WELCOME_HTML_JA_PATH),
+            (WELCOME_CSS_SRC, WELCOME_CSS_JA_PATH),
+            (WELCOME_PAGE_SRC, WELCOME_PAGE_JA_PATH),
+        ],
+        "welcome page file",
     )
 
     payloads.tabrename_js = _read(TABRENAME_JS_SRC, "tab rename injection")
