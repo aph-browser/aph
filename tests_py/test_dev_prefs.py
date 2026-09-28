@@ -200,6 +200,22 @@ def test_ensure_rebranded_reports_false_without_omni(tmp_path: Path) -> None:
     assert ensure_rebranded(root) is False
 
 
+def test_extension_settings_restricts_no_install_types() -> None:
+    """The "*" entry must not carry allowed_types: Firefox has five install
+    types (extension, theme, dictionary, locale, sitepermission), so any
+    allowlist silently bans whatever it omits — historically language
+    packs (locale). Aph restricts nothing; uBlock stays force-installed."""
+    import json
+
+    root = Path(__file__).resolve().parent.parent
+    policies = json.loads((root / "config" / "policies.json").read_text(encoding="utf-8"))
+    ext = policies["policies"]["ExtensionSettings"]
+    assert ext["*"]["installation_mode"] == "allowed"
+    assert "allowed_types" not in ext["*"], "no install type may be banned (see locale)"
+    assert "blocked_install_message" not in ext["*"], "no stale ban message"
+    assert "uBlock0@raymondhill.net" in ext
+
+
 def test_no_default_theme_is_installed_or_pinned() -> None:
     """Aph owns its canvas, so no lightweight theme may ship as the default.
 

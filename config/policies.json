@@ -101,8 +101,6 @@
     "ExtensionSettings": {
       "*": {
         "installation_mode": "allowed",
-        "allowed_types": ["dictionary", "extension", "sitepermission", "theme"],
-        "blocked_install_message": "Aph does not allow installing Language Packs.",
         "default_area": "menupanel"
       },
       "uBlock0@raymondhill.net": {
