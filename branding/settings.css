@@ -289,6 +289,34 @@ html, body {
   flex-wrap: wrap;
 }
 
+#aph-settings-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#aph-settings-export,
+#aph-settings-import {
+  background: transparent;
+  color: var(--set-muted);
+  border: 1px solid var(--set-line);
+  border-radius: var(--set-radius-lg);
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#aph-settings-export:hover,
+#aph-settings-import:hover {
+  background: var(--set-surface);
+  color: var(--set-text);
+}
+
+#aph-settings-import-file {
+  display: none;
+}
+
 #aph-settings-reset-frecency {
   background: transparent;
   color: var(--set-danger);

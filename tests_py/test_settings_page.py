@@ -49,6 +49,10 @@ def test_settings_html_is_sane() -> None:
     assert "<script>" not in text, "no inline scripts on chrome pages"
     assert 'id="aph-settings-list"' in text
     assert 'id="aph-settings-reset-frecency"' in text
+    assert 'id="aph-settings-export"' in text
+    assert 'id="aph-settings-import"' in text
+    assert 'id="aph-settings-import-file"' in text
+    assert 'type="file"' in text
 
 
 def test_settings_css_is_sane() -> None:
@@ -69,6 +73,38 @@ def test_settings_css_is_sane() -> None:
     assert "aph-fonts/inter-" in css
     assert "prefers-reduced-motion" in css
     assert "transition: none" in css
+
+
+def test_settings_backup_buttons_are_styled() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    for sel in ("#aph-settings-export", "#aph-settings-import", "#aph-settings-import-file"):
+        assert sel in css, f"missing styled control: {sel}"
+
+
+def test_settings_backup_logic_present() -> None:
+    """Export covers every behavior + JSON pref; import validates strictly
+    on known-key types, merges (never deletes), and confirms first."""
+    js = PAGE_JS.read_text(encoding="utf-8")
+    for token in (
+        "BACKUP_VERSION = 1",
+        "BACKUP_BOOL_PREFS",
+        "BACKUP_JSON_PREFS",
+        "buildBackup",
+        "parseBackup",
+        "summarizeBackup",
+        "exportBackup",
+        "importBackupFile",
+        "writeBackupPrefs",
+        "Not an Aph backup file.",
+        "Unsupported backup version",
+        "FileReader",
+        "createObjectURL",
+        "window.confirm",
+    ):
+        assert token in js, f"backup wiring missing: {token}"
+    # Import writes flow through the same guarded writers as the UI —
+    # never a raw pref write.
+    assert "setStringPref" in js and "setBoolPref" in js and "setIntPref" in js
 
 
 def test_settings_voice_parity() -> None:

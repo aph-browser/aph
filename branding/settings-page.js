@@ -136,6 +136,140 @@ var AphSettingsLogic = (function () {
     }
   }
 
+  // --- Backup / export -------------------------------------------------
+  // File shape: { aphBackup: 1, exportedAt: <ISO>, prefs: { pref: value } }.
+  // Values are parsed (objects stay objects), so files are readable and
+  // diffable. Import writes only keys present in the file (merge, never
+  // delete); unknown keys are ignored so newer files stay loadable.
+  const BACKUP_VERSION = 1;
+  const BACKUP_BOOL_PREFS = Object.keys(BOOL_DEFAULTS);
+  const BACKUP_JSON_PREFS = [NAMES_PREF, BINDINGS_PREF, ROUTES_PREF, ARCHIVE_PREF, FRECENCY_PREF];
+
+  // read: { bool(pref, def), int(pref, def), json(pref) } — the DOM
+  // controller binds these to Services; tests pass stubs.
+  function buildBackup(read) {
+    const out = {};
+    try {
+      for (const k of BACKUP_BOOL_PREFS) {
+        out[k] = !!read.bool(k, BOOL_DEFAULTS[k]);
+      }
+      out[STALE_PREF] = clampStaleMin(read.int(STALE_PREF, STALE_DEFAULT));
+      for (const k of BACKUP_JSON_PREFS) {
+        out[k] = read.json(k);
+      }
+    } catch (e) {}
+    let exportedAt = "";
+    try {
+      exportedAt = new Date().toISOString();
+    } catch (e) {}
+    return { aphBackup: BACKUP_VERSION, exportedAt, prefs: out };
+  }
+
+  function isObject(v) {
+    return !!v && typeof v === "object" && !Array.isArray(v);
+  }
+
+  // Strict on known-key types (a hand-edited file with a string where a
+  // bool belongs is almost certainly a mistake); lenient on unknown keys
+  // (ignored) and missing keys (import simply skips them).
+  function parseBackup(text) {
+    let root = null;
+    try {
+      root = JSON.parse(text);
+    } catch (e) {
+      return { ok: false, error: "Not valid JSON." };
+    }
+    if (!isObject(root) || !isObject(root.prefs)) {
+      return { ok: false, error: "Not an Aph backup file." };
+    }
+    if (root.aphBackup !== BACKUP_VERSION) {
+      return { ok: false, error: `Unsupported backup version ${String(root.aphBackup)}.` };
+    }
+    const prefs = {};
+    for (const k of BACKUP_BOOL_PREFS) {
+      if (k in root.prefs) {
+        if (typeof root.prefs[k] !== "boolean") {
+          return { ok: false, error: `${k} must be true or false.` };
+        }
+        prefs[k] = root.prefs[k];
+      }
+    }
+    if (STALE_PREF in root.prefs) {
+      if (typeof root.prefs[STALE_PREF] !== "number" || !Number.isFinite(root.prefs[STALE_PREF])) {
+        return { ok: false, error: `${STALE_PREF} must be a number.` };
+      }
+      prefs[STALE_PREF] = clampStaleMin(root.prefs[STALE_PREF]);
+    }
+    // JSON prefs validate in BACKUP_JSON_PREFS order so an export →
+    // import round-trip keeps stable key order (diffable files).
+    for (const k of BACKUP_JSON_PREFS) {
+      if (!(k in root.prefs)) {
+        continue;
+      }
+      if (k === ARCHIVE_PREF) {
+        if (!Array.isArray(root.prefs[k])) {
+          return { ok: false, error: `${k} must be a list.` };
+        }
+        // Entries are sanitized again on read by the archive page, but
+        // drop obvious junk now so a corrupt file can't wedge the store.
+        const kept = [];
+        let dropped = 0;
+        for (const e of root.prefs[k]) {
+          if (e && typeof e === "object" && typeof e.id === "string" && typeof e.url === "string") {
+            kept.push(e);
+          } else {
+            dropped++;
+          }
+        }
+        prefs[k] = kept;
+        if (dropped > 0) {
+          prefs.__droppedArchive = dropped;
+        }
+        continue;
+      }
+      if (!isObject(root.prefs[k])) {
+        return { ok: false, error: `${k} must be an object.` };
+      }
+      prefs[k] = root.prefs[k];
+    }
+    return { ok: true, prefs, exportedAt: typeof root.exportedAt === "string" ? root.exportedAt : "" };
+  }
+
+  // One-line summary for the import confirm dialog.
+  function summarizeBackup(prefs) {
+    const bits = [];
+    try {
+      const n = countKeys(prefs[NAMES_PREF]);
+      if (n) {
+        bits.push(`${n} workspace name${n === 1 ? "" : "s"}`);
+      }
+      const b = countKeys(prefs[BINDINGS_PREF]);
+      if (b) {
+        bits.push(`${b} binding${b === 1 ? "" : "s"}`);
+      }
+      const r = countKeys(prefs[ROUTES_PREF]);
+      if (r) {
+        bits.push(`${r} route${r === 1 ? "" : "s"}`);
+      }
+      if (Array.isArray(prefs[ARCHIVE_PREF])) {
+        bits.push(`${prefs[ARCHIVE_PREF].length} archived tab${prefs[ARCHIVE_PREF].length === 1 ? "" : "s"}`);
+      }
+      let toggles = 0;
+      for (const k of BACKUP_BOOL_PREFS) {
+        if (k in prefs) {
+          toggles++;
+        }
+      }
+      if (STALE_PREF in prefs) {
+        toggles++;
+      }
+      if (toggles) {
+        bits.push(`${toggles} setting${toggles === 1 ? "" : "s"}`);
+      }
+    } catch (e) {}
+    return bits.length ? bits.join(", ") : "no Aph prefs";
+  }
+
   return {
     BOOL_DEFAULTS,
     STALE_PREF,
@@ -151,6 +285,12 @@ var AphSettingsLogic = (function () {
     clampStaleMin,
     parseJsonObject,
     countKeys,
+    BACKUP_VERSION,
+    BACKUP_BOOL_PREFS,
+    BACKUP_JSON_PREFS,
+    buildBackup,
+    parseBackup,
+    summarizeBackup,
   };
 })();
 
@@ -307,6 +447,49 @@ var AphSettingsLogic = (function () {
     } catch (e) {
       return {};
     }
+  }
+
+  function readJsonArray(pref) {
+    try {
+      const raw = readString(pref);
+      if (!raw) {
+        return [];
+      }
+      const v = JSON.parse(raw);
+      return Array.isArray(v) ? v : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function writeString(pref, value) {
+    let text = "";
+    try {
+      text = JSON.stringify(value);
+    } catch (e) {
+      return false;
+    }
+    // JSON prefs may legitimately stringify to undefined (functions can
+    // never appear here, but a hostile backup object could smuggle one
+    // past parse — refuse instead of writing the literal "undefined").
+    if (typeof text !== "string") {
+      return false;
+    }
+    try {
+      const p = prefs();
+      if (!p) {
+        return false;
+      }
+      if (typeof p.setStringPref === "function") {
+        p.setStringPref(pref, text);
+        return true;
+      }
+      if (typeof p.setCharPref === "function") {
+        p.setCharPref(pref, text);
+        return true;
+      }
+    } catch (e) {}
+    return false;
   }
 
   function archiveCount() {
@@ -654,12 +837,153 @@ var AphSettingsLogic = (function () {
     }
   }
 
+  // Writes only keys present in the backup (merge, never delete).
+  // Returns the number of prefs written.
+  function writeBackupPrefs(p) {
+    let n = 0;
+    try {
+      const l = L();
+      for (const k of (l && l.BACKUP_BOOL_PREFS) || []) {
+        if (p && k in p && writeBool(k, !!p[k])) {
+          n++;
+        }
+      }
+      const sp = (l && l.STALE_PREF) || "aph.archive.autoStaleMin";
+      if (p && sp in p) {
+        const v = writeStale(p[sp]);
+        if (v !== null && v !== undefined) {
+          n++;
+        }
+      }
+      for (const k of (l && l.BACKUP_JSON_PREFS) || []) {
+        if (p && k in p && writeString(k, p[k])) {
+          n++;
+        }
+      }
+    } catch (e) {}
+    return n;
+  }
+
+  function exportBackup() {
+    try {
+      const l = L();
+      if (!l || typeof l.buildBackup !== "function") {
+        toast("Export failed");
+        return;
+      }
+      const data = l.buildBackup({
+        bool: (k) => readBool(k),
+        int: () => readStale(),
+        json: (k) => (k === l.ARCHIVE_PREF ? readJsonArray(k) : readJsonObject(k)),
+      });
+      const text = JSON.stringify(data, null, 2);
+      const blob = new Blob([text], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      let day = "";
+      try {
+        day = new Date().toISOString().slice(0, 10);
+      } catch (e) {}
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `aph-backup-${day || "settings"}.json`;
+      try {
+        (document.body || document.documentElement).appendChild(a);
+      } catch (e) {}
+      try {
+        a.click();
+      } catch (e) {}
+      try {
+        a.remove();
+      } catch (e) {}
+      setTimeout(() => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (e) {}
+      }, 5000);
+      toast("Backup exported");
+    } catch (e) {
+      toast("Export failed");
+    }
+  }
+
+  function importBackupFile(file) {
+    if (!file) {
+      return;
+    }
+    let reader = null;
+    try {
+      reader = new FileReader();
+    } catch (e) {
+      toast("Import failed");
+      return;
+    }
+    reader.onload = () => {
+      try {
+        const l = L();
+        const r = l && typeof l.parseBackup === "function" ? l.parseBackup(reader.result) : null;
+        if (!r || !r.ok) {
+          toast((r && r.error) || "Import failed");
+          return;
+        }
+        const summary = l.summarizeBackup(r.prefs);
+        const when = r.exportedAt ? ` from ${r.exportedAt.slice(0, 10)}` : "";
+        let ok = false;
+        try {
+          ok = window.confirm(`Import Aph backup${when}?\nReplaces: ${summary}.`);
+        } catch (e) {
+          ok = false;
+        }
+        if (!ok) {
+          return;
+        }
+        const n = writeBackupPrefs(r.prefs);
+        render();
+        toast(n > 0 ? "Backup imported" : "Nothing to import");
+      } catch (e) {
+        toast("Import failed");
+      }
+    };
+    reader.onerror = () => toast("Import failed");
+    try {
+      reader.readAsText(file);
+    } catch (e) {
+      toast("Import failed");
+    }
+  }
+
   function init() {
     render();
     try {
       const btn = $("aph-settings-reset-frecency");
       if (btn) {
         btn.addEventListener("click", resetFrecency);
+      }
+    } catch (e) {}
+    try {
+      const exp = $("aph-settings-export");
+      if (exp) {
+        exp.addEventListener("click", exportBackup);
+      }
+    } catch (e) {}
+    try {
+      const imp = $("aph-settings-import");
+      const picker = $("aph-settings-import-file");
+      if (imp && picker) {
+        imp.addEventListener("click", () => {
+          try {
+            picker.click();
+          } catch (e) {}
+        });
+        picker.addEventListener("change", () => {
+          try {
+            const f = picker.files && picker.files[0];
+            // Reset so picking the same file twice still fires change.
+            try {
+              picker.value = "";
+            } catch (_e) {}
+            importBackupFile(f);
+          } catch (e) {}
+        });
       }
     } catch (e) {}
     // Live re-render when another window (or about:config) flips a pref.

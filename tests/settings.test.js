@@ -77,3 +77,103 @@ describe("JSON guards", () => {
     assert.equal(L.FRECENCY_PREF, "aph.palette.frecency");
   });
 });
+
+describe("backup round-trip", () => {
+  const reader = {
+    bool: (k, d) => {
+      const fixed = {
+        "aph.workspaces.unloadOnSwitch": true,
+        "aph.archive.autoEnabled": false,
+        "aph.addons.silenceFirstRun": true,
+        "aph.pins.ctrlWUnloads": true,
+        "aph.stars.ctrlWUnloads": false,
+        "aph.sidebar.hideFooter": true,
+      };
+      return k in fixed ? fixed[k] : d;
+    },
+    int: () => 12,
+    json: (k) =>
+      k === L.ARCHIVE_PREF
+        ? [{ id: "a", url: "https://a.example/", title: "A" }]
+        : { "2": "Work" },
+  };
+
+  it("builds a versioned backup covering every pref", () => {
+    const b = L.buildBackup(reader);
+    assert.equal(b.aphBackup, 1);
+    assert.equal(typeof b.exportedAt, "string");
+    assert.equal(b.prefs["aph.workspaces.unloadOnSwitch"], true);
+    assert.equal(b.prefs["aph.stars.ctrlWUnloads"], false);
+    assert.equal(b.prefs["aph.archive.autoStaleMin"], 12);
+    assertJsonEqual(b.prefs[L.ARCHIVE_PREF], [
+      { id: "a", url: "https://a.example/", title: "A" },
+    ]);
+    assertJsonEqual(b.prefs[L.NAMES_PREF], { 2: "Work" });
+  });
+
+  it("survives a stringify/parse round-trip", () => {
+    const r = L.parseBackup(JSON.stringify(L.buildBackup(reader)));
+    assert.equal(r.ok, true);
+    assertJsonEqual(r.prefs, L.buildBackup(reader).prefs);
+  });
+
+  it("rejects garbage, wrong versions and mistyped keys", () => {
+    assert.equal(L.parseBackup("nope").ok, false);
+    assert.equal(L.parseBackup("[1,2]").ok, false);
+    assert.equal(L.parseBackup('{"a":1}').ok, false);
+    assert.equal(
+      L.parseBackup('{"aphBackup":2,"prefs":{}}').ok,
+      false
+    );
+    assert.equal(
+      L.parseBackup('{"aphBackup":1,"prefs":{"aph.pins.ctrlWUnloads":"yes"}}').ok,
+      false
+    );
+    assert.equal(
+      L.parseBackup('{"aphBackup":1,"prefs":{"aph.archive.autoStaleMin":"soon"}}').ok,
+      false
+    );
+    assert.equal(
+      L.parseBackup('{"aphBackup":1,"prefs":{"aph.workspaces.names":[]}}').ok,
+      false
+    );
+    assert.equal(
+      L.parseBackup('{"aphBackup":1,"prefs":{"aph.archive.tabs":{}}}').ok,
+      false
+    );
+  });
+
+  it("ignores unknown keys and tolerates missing ones", () => {
+    const r = L.parseBackup(
+      '{"aphBackup":1,"prefs":{"aph.pins.ctrlWUnloads":false,"future.pref":42}}'
+    );
+    assert.equal(r.ok, true);
+    assertJsonEqual(r.prefs, { "aph.pins.ctrlWUnloads": false });
+  });
+
+  it("drops junk archive entries instead of rejecting the file", () => {
+    const r = L.parseBackup(
+      '{"aphBackup":1,"prefs":{"aph.archive.tabs":[' +
+        '{"id":"a","url":"https://a.example/"},' +
+        '{"id":"b"},null,"junk"]}}'
+    );
+    assert.equal(r.ok, true);
+    assertJsonEqual(r.prefs[L.ARCHIVE_PREF], [{ id: "a", url: "https://a.example/" }]);
+  });
+
+  it("summarizes imports for the confirm dialog", () => {
+    const s = L.summarizeBackup({
+      "aph.workspaces.names": { 1: "A", 2: "B" },
+      "aph.workspaces.containerBindings": {},
+      "aph.workspaces.domainRoutes": { "github.com": "2" },
+      "aph.archive.tabs": [{}, {}],
+      "aph.pins.ctrlWUnloads": true,
+      "aph.archive.autoStaleMin": 5,
+    });
+    assert.ok(s.includes("2 workspace names"), s);
+    assert.ok(s.includes("1 route"), s);
+    assert.ok(s.includes("2 archived tabs"), s);
+    assert.ok(s.includes("2 settings"), s);
+    assert.equal(L.summarizeBackup({}), "no Aph prefs");
+  });
+});
