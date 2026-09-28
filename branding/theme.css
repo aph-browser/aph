@@ -430,6 +430,26 @@ tab[data-aph-bound-match="1"] .tab-context-line,
 }
 
 /* ==========================================================================
+   7b. Container line softening: stock paints the identity stripe at full
+   saturation edge-to-edge (2px of pure --identity-stroke-color), which
+   shouts next to the muted room. Unselected container tabs wear the hue
+   at half strength instead — still identifiable, no longer loud.
+   Selected keeps full strength (presence outreads everything, §13).
+   Bound-match stays hidden (§7). Geometry untouched: recolor only, so
+   horizontal / vertical / collapsed layout never shifts. The nested var
+   fallback covers pre-Nova (icon-color) and Nova (stroke-color) alike.
+   ========================================================================== */
+
+tab[usercontextid]:not([data-aph-bound-match="1"]):not([selected]) .tab-context-line,
+.tabbrowser-tab[usercontextid]:not([data-aph-bound-match="1"]):not([selected]) .tab-context-line {
+  background: color-mix(
+    in srgb,
+    var(--identity-stroke-color, var(--identity-icon-color)) 50%,
+    transparent
+  ) !important;
+}
+
+/* ==========================================================================
    8. Unloaded (discarded) tabs: subtle dim of the exception, not the rule.
    Loaded is the default state, so only pending tabs are styled. Stock
    Firefox sets `pending` on discard and grays the icon; this extends that

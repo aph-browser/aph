@@ -831,3 +831,24 @@ def test_fallbacks_match_root_definitions() -> None:
         "rgba(125, 190, 255,",
     ):
         assert stale not in css, f"stale fallback value resurrected: {stale}"
+
+
+def test_container_line_softened_unselected_only() -> None:
+    """§7b: stock paints the container stripe at full saturation, which
+    shouts in the muted room. Unselected container tabs wear the hue at
+    half strength; selected keeps full strength (presence, §13);
+    bound-match stays hidden (§7). Recolor only — geometry untouched."""
+    css = _css()
+    sel = '.tabbrowser-tab[usercontextid]:not([data-aph-bound-match="1"]):not([selected]) .tab-context-line'
+    head = css.find(sel)
+    assert head != -1, "softened container-line rule missing"
+    body = css[head : css.find("}", head)]
+    assert "color-mix" in body, "stripe must mix the identity hue toward transparent"
+    assert "50%" in body
+    assert "--identity-stroke-color" in body
+    assert "--identity-icon-color" in body, "pre-Nova fallback must survive"
+    # Selected is carved out: no :not([selected])-less twin may mute it.
+    assert ":not([selected])" in sel
+    # Bound-match hiding (§7) still precedes and is intact.
+    hide = css.find('[data-aph-bound-match="1"] .tab-context-line')
+    assert hide != -1 and hide < head
