@@ -639,16 +639,36 @@ def test_toolbar_icon_hovers_speak_voice() -> None:
 
 
 def test_newtab_hover_is_full_row_wash() -> None:
-    """New Tab button (§26c): single full-row wash with lg corners, inners
-    cleared to transparent — never separate pills around plus + label."""
+    """New Tab button (§26c): single full-row wash with md corners, inners
+    cleared to transparent — never separate pills around plus + label,
+    never the selected lg presence."""
     css = _css()
     assert "26c. New Tab button" in css
     assert "#tabs-newtab-button" in css
     head = css.find("26c. New Tab button")
-    block = css[head:]
-    assert "--aph-radius-lg" in block
+    end = css.find("27. Tab group", head)
+    block = css[head : end if end != -1 else len(css)]
+    assert "--aph-radius-md" in block
+    assert "--aph-radius-lg" not in block
     assert "30%" in block and "45%" in block
     assert ":not(:focus-visible)" in block
+
+
+def test_newtab_rest_idles_like_tab_row() -> None:
+    """New Tab button rest state (§26d): transparent box (never stock
+    fill), icon + label at the secondary dim tier with the bar glide,
+    full ink on hover/focus/open. Disabled untouched."""
+    css = _css()
+    assert "26d. New Tab button at rest" in css
+    assert "#tabs-newtab-button" in css
+    head = css.find("26d. New Tab button at rest")
+    end = css.find("27. Tab group", head)
+    block = css[head : end if end != -1 else len(css)]
+    assert "background" in block and "transparent" in block
+    assert "--aph-secondary-opacity" in block
+    assert "opacity: 1" in block
+    assert ":focus-visible" in block
+    assert "[open]" in block
 
 
 def test_tab_group_radix_remap() -> None:

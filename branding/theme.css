@@ -1489,7 +1489,8 @@ sidebar-main toolbarbutton:not([disabled]):is(:hover:active, [open], [checked]) 
    as two separate boxes around the Plus and the text. These rules come
    later with higher specificity (two IDs), so they win: inners go back
    to transparent, the button box takes a single 30% wash / 45% pressed
-   with lg corners — the tab hover language (§12/§13). focus-visible
+   with md corners — the tab-row language (§12 whisper, 6px pills), never
+   the selected lg presence (§13). focus-visible
    keeps its native ring; disabled untouched; horizontal strip untouched
    (scoped to the vertical launcher). Glide matches the tab wash (0.12s).
    ========================================================================== */
@@ -1509,7 +1510,7 @@ sidebar-main #tabs-newtab-button:not([disabled]):not(:focus-visible):hover,
     var(--aph-voice, rgba(255, 255, 255, 0.12)) 30%,
     transparent
   ) !important;
-  border-radius: var(--aph-radius-lg) !important;
+  border-radius: var(--aph-radius-md) !important;
   outline-color: transparent !important;
   border-color: transparent !important;
   transition: background-color 0.12s ease-out !important;
@@ -1524,7 +1525,7 @@ sidebar-main #tabs-newtab-button:not([disabled]):is(:hover:active, [open], [chec
     var(--aph-voice, rgba(255, 255, 255, 0.12)) 45%,
     transparent
   ) !important;
-  border-radius: var(--aph-radius-lg) !important;
+  border-radius: var(--aph-radius-md) !important;
   outline-color: transparent !important;
   border-color: transparent !important;
 }
@@ -1532,6 +1533,38 @@ sidebar-main #tabs-newtab-button:not([disabled]):is(:hover:active, [open], [chec
 #vertical-tabs #tabs-newtab-button:not([disabled]):is(:hover:active, [open], [checked]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
 sidebar-main #tabs-newtab-button:not([disabled]):is(:hover:active, [open], [checked]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack) {
   background-color: transparent !important;
+}
+
+/* ==========================================================================
+   26d. New Tab button at rest: idle like a tab row, never stock.
+   With no Aph rest rule the button rendered full-opacity stock (icon +
+   label at full ink over any native fill) inside a strip where tabs idle
+   quiet — the sore-thumb half of the problem. So: transparent box, icon
+   and label at the secondary dim tier with the same 0.15s glide as §3/§4,
+   full ink on hover, focus, or open. Paint-only by design (stock row
+   metrics already match the tab rhythm); disabled keeps native dim.
+   ========================================================================== */
+#vertical-tabs #tabs-newtab-button:not([disabled]),
+sidebar-main #tabs-newtab-button:not([disabled]),
+#vertical-tabs toolbarbutton[data-l10n-id*="newtab"]:not([disabled]),
+#vertical-tabs toolbarbutton[data-l10n-id*="new-tab"]:not([disabled]) {
+  background: transparent !important;
+  background-color: transparent !important;
+  border-color: transparent !important;
+  color: var(--aph-ink, inherit) !important;
+}
+#vertical-tabs #tabs-newtab-button:not([disabled]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
+sidebar-main #tabs-newtab-button:not([disabled]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
+#vertical-tabs toolbarbutton[data-l10n-id*="newtab"]:not([disabled]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
+#vertical-tabs toolbarbutton[data-l10n-id*="new-tab"]:not([disabled]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack) {
+  opacity: var(--aph-secondary-opacity, 0.5) !important;
+  transition: opacity 0.15s ease !important;
+}
+#vertical-tabs #tabs-newtab-button:not([disabled]):is(:hover, :focus-visible, [open]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
+sidebar-main #tabs-newtab-button:not([disabled]):is(:hover, :focus-visible, [open]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
+#vertical-tabs toolbarbutton[data-l10n-id*="newtab"]:not([disabled]):is(:hover, :focus-visible, [open]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
+#vertical-tabs toolbarbutton[data-l10n-id*="new-tab"]:not([disabled]):is(:hover, :focus-visible, [open]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack) {
+  opacity: 1 !important;
 }
 
 /* ==========================================================================

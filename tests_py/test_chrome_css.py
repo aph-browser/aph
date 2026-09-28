@@ -125,7 +125,10 @@ def test_shipped_content_css_is_sane() -> None:
     # feed could withhold (@-moz-document url() selectors excepted).
     assert "url(http" not in css
     assert "url(chrome" not in css
-    # Yield-to-wallpaper guard: the backdrop must not cover Activity
-    # Stream's wallpaper (applied as body background-image via an inline
-    # --newtab-wallpaper property). about:blank keeps the plain body rule.
-    assert 'body:not([style*="--newtab-wallpaper:"])' in css
+    # Underlay stacking: the desk lives on html with body forced
+    # transparent, so Activity Stream's wallpaper (body background-image)
+    # covers it naturally when present — no observable wallpaper signal.
+    assert "--newtab-wallpaper:" not in css
+    assert "[style*=" not in css
+    assert "html {" in css
+    assert "background-color: transparent" in css

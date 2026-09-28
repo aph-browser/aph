@@ -55,8 +55,9 @@ written outside the install folder except your profile.
 - Windows: profile lives under `%APPDATA%\Aph\profile`.
 - On first run Aph seeds `user.js` from its bundled defaults; your edits
   persist afterwards (seed-once). `config/user.js` in the repo is the
-  source of those defaults. Menu accents seed the same way:
-  `branding/userChrome.css` → `profile/chrome/userChrome.css`.
+  source of those defaults. Menu accents and the new-tab backdrop seed
+  the same way: `branding/userChrome.css` → `profile/chrome/userChrome.css`,
+  `branding/userContent.css` → `profile/chrome/userContent.css`.
 
 ## Reporting bugs
 
