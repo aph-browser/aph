@@ -37,6 +37,11 @@ rebrand:
 build-assets:
     uv run python scripts/build_assets.py
 
+# Re-render logo PNG masters from branding/aph.svg geometry
+# (scripts/render_logo.py; tests_py/test_logo.py guards drift)
+render-logo:
+    uv run python scripts/render_logo.py
+
 # Verify committed bundles match branding/src/ (CI guard)
 check-assets:
     uv run python scripts/build_assets.py --check
