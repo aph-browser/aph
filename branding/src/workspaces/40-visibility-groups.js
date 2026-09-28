@@ -19,7 +19,7 @@
     }
   }
 
-  function aphHideTab(tab, source) {
+  function aphHideTab(tab) {
     try {
       if (!tab || tab.hidden || tab.closing) {
         return;
@@ -67,11 +67,6 @@
         event.initEvent("TabHide", true, false);
         tab.dispatchEvent(event);
       } catch (e) {}
-      if (source) {
-        try {
-          SessionStore.setCustomTabValue(tab, "hiddenBy", source);
-        } catch (e) {}
-      }
     } catch (e) {}
   }
 

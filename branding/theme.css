@@ -620,18 +620,6 @@ tab[selected] > .tab-stack > .tab-background {
   ) !important;
 }
 
-/* The same stock gradient has a second home: tabs.css paints it onto the
-   Firefox View button's icon while its panel is open, under the identical
-   `:root[theme-in-app]` + `border-box border-area` recipe. It is the same
-   violet->orange token, so it gets the same kill. Transient ([open] only),
-   but it is the last consumer of --tab-border-color-accent, and leaving it
-   means the gradient returns on that button the moment the theme is
-   removed and :root[theme-in-app] starts matching again. */
-#TabsToolbar #firefox-view-button[open] > .toolbarbutton-icon {
-  background-image: none !important;
-  border-color: transparent !important;
-}
-
 /* ==========================================================================
    14. URL-bar border + selection theme.
    The urlbar internals are light-DOM children of the moz-urlbar host but
