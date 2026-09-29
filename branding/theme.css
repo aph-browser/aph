@@ -1196,10 +1196,11 @@ tab:not([selected]):not(:hover) > .tab-stack > .tab-background {
 
 .tabbrowser-tab .tab-label,
 tab .tab-label {
-  /* 13px/500: the strip is a scannable list, not a headline wall. 14px
-     set every row shouting; 13px medium holds weight (Inter draws
-     light) while letting the selected row lead by fill, not size. */
-  font-size: 13px !important;
+  /* 14px/500: the strip is a scannable list, and labels are its
+     content — readability first. The selected row still leads by
+     fill, ring, and full ink, so size doesn't have to stay small
+     to preserve hierarchy. (Inter draws light, hence medium.) */
+  font-size: 14px !important;
   font-weight: 500 !important;
   letter-spacing: var(--aph-tracking-ui) !important;
 }
