@@ -56,7 +56,14 @@
      features each) — that declaration would be dead code. Full files
      would also unlock real optical sizing (no-op on statics). */
   --aph-tracking-ui: 0.015em;
-  --aph-pop-in: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  /* Pop-in easing, SPLIT on purpose. A single "duration + easing" token
+     is fine in `transition:` but fatal in `animation:` — the shorthand's
+     second <time> parses as DELAY, so the palette box held still, then
+     snapped in a beat after the backdrop had already faded up (it read
+     as open → flash → open again). Separate tokens keep one source of
+     truth with no time slot to misread. */
+  --aph-pop-in-duration: 180ms;
+  --aph-pop-in-ease: cubic-bezier(0.16, 1, 0.3, 1);
   /* Dim tiers (§3/§4): secondary bar buttons idle here, glide to 1 on
      hover/focus/open. 0.5 keeps color icons legible while reading quiet. */
   --aph-secondary-opacity: 0.5;

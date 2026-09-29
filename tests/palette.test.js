@@ -937,6 +937,16 @@ describe("terminal history + modifier peek", () => {
     assert.equal(input.value, "mute");
   });
 
+  it("redundant open keeps the typed query instead of replaying", () => {
+    const { api, created } = domSandbox();
+    api.open();
+    const input = created[2];
+    input.value = "mail";
+    api.render("mail");
+    api.open();
+    assert.equal(input.value, "mail", "second open must not wipe the query");
+  });
+
   it("morphs the footer while Alt is held and restores on release", () => {
     const { api, created, winHandlers } = domSandbox();
     api.open();

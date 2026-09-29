@@ -29,6 +29,9 @@
   let iconPick = null;
   // Pending close-animation timer (cancelled when the palette reopens).
   let closeTimer = null;
+  // Explicit closing flag: timer ids are truthy in browsers but the
+  // node mocks return 0, so reopen detection reads this, not the id.
+  let closing = false;
   // Sacred return-of-focus: element that held focus before open() stole it
   // (page input, editor, video player). Restored on hide so Esc never dumps
   // focus to <body> or the urlbar. Cleared after restore.

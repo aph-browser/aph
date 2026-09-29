@@ -7,6 +7,7 @@
     } catch (e) {
       closeTimer = null;
     }
+    closing = false;
     try {
       if (overlay && overlay.classList) {
         overlay.classList.remove("aph-palette-closing");
@@ -65,6 +66,30 @@
     if (!overlay) {
       build();
     }
+    // Already open: never replay the pop animation or wipe the typed
+    // query (redundant open() calls arrive from dock-menu fallbacks).
+    // Just refocus. Mid-close (timer pending or closing classes on)
+    // still falls through to the full path, which cancels the fade
+    // and restarts cleanly.
+    if (isOpen()) {
+      let reopening = false;
+      try {
+        reopening = !!closeTimer || closing === true;
+      } catch (e) {}
+      try {
+        reopening =
+          reopening ||
+          !!(overlay && overlay.classList && overlay.classList.contains("aph-palette-closing"));
+      } catch (e) {}
+      if (!reopening) {
+        setTimeout(() => {
+          try {
+            input.focus();
+          } catch (e) {}
+        }, 0);
+        return;
+      }
+    }
     captureFocus();
     prompt = null;
     iconPick = null;
@@ -86,12 +111,15 @@
         );
       } catch (e) {}
       if (!reduce) {
-        overlay.classList.remove("aph-palette-anim");
+        // Add only — no remove + forced reflow. The class is absent on
+        // every arrival: close() strips it (both the animated and
+        // instant paths), and the already-open early-return above means
+        // open() can never reach here twice in a row. Re-adding alone
+        // restarts the animation because the element is display:none
+        // until `overlay.hidden = false` a line earlier.
         const box =
           overlay.querySelector && overlay.querySelector("#aph-palette");
         if (box) {
-          box.classList.remove("aph-palette-anim");
-          void box.offsetWidth;
           box.classList.add("aph-palette-anim");
         }
       }
@@ -140,7 +168,8 @@
     }, 0);
   }
 
-  function renameCurrent() {    const api = ws();
+  function renameCurrent() {
+    const api = ws();
     if (!api || !api.getCurrent || !api.setWsName) {
       return;
     }
@@ -271,6 +300,7 @@
     // Animated exit: fade the backdrop, sink + shrink the panel, then
     // hide. Reopening cancels the timer (see open/cancelCloseTimer).
     cancelCloseTimer();
+    closing = true;
     try {
       overlay.classList.add("aph-palette-closing");
     } catch (e) {}
@@ -284,6 +314,7 @@
     try {
       closeTimer = setTimeout(() => {
         closeTimer = null;
+        closing = false;
         try {
           if (overlay) {
             overlay.hidden = true;
@@ -297,6 +328,7 @@
         } catch (e) {}
       }, 150);
     } catch (e) {
+      closing = false;
       try {
         overlay.hidden = true;
       } catch (_e) {}

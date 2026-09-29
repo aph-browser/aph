@@ -53,7 +53,11 @@
   font: inherit !important;
 }
 #aph-palette.aph-palette-anim {
-  animation: aph-palette-pop 180ms var(--aph-pop-in, 0.2s cubic-bezier(0.16, 1, 0.3, 1)) !important;
+  /* Runs WITH the backdrop fade (140ms), not after it: duration and
+     easing come from split tokens (theme.css §23) so the shorthand has
+     no second <time> to swallow as a delay. */
+  animation: aph-palette-pop var(--aph-pop-in-duration, 180ms)
+    var(--aph-pop-in-ease, cubic-bezier(0.16, 1, 0.3, 1)) !important;
   transform-origin: top center !important;
 }
 @keyframes aph-palette-pop {
