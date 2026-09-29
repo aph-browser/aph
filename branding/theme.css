@@ -383,6 +383,18 @@
   transition: background-color 0.2s ease, color 0.2s ease !important;
 }
 
+/* Indicator mark: Lucide glyph at pill rhythm, 6px off the label (the
+   tab icon→label gap). currentColor inherits pill ink, so dim/hover/
+   presence states need no paint logic; clicks land on the pill. */
+#aph-ws-indicator svg {
+  display: block !important;
+  flex: none !important;
+  width: 14px !important;
+  height: 14px !important;
+  margin-inline-end: 6px !important;
+  pointer-events: none !important;
+}
+
 #aph-ws-indicator[data-aph-ws-pulse="1"] {
   /* Attention flash: voice bg + Aph ink (contrast-proven by the
      presence gate). The canvas owns both ends, so no installed theme
@@ -660,6 +672,14 @@ tab[selected] > .tab-stack > .tab-background {
     var(--aph-voice, rgba(0, 144, 255, 0.28)) 55%,
     transparent
   ) !important;
+  /* Field rhythm resync: Aph fixes the field to 28px tall (§5), but the
+     stock --urlbar-height token defaults to 32px (28px compact, 34px
+     touch) and derives --urlbar-basic-component-size, icon padding, and
+     the search-mode indicator from it — children computing for a 32px
+     field inside a 28px one. Pin the token to the actual geometry so
+     every derivation recalculates cleanly. Compact is already 28px;
+     touch keeps today's forced 28px (field heights are Aph-fixed). */
+  --urlbar-height: 28px !important;
 }
 
 /* Quiet rest: no glowing edge around an empty field. Separation comes
@@ -783,6 +803,17 @@ tab[selected] > .tab-stack > .tab-background {
   outline-offset: -2px !important;
   opacity: 1 !important;
   background: color-mix(in srgb, var(--aph-voice, #0090ff) 30%, transparent) !important;
+}
+
+/* Pill mark: Lucide glyph at pill rhythm (same box as the Aph key
+   mark below). currentColor inherits pill ink; clicks land on the
+   pill, never the glyphs. Number fallback needs no rule (text). */
+.aph-ws-pill svg {
+  display: block !important;
+  flex: none !important;
+  width: 14px !important;
+  height: 14px !important;
+  pointer-events: none !important;
 }
 
 /* Drag-mode: empty workspaces appear as dashed drop targets. */
@@ -944,20 +975,15 @@ tab[data-aph-starred="1"] .tab-close-button,
    ========================================================================== */
 
 #browser {
-  /* Desk depth: flat base with a short top light-kiss and a faint bottom
-     vignette — near-flat so strip and toolbox share one ink instead of
-     drifting warm-top / dark-bottom. All washes, so any lightweight
-     theme keeps working. Stops are short on purpose: the sheen kisses
-     the top edge (never tints the room) and the vignette grounds only
-     the bottom edge. */
-  background:
-    linear-gradient(
-      /* Overridable per workspace (§21): unset = neutral text tint. */
-      var(--aph-desk-sheen, color-mix(in srgb, var(--aph-ink, #e8e8ec) 5%, transparent)),
-      transparent 24%
-    ),
-    linear-gradient(transparent 68%, color-mix(in srgb, black 8%, transparent)),
-    var(--aph-base) !important;
+  /* Desk flat: the same flat base as the toolbox (§1) and the launcher
+     (§22b), so gutters, bar, and strip read as one black. A prior
+     sheen + vignette gradient lived here, but its only remaining
+     visible surface was the thin card gutters — a gradient between two
+     flat neighbors read as gutter tint, not depth. Depth stays
+     card-borne (ring + layered/adaptive shadow on #tabbrowser-tabbox).
+     Flat also retires the per-workspace accent kiss: identity lives on
+     the indicator, dock pill, selected tab, and hairline. */
+  background: var(--aph-base, #17181f) !important;
 }
 
 #tabbrowser-tabbox {
@@ -1120,11 +1146,11 @@ menupopup > menuitem:last-child {
 /* The flip: stamped windows retune the voice from theme interaction to
    workspace presence. One line moves every repointed surface together;
    revert is deleting it. Unstamped windows keep the theme voice via
-   each rule's own var() fallback. Desk gets a 4% accent kiss (§19
-   sheen) — orientation without changing the room's white balance. */
+   each rule's own var() fallback. The desk stays flat neutral on every
+   workspace (no accent wash — bar, strip, and gutters read as one
+   black; identity lives on the pills, tab, and hairline). */
 :root[data-aph-ws] {
   --aph-voice: var(--aph-ws-accent);
-  --aph-desk-sheen: color-mix(in srgb, var(--aph-ws-accent) 4%, transparent);
   /* Hairline follows the accent: the same 12% alpha as the neutral
      default, re-split ~5% accent / 7% ink instead of 12% ink. Total
      opacity is deliberately unchanged so the ring gains hue without
@@ -1192,10 +1218,21 @@ tab:not([selected]):not(:hover) > .tab-stack > .tab-background {
    toolbar into one surface (bookmarks/history sidebars drink from the
    same token and join the room too); the separator border goes
    transparent (kept width, so geometry never shifts — the §19 card
-   keeps its own content-side separation).
+   keeps its own content-side separation). The tab launcher itself
+   (sidebar-main) is transparent stock and never drinks from that
+   token — it showed #browser's gradient desk (top sheen + bottom
+   vignette) while the toolbox paints flat base, so the column read a
+   shade off the bar. It paints flat base directly, same declaration
+   as the toolbox; stock draws no border on the launcher, so there is
+   no edge to neutralize. Correct in expanded, collapsed, and
+   expand-on-hover overlay alike (opaque over content, as stock
+   intends with its own launcher surface).
    ========================================================================== */
 :root {
   --sidebar-background-color: var(--aph-base, #17181f) !important;
+}
+sidebar-main {
+  background: var(--aph-base, #17181f) !important;
 }
 #sidebar-box {
   border-color: transparent !important;
@@ -1223,44 +1260,25 @@ tab[selected] .tab-label {
   color: var(--aph-ink, #e8e8ec) !important;
 }
 
-/* Favicons float clean: no wash tile behind real site icons — the box
-   read as a random artifact on colorful/transparent favicons. Fixed
-   20px box only centers icons without shifting rows; the stack stays
-   transparent so glyphs sit directly on the strip. [image] guards
-   iconless tabs so geometry never applies without a glyph. */
+/* Favicons ride stock geometry: 16px image + --tab-icon-end-margin gap
+   (tab.tokens.css default 5.5px, vertical-expanded 7.5px, muted 2px on
+   the tab itself, pinned/collapsed 0 via tabs.css selector scoping).
+   A prior fixed 20px stack + 14px image with margin:0 severed that
+   token and compensated with 6px on the stack — so pinned tabs (stock:
+   no gap) gained one, muted tabs (stock: 2px, room for the speaker
+   overlay) crowded it, and glyphs shrank below stock. Token instead:
+   Aph's 6px gap rides the same selectors stock defined — muted keeps
+   its 2px (direct declaration on the tab beats the inherited token),
+   pinned keeps 0 (declaration scoped out), every state recalculates
+   cleanly. No width/height/margin/padding here; stock sizing never
+   shifts rows, and audio/sharing overlays align again. */
+:root,
+#tabbrowser-tabs[orient="vertical"][expanded] {
+  --tab-icon-end-margin: 6px !important;
+}
 .tabbrowser-tab[image] .tab-icon-stack,
 tab[image] .tab-icon-stack {
-  width: 20px !important;
-  height: 20px !important;
-  /* inline-flex: the stack is a XUL box by default, where flex
-     align/justify props are ignored — without this the icon sat
-     top-start inside the fixed box. inline-flex keeps row flow
-     intact while truly centering; the -moz-box pair covers any
-     XUL box layout that survives underneath. */
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  -moz-box-align: center !important;
-  -moz-box-pack: center !important;
   background: transparent !important;
-  padding: 2px !important;
-  /* Breathing room before the label: stock .tab-label carries
-     margin-inline: 0 and Aph zeroes the image margin to keep glyphs
-     centered, so the fixed box above is the entire gap. This margin
-     restores it past stock's 7.5px image margin. Logical prop keeps
-     RTL correct; geometry shift is small and inside the row. */
-  margin-inline-end: 6px !important;
-  box-sizing: border-box !important;
-}
-.tabbrowser-tab[image] .tab-icon-image,
-tab[image] .tab-icon-image {
-  width: 14px !important;
-  height: 14px !important;
-  /* Centered flex item: no stock margins pulling it off the tile core,
-     never a flex-grow that stretches glyphs. */
-  flex: none !important;
-  margin: 0 !important;
-  padding: 0 !important;
 }
 
 /* Small-text tracking companions: dock pills (12px), the indicator
@@ -1395,6 +1413,13 @@ tab[selected][busy] > .tab-stack > .tab-background {
     ) !important;
     --urlbarView-row-border-radius: var(--aph-radius-md) !important;
     --urlbarView-row-padding-inline: 10px !important;
+    /* Pin the glyph size so stock geometry math stays valid: favicon
+       16px, badge mask 24px at -4px offset
+       (mask-position = (16 - 24) / 2), rich-search 28px centering.
+       Stock view-nova.css derives width/height/flex + margins from
+       this token per row, so rows never shift and badges overlay
+       where stock puts them. */
+    --urlbarview-favicon-size: 16px !important;
   }
 
   .urlbarView-row[selected] {
@@ -1419,30 +1444,24 @@ tab[selected][busy] > .tab-stack > .tab-background {
     font-weight: 500 !important;
   }
 
-  /* Icon geometry (no wash box): fixed 20px box only centers the glyph
-     so rows never shift — the icon floats clean with no tile behind it.
-     Same language as the tab strip: transparent, never a nested box
-     inside the row wash + ring. */
+  /* Icon paint only — geometry is stock-owned via --urlbarView-icon-size
+     / --urlbarView-icon-margin-start/end (favicon 16px, rich-search 28px,
+     badge 24px absolute overlay). A prior fixed 20px box with margin:0
+     killed the stock icon->text gap (margin-end = base + centering) and
+     squished every icon against its title, hardest on search rows, and
+     misplaced the absolute badge. No width/height/margin/padding here —
+     stock sizing + margins center glyphs and never shift rows. */
   .urlbarView-favicon,
   .urlbarView-type-icon {
-    width: 20px !important;
-    height: 20px !important;
-    flex: none !important;
-    margin: 0 !important;
-    padding: 2px !important;
-    box-sizing: border-box !important;
-    object-fit: contain !important;
     outline: none !important;
     border: none !important;
     background: transparent !important;
   }
 
   /* No badge cutouts: stock carves a corner notch out of typed-row
-     favicons (bookmark/history/tab/pinned badge masks), with geometry
-     tuned for its own 16px box (24px mask at -4px offset). Inside
-     Aph's 20px box the mask clips against the border box and chews
-     the icon's corners instead. Whole icons, no notch — the separate
-     type badge still overlays where stock puts it. */
+     favicons (bookmark/history/tab/pinned badge masks). Whole icons,
+     no notch — the separate type badge still overlays where stock
+     puts it (absolute, 24px, stock calc margin). */
   .urlbarView-favicon {
     mask-image: none !important;
   }

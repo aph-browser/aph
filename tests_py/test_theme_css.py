@@ -211,6 +211,8 @@ def test_workspace_dock_selectors_present() -> None:
         "#aph-ws-dock",
         ".aph-ws-pill",
         ".aph-ws-pill.drop-target",
+        ".aph-ws-pill svg",
+        "#aph-ws-indicator svg",
         ".aph-dock-aph svg",
         "sidebar-main:not([expanded])",
     ):
@@ -328,28 +330,34 @@ def test_tab_dialogs_survive_card_clip() -> None:
     assert "overflow" in body and "auto" in body
 
 
-def test_desk_has_depth_and_adaptive_shadow() -> None:
-    """Canvas desk (§19): layered sheen + vignette over the flat base
-    (never sticker-flat), and the card shadow adapts to desk brightness
-    behind a supports gate so engines without relative colors keep the
-    fixed fallback."""
+def test_desk_is_flat_and_shadow_adapts() -> None:
+    """Canvas desk (§19): one flat black shared with the toolbox (§1) and
+    the launcher (§22b) — bar, strip, and gutters read as one color, so
+    no gradient may live on #browser. Depth stays card-borne: the ring
+    plus layered shadow on #tabbrowser-tabbox, with the shadow adapting
+    to desk brightness behind a supports gate so engines without
+    relative colors keep the fixed fallback."""
     css = _css()
     head = css.find("#browser {")
     assert head != -1
     body = css[head : head + 800]
-    assert "linear-gradient" in body
-    assert "color-mix" in body
+    assert "linear-gradient" not in body, "desk gradient reads as gutter tint"
+    assert "var(--aph-base" in body, "desk must paint the shared flat base"
+    assert "--aph-desk-sheen" not in re.sub(r"/\*.*?\*/", "", css, flags=re.S), (
+        "dead sheen token resurrected"
+    )
     assert "@supports" in css and "rgb(from" in css
 
 
 def test_workspace_accents_cover_all_nine() -> None:
     """Per-workspace accents (§21): all nine workspaces define an accent,
     consumed by the three presence surfaces — selected fill (§13),
-    indicator, dock current — never as text. The desk keeps a subtle
-    4% accent kiss (§19 sheen) for orientation without changing the
-    room's white balance. The selected tab's hairline DOES carry the
-    accent (--aph-hairline, §13) — it may tint the edge, but never grow
-    past hairline weight, and never replace the fill as the signal."""
+    indicator, dock current — never as text. The desk stays flat neutral
+    on every workspace (bar, strip, and gutters read as one black;
+    identity lives on the pills, tab, and hairline). The selected tab's
+    hairline DOES carry the accent (--aph-hairline, §13) — it may tint
+    the edge, but never grow past hairline weight, and never replace
+    the fill as the signal."""
     css = _css()
     for n in "123456789":
         assert f"--aph-ws-{n}:" in css, f"missing accent var for ws{n}"
@@ -363,14 +371,6 @@ def test_workspace_accents_cover_all_nine() -> None:
     assert ":root[data-aph-ws] .tabbrowser-tab[selected]" not in css, (
         "no per-workspace rule may repaint the selected tab — the §13 "
         "fill token owns its background"
-    )
-    m = re.search(r":root\[data-aph-ws\][^{]*\{[^}]*--aph-desk-sheen\s*:\s*([^;]+);", css)
-    assert m, "desk sheen must be defined for stamped workspaces"
-    # Subtle only: 4% accent kiss, never a repaint.
-    assert "var(--aph-ws-accent)" in m.group(1)
-    pct = re.search(r"(\d+(?:\.\d+)?)\s*%", m.group(1))
-    assert pct and float(pct.group(1)) <= 5, (
-        f"desk sheen must stay subtle (<=5%), got {m.group(1)!r}"
     )
 
 
@@ -902,7 +902,10 @@ def test_sidebar_joins_toolbar_room() -> None:
     separator border, reading as separate things next to the Aph-base
     toolbar. The sidebar background token is reclaimed to Aph base and
     the box border goes transparent (width kept, so geometry never
-    shifts)."""
+    shifts). The tab launcher (sidebar-main) is transparent stock and
+    never drinks from that token — without its own flat base it shows
+    the gradient desk while the toolbox paints flat, so the column
+    reads a shade off the bar."""
     css = _css()
     assert "--sidebar-background-color: var(--aph-base" in css, (
         "strip must drink the toolbar base, not stock -moz-sidebar"
@@ -912,6 +915,12 @@ def test_sidebar_joins_toolbar_room() -> None:
     assert head != -1, "sidebar-box separator rule missing"
     body = css[head : css.find("}", head)]
     assert "border-color: transparent" in body
+    launcher = css.find("sidebar-main {")
+    assert launcher != -1, "launcher flat-base rule missing"
+    launcher_body = css[launcher : css.find("}", launcher)]
+    assert "var(--aph-base" in launcher_body, (
+        "launcher must paint the same flat base as the toolbox"
+    )
 
 
 def test_rest_rows_whisper() -> None:
@@ -946,15 +955,30 @@ def test_pending_tabs_read_parked() -> None:
 
 
 def test_icon_to_label_gap() -> None:
-    """Stock .tab-label carries margin-inline: 0, so Aph's fixed 20px
-    icon box is the entire icon→text gap — without an explicit margin
-    the glyph kisses the label."""
+    """Tab icon→text gap is stock-owned (tabs.css: 16px image with
+    margin-inline-end: var(--tab-icon-end-margin) — default 5.5px,
+    vertical-expanded 7.5px, muted 2px, pinned/collapsed 0 via selector
+    scoping). A fixed px box with margin:0 severed the token: pinned
+    gained a gap it shouldn't have, muted crowded its speaker overlay.
+    Aph must set no width/height/margin/padding on stack or image —
+    only the 6px token on :root + vertical-expanded (muted keeps 2px,
+    pinned keeps 0), so every state recalculates cleanly."""
     css = _css()
-    sel = ".tabbrowser-tab[image] .tab-icon-stack"
-    head = css.find(sel)
-    assert head != -1, "favicon box rule missing"
-    body = css[head : css.find("}", head)]
-    assert "margin-inline-end: 6px" in body
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    assert "--tab-icon-end-margin: 6px" in code, "tab gap token missing"
+    assert '#tabbrowser-tabs[orient="vertical"][expanded]' in code, (
+        "vertical-expanded override missing — strip would keep stock 7.5px"
+    )
+    for sel in (
+        ".tabbrowser-tab[image] .tab-icon-image",
+        "tab[image] .tab-icon-image",
+    ):
+        assert sel not in code, f"stock-owned image geometry leaked: {sel}"
+    head = code.find(".tabbrowser-tab[image] .tab-icon-stack")
+    assert head != -1, "stack paint rule missing"
+    body = code[head : code.find("}", head)]
+    for banned in ("width:", "height:", "margin:", "margin-inline", "padding:", "display:"):
+        assert banned not in body, f"stock-owned stack geometry leaked: {banned}"
 
 
 def test_dropdown_favicons_unmasked() -> None:
@@ -967,3 +991,46 @@ def test_dropdown_favicons_unmasked() -> None:
     head = code.find(sel)
     assert head != -1, "favicon unmask rule missing"
     assert "mask-image: none" in code[head : code.find("}", head)]
+
+
+def test_dropdown_icons_keep_stock_geometry() -> None:
+    """Dropdown icon→text gap is stock-owned (view-nova.css:
+    width/height/flex from --urlbarView-icon-size, margins from
+    --urlbarView-icon-margin-start/end, badge 24px absolute overlay).
+    A fixed px box with margin:0 killed the gap and squished icons
+    against titles (worst on search rows) and misplaced the badge.
+    Aph must set no width/height/margin/padding on either icon class —
+    paint only — and pin --urlbarview-favicon-size: 16px on .urlbarView
+    so the 24px/-4px mask math stays valid."""
+    css = _css()
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    head = code.find(".urlbarView-favicon,")
+    assert head != -1, "dropdown icon paint rule missing"
+    body = code[head : code.find("}", head)]
+    for banned in ("width:", "height:", "margin:", "margin-inline", "padding:", "flex:"):
+        assert banned not in body, f"stock-owned geometry leaked: {banned}"
+    view = code.find("--urlbarView-row-border-radius")
+    assert view != -1
+    assert "--urlbarview-favicon-size: 16px" in code[view : view + 600]
+
+
+def test_chrome_stays_rtl_clean() -> None:
+    """No physical direction props in chrome CSS: RTL mirrors via logical
+    props only. Sole exception is the toast's symmetric left:50%
+    centering (translateX(-50%) mirrors itself)."""
+    css = _css()
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    for banned in (
+        "margin-left:",
+        "margin-right:",
+        "padding-left:",
+        "padding-right:",
+        "float: left",
+        "float: right",
+        "text-align: left",
+        "text-align: right",
+    ):
+        assert banned not in code, f"physical direction prop leaked: {banned}"
+    for m in re.finditer(r"(?<![a-z-])(left|right)\s*:", code):
+        window = code[max(0, m.start() - 24) : m.end() + 8]
+        assert "left: 50%" in window, f"physical offset leaked: {window.strip()!r}"

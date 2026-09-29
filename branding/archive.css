@@ -126,7 +126,7 @@ html, body {
   font-size: 13px;
   font-weight: 400;
   color: var(--arch-faint);
-  margin-left: 8px;
+  margin-inline-start: 8px;
 }
 
 #aph-archive-search {

@@ -2,6 +2,7 @@
 shares the urlbar accent language.
 """
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,3 +44,28 @@ def test_palette_slab_belongs_to_room() -> None:
     sel = css[css.find(".aph-palette-item.selected {") :]
     sel = sel[: sel.find("}") + 1]
     assert "--aph-voice" in sel
+
+
+def test_palette_icon_marks_have_a_slot() -> None:
+    """Icon-pick rows render vendored Lucide marks centered in the 22px
+    tile (16px mark). Clicks must land on the row, never the glyphs."""
+    css = _css()
+    head = css.find(".aph-palette-icon svg {")
+    assert head != -1, "palette mark slot missing"
+    body = css[head : css.find("}", head)]
+    assert "width: 16px" in body
+    assert "pointer-events: none" in body
+
+
+def test_palette_stays_rtl_clean() -> None:
+    """Hint row floats/margins must mirror in RTL via logical props."""
+    code = re.sub(r"/\*.*?\*/", "", _css(), flags=re.S)
+    for banned in (
+        "margin-left:",
+        "margin-right:",
+        "float: left",
+        "float: right",
+        "text-align: left",
+        "text-align: right",
+    ):
+        assert banned not in code, f"physical direction prop leaked: {banned}"

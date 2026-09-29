@@ -156,6 +156,14 @@
   padding: 2px !important;
   box-sizing: border-box !important;
 }
+/* Workspace mark in icon-pick rows: Lucide glyph centered in the 22px
+   tile (16px mark + tile wash). currentColor inherits row ink. */
+.aph-palette-icon svg {
+  display: block !important;
+  width: 16px !important;
+  height: 16px !important;
+  pointer-events: none !important;
+}
 .aph-palette-avatar {
   font-weight: 700 !important;
   font-size: 12px !important;
@@ -175,10 +183,10 @@
   text-overflow: ellipsis !important;
 }
 .aph-palette-hint {
-  float: right !important;
+  float: inline-end !important;
   opacity: 0.55 !important;
   font-size: 12px !important;
-  margin-left: 12px !important;
+  margin-inline-start: 12px !important;
 }
 .aph-palette-sub {
   opacity: 0.55 !important;

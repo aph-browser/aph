@@ -99,3 +99,17 @@ def test_archive_pills_carry_workspace() -> None:
     assert ".aph-archive-pill[data-ws]" in css
     assert ".aph-archive-pill[data-ws].on" in css
     assert "--arch-ws-accent" in css
+
+
+def test_archive_stays_rtl_clean() -> None:
+    """Count badge margins must mirror in RTL via logical props."""
+    code = re.sub(r"/\*.*?\*/", "", _css(), flags=re.S)
+    for banned in (
+        "margin-left:",
+        "margin-right:",
+        "float: left",
+        "float: right",
+        "text-align: left",
+        "text-align: right",
+    ):
+        assert banned not in code, f"physical direction prop leaked: {banned}"

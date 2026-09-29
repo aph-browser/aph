@@ -226,7 +226,7 @@ html, body {
 }
 
 .aph-settings-table th {
-  text-align: left;
+  text-align: start;
   font-size: 12px;
   font-weight: 600;
   color: var(--set-faint);
@@ -262,7 +262,7 @@ html, body {
   height: 8px;
   border-radius: 50%;
   background: var(--set-ws-accent);
-  margin-right: 8px;
+  margin-inline-end: 8px;
   vertical-align: baseline;
 }
 

@@ -127,6 +127,20 @@ def test_settings_identity_rows_carry_workspace() -> None:
     assert "--set-ws-accent" in css
 
 
+def test_settings_stays_rtl_clean() -> None:
+    """Table headers and workspace swatches must mirror in RTL."""
+    code = re.sub(r"/\*.*?\*/", "", CSS.read_text(encoding="utf-8"), flags=re.S)
+    for banned in (
+        "margin-left:",
+        "margin-right:",
+        "float: left",
+        "float: right",
+        "text-align: left",
+        "text-align: right",
+    ):
+        assert banned not in code, f"physical direction prop leaked: {banned}"
+
+
 def test_settings_page_covers_every_pref() -> None:
     js = PAGE_JS.read_text(encoding="utf-8")
     for pref in EXPECTED_PREFS | READONLY_PREFS:
