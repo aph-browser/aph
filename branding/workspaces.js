@@ -2030,7 +2030,12 @@
       if (el) {
         const cur = isValidId(current) ? current : "1";
         const name = getWsName(cur);
-        el.textContent = name ? `${cur}: ${name}` : cur;
+        // Name-only: the number is the address, but the pill is the
+        // always-visible readout and the dock below already shows all
+        // nine numbers. Unnamed workspaces keep the bare number. The
+        // tooltip below keeps `Workspace N: Name` + shortcuts, so the
+        // address survives one hover away.
+        el.textContent = name || cur;
         // Bound container: tooltip only, no color marker — bound pills
         // read identical to unbound ones (monochrome chrome). The palette
         // Bind rows are the editor; this title is the checker.
