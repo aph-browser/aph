@@ -97,18 +97,23 @@ def test_hairline_is_one_shared_token() -> None:
 
 
 def test_themed_tab_outline_cannot_paint_aph_surfaces() -> None:
-    """A lightweight theme repaints the active tab through
-    `--tab-selected-outline-color`. tabs.css, under `&[lwtheme]`, sets it to
-    `var(--lwt-tab-line-color, currentColor)`; `.tab-background` consumes that
-    as `outline-color` at `outline-offset: -1px` — a 1px outline drawn just
-    inside the tab, in the theme's `tab_line` color. Aph set only box-shadow
-    and never outline-color, so the ring survived every Aph repaint and wore
-    the theme's hue (nova-sun ships tab_line #f3a81e — pure orange) on every
-    workspace, since a theme token is not workspace-scoped.
+    """A lightweight theme repaints the active tab through its `tab_line`
+    color. Pre-157, tabs.css under `&[lwtheme]` funneled it through
+    `--tab-selected-outline-color` into `outline-color` at
+    `outline-offset: -1px`; 157 removed that token (verified: absent from
+    both packaged omnis) and now sets `--tab-border-color-selected:
+    var(--lwt-tab-line-color, currentColor)` under `&[lwtheme]`, consumed
+    as `outline-color` on the selected tab while `.tab-background` draws
+    `outline: var(--tab-border)`. Either mechanism paints the theme's hue
+    (nova-sun ships tab_line #f3a81e — pure orange) on every workspace,
+    since a theme token is not workspace-scoped.
 
     Aph owns its surfaces (see the canvas-face and menu-skin contracts), so
-    the selected tab must clear outline-color. Transparent, not `none`: the
-    1px geometry stays and outline never affects layout, so nothing shifts."""
+    the selected tab must clear outline-color (with `border-color:
+    transparent` above carrying the border half). Transparent, not `none`:
+    the 1px geometry stays and outline never affects layout, so nothing
+    shifts. Do NOT delete this guard as dead alongside the old token name:
+    the token died, the ring did not (see test_upstream_hooks)."""
     css = _css()
     sel = ".tabbrowser-tab[selected] > .tab-stack > .tab-background"
     head = css.find(sel)

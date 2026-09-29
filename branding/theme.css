@@ -646,19 +646,24 @@ tab[selected] > .tab-stack > .tab-background {
   background-image: none !important;
   border-color: transparent !important;
   /* Kill the themed inset outline — the real "random" ring. With any
-     lightweight theme active, tabs.css `&[lwtheme]` sets
-       --tab-selected-outline-color: var(--lwt-tab-line-color, currentColor)
-     and `.tab-background` consumes it as `outline-color` at
-     `outline-offset: -1px`, i.e. a 1px outline drawn just inside the tab.
-     --lwt-tab-line-color is the theme's `tab_line`, so the ring is whatever
-     the installed theme picked — nova-sun ships tab_line #f3a81e, a pure
-     orange. Because it is a *theme* token, no workspace switch ever moves
-     it: the active tab wore orange even on the green workspace. Aph set only
-     box-shadow here and never outline-color, so this outline coexisted with
-     the hairline as a third, competing ring. Transparent (not `none`) keeps
-     the 1px geometry, and outline never affects layout, so nothing shifts;
-     --aph-hairline is the single ring from here. Themes must not tint Aph
-     surfaces — same contract as the canvas faces and the menu skin. */
+     lightweight theme active, tabs.css `&[lwtheme]` feeds the theme's
+     `tab_line` into the selected tab's outline machinery, so the ring is
+     whatever the installed theme picked — nova-sun ships tab_line
+     #f3a81e, a pure orange. Because it is a *theme* token, no workspace
+     switch ever moves it: the active tab wore orange even on the green
+     workspace. Mechanism moved in 157 (verified against the packaged
+     omni.ja): the old `--tab-selected-outline-color` token is gone from
+     both omnis, and `&[lwtheme]` now sets `--tab-border-color-selected:
+     var(--lwt-tab-line-color, currentColor)`, consumed as `outline-color`
+     on the selected tab while `.tab-background` draws
+     `outline: var(--tab-border)`. Either way the fix is the same pair —
+     `outline-color: transparent` here plus `border-color: transparent`
+     above — so the guard survives the rename untouched. Transparent (not
+     `none`) keeps the 1px geometry, and outline never affects layout, so
+     nothing shifts; --aph-hairline is the single ring from here. Themes
+     must not tint Aph surfaces — same contract as the canvas faces and
+     the menu skin. Do NOT delete this line as dead: the token died, the
+     ring did not. */
   outline-color: transparent !important;
   background-color: color-mix(
     in srgb,
