@@ -255,6 +255,7 @@ def test_urlbar_themed_through_root_variables() -> None:
     assert "--aph-voice" in body
     assert "hsl(" in body and "from" in body
     assert "calc(s *" in body
+    assert "calc(s * 1.15)" in body, "focus ring keeps near-voice saturation, never neon"
 
 
 def test_unfocused_urlbar_border_stays_quiet() -> None:

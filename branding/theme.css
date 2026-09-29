@@ -633,8 +633,9 @@ tab[selected] > .tab-stack > .tab-background {
    The urlbar internals are light-DOM children of the moz-urlbar host but
    carry CLASSES, not ids (UrlbarInput #markup) — reach them as
    .urlbar-background / .urlbar-input, never #ids. Focus border reads
-   the shared sharpened accent (voice with saturation pushed —
-   hue preserved, vividness raised). Text selection reads the Aph
+   the shared voice accent with only a whisper of extra saturation
+   (hue preserved, near-voice vividness — a pushed 1px ring glares).
+   Text selection reads the Aph
    select token, which also redefines the stock highlight var so the
    native urlbar selection follows: one selection paint everywhere.
    Selected-tab presence itself lives in §13 and speaks workspace,
@@ -645,7 +646,7 @@ tab[selected] > .tab-stack > .tab-background {
 :root {
   --aph-urlbar-accent: hsl(
     from var(--aph-voice, rgba(0, 144, 255, 0.85))
-    h calc(s * 1.6) l
+    h calc(s * 1.15) l
   ) !important;
   --toolbar-field-border-color-focus: var(--aph-urlbar-accent) !important;
   --lwt-toolbar-field-highlight: var(--aph-select, rgba(0, 144, 255, 0.45)) !important;
