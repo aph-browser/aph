@@ -449,7 +449,7 @@ def _contrast(fg: tuple, bg: tuple) -> float:
     return (l1 + 0.05) / (l2 + 0.05)
 
 
-# Canonical presence faces: the 45% accent fill composited over each.
+# Canonical presence faces: accent fills composited over each.
 # Reconcile against Sun's live toolbar colors on a real build if they
 # ever drift (dark base ≈ Sun-dark desk, light base ≈ Sun-light cream).
 _PRESENCE_FACES = {
@@ -457,9 +457,10 @@ _PRESENCE_FACES = {
     "light": ("#f6f1e3", "#23252f"),
 }
 _PRESENCE_MIN_CONTRAST = 4.5
-# Role spends, mirroring the CSS: presence 45% (selected, indicator,
-# dock current), hover 30% (tabs, pills, menus, Aph key).
-_ROLE_SPENDS = {"presence": 0.45, "hover": 0.30}
+# Role spends, mirroring the CSS: pill presence 45% (indicator, dock
+# current), tab presence 35% (selected fill — large area, less spend),
+# hover 30% (tabs, pills, menus, Aph key).
+_ROLE_SPENDS = {"presence": 0.45, "presence-tab": 0.35, "hover": 0.30}
 
 
 def _workspace_hues(css: str) -> dict:
@@ -484,6 +485,47 @@ def test_workspace_presence_contrast() -> None:
                 f"ws{n} {hues[n]} on {face}: {ratio:.2f}:1 < "
                 f"{_PRESENCE_MIN_CONTRAST}:1 — mute the hue"
             )
+
+
+def test_workspace_tab_contrast() -> None:
+    """Selected-tab contrast gate (§13): toolbar ink over the quieter 35%
+    tab fill must hit 4.5:1 for every hue on both faces. Lower spend can
+    only raise contrast versus the pill gate, so this guards the floor
+    if the tab spend ever moves independently."""
+    css = _css()
+    hues = _workspace_hues(css)
+    for n in sorted(hues):
+        for face, (base, ink) in _PRESENCE_FACES.items():
+            fill = _srgb_mix(_hex_to_rgb(hues[n]), _hex_to_rgb(base), _ROLE_SPENDS["presence-tab"])
+            ratio = _contrast(_hex_to_rgb(ink), fill)
+            assert ratio >= _PRESENCE_MIN_CONTRAST, (
+                f"ws{n} {hues[n]} tab on {face}: {ratio:.2f}:1 < "
+                f"{_PRESENCE_MIN_CONTRAST}:1 — mute the hue"
+            )
+
+
+def test_selected_fill_spends_less_than_pills() -> None:
+    """The large tab surface must spend strictly less accent than the
+    small pill surfaces (indicator §6, dock current §21) — presence
+    hierarchy by area. Reads the live spends from the CSS."""
+    css = _css()
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+    def spend_after(anchor: str) -> float:
+        head = code.find(anchor)
+        assert head != -1, f"anchor missing: {anchor}"
+        m = re.search(
+            r"color-mix\(\s*in srgb,\s*var\(--aph-ws-accent[^)]*\)\s*([\d.]+)%",
+            code[head : head + 600],
+        )
+        assert m, f"no accent spend after {anchor}"
+        return float(m.group(1)) / 100
+
+    tab = spend_after(".tabbrowser-tab[selected] > .tab-stack > .tab-background")
+    pill = spend_after(":root[data-aph-ws] #aph-ws-indicator {")
+    assert tab < pill, f"tab {tab} must spend less than pill {pill}"
+    assert tab == _ROLE_SPENDS["presence-tab"], "tab spend drifted from the gate"
+    assert pill == _ROLE_SPENDS["presence"], "pill spend drifted from the gate"
 
 
 def test_workspace_hover_contrast() -> None:

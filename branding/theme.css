@@ -559,8 +559,10 @@ tab[pending]:not([selected]) .tab-icon-image,
 
 /* ==========================================================================
    13. Selected tab presence: workspace owns it. The fill is the live
-   workspace accent (45% over transparent — the exact dock-current
-   recipe, §21), so strip top and dock bottom rhyme as one system.
+   workspace accent at 35% over transparent — deliberately quieter
+   than the 45% pill recipe (indicator §6, dock current §21): the tab
+   is the largest presence surface, so it needs less saturation to
+   read, and the hairline ring plus full-ink label carry the rest.
    Rule of the house: local presence speaks workspace, global
    interaction (hovers §12, urlbar §14, palette, menus) speaks the
    theme — the two never share a surface. Fallback mirrors the
@@ -608,7 +610,7 @@ tab[selected] > .tab-stack > .tab-background {
   outline-color: transparent !important;
   background-color: color-mix(
     in srgb,
-    var(--aph-ws-accent, #707885) 45%,
+    var(--aph-ws-accent, #707885) 35%,
     transparent
   ) !important;
   /* lg (8px): one corner language with rest/hover (§22) — the selected
@@ -683,7 +685,7 @@ tab[selected] > .tab-stack > .tab-background {
    Background-only, never layout: container identity lines and the
    pending-tab dim keep working untouched, and the selector hits both
    horizontal and vertical strips (.tab-background exists in both).
-   Selected is exempt — presence (45%, §13) must always outread hover.
+   Selected is exempt — presence (35%, §13) must always outread hover.
    30% keeps label contrast safe on cream and dark strips while
    staying visibly quieter than selection.
    ========================================================================== */
@@ -1069,10 +1071,11 @@ menupopup > menuitem:last-child {
    21. Per-workspace accents: color as orientation (Arc spaces). The
    window carries data-aph-ws (60-indicator-switch.js stampWindowWs, set
    on every switch + at birth), so :root knows the live workspace and
-   exposes --aph-ws-accent. The accent fills exactly three presence
-   surfaces — selected-tab fill (§13), indicator pill (§6), dock
-   current pill (own data-ws identity below) — all on the same 45%
-   recipe so strip top, tab, and dock bottom rhyme. The desk stays
+   exposes --aph-ws-accent. The accent fills three presence surfaces —
+   selected-tab fill (§13, quieter 35%), indicator pill (§6) and dock
+   current pill (own data-ws identity below, both 45%) — one hue
+   everywhere, with the large tab surface spending less than the small
+   pills. The desk stays
    neutral on every workspace (no sheen override — the room never
    changes white balance). Load feedback (§24) reuses the accent
    transiently. Unset (no stamp yet) falls back to the blue wash via
@@ -1129,8 +1132,8 @@ menupopup > menuitem:last-child {
   );
 }
 /* Indicator pill (§6): same 45% recipe as the dock current pill below
-   and the selected fill (§13) — top, tab, and bottom rhyme as one
-   system. Text stays toolbar ink throughout. */
+   (the selected fill §13 spends a quieter 35%) — top, tab, and bottom
+   rhyme in one hue. Text stays toolbar ink throughout. */
 :root[data-aph-ws] #aph-ws-indicator {
   background: color-mix(in srgb, var(--aph-ws-accent) 45%, transparent) !important;
   color: var(--aph-ink, #e8e8ec) !important;
