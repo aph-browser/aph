@@ -954,3 +954,15 @@ def test_icon_to_label_gap() -> None:
     assert head != -1, "favicon box rule missing"
     body = css[head : css.find("}", head)]
     assert "margin-inline-end: 6px" in body
+
+
+def test_idle_url_text_steps_down() -> None:
+    """Full-ink URL text glares against the field at rest. Unfocused
+    urlbar text must step down (still clearly legible — never dim-tier
+    dim); focus keeps full ink for reading and typing."""
+    css = _css()
+    sel = ".urlbar:not([focused]) .urlbar-input"
+    head = css.find(sel)
+    assert head != -1, "idle urlbar text rule missing"
+    body = css[head : css.find("}", head)]
+    assert "color-mix" in body and "80%" in body

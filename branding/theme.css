@@ -668,6 +668,14 @@ tab[selected] > .tab-stack > .tab-background {
   border-color: transparent !important;
 }
 
+/* Idle URL text: full ink glares against the field at rest — step it
+   down while unfocused; focus restores full ink for reading and
+   typing. Same idle-quiet/active-authoritative split as rest rows
+   vs selected. 80% stays clearly legible, never dim-tier dim. */
+.urlbar:not([focused]) .urlbar-input {
+  color: color-mix(in srgb, var(--aph-ink, #e8e8ec) 80%, transparent) !important;
+}
+
 /* ==========================================================================
    15. Themed scrollbars: thin, theme-text wash on transparent track, so
    Aph's own scrollable surfaces (palette list) stop showing stock gray.
