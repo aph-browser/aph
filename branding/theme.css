@@ -438,11 +438,14 @@
 
 /* Switch animation: incoming workspace tabs fade in over 150ms after the
    synchronous hidden-attribute swap (see animateIncomingTabs in
-   60-indicator-switch.js). Opacity-only so the strip never reflows
-   mid-switch; the class is removed on a timer. */
+   60-indicator-switch.js). The first few arrive staggered (inline
+   animation-delay, 35ms steps) with a 4px rise, so the workspace reads
+   as arriving; the rest join the flat fade. Opacity + transform only so
+   the strip never reflows mid-switch; the class (and the inline delay)
+   is removed on a timer. */
 @keyframes aph-ws-enter {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 tab.aph-ws-enter,
 .tabbrowser-tab.aph-ws-enter {

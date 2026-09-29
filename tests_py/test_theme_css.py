@@ -407,6 +407,22 @@ def test_motion_language_glides_hovers_dissolves_and_guards() -> None:
     assert "#aph-toast" in css and "transition: none" in css
 
 
+def test_switch_arrival_staggers_and_rises() -> None:
+    """Arrival stagger (Option A): the enter keyframes rise 4px as well as
+    fade (opacity + transform only, never layout), and the reduced-motion
+    mirror kills the enter animation with everything else."""
+    css = _css()
+    head = css.find("@keyframes aph-ws-enter")
+    assert head != -1, "enter keyframes missing"
+    body = css[head : css.find("}", css.find("}", head) + 1) + 1]
+    assert "opacity: 0" in body
+    assert "translateY(4px)" in body
+    assert "translateY(0)" in body
+    rm = css.find("@media (prefers-reduced-motion: reduce)")
+    assert rm != -1
+    assert "aph-ws-enter" in css[rm : rm + 2000] or "animation: none" in css[rm:]
+
+
 def test_urlbar_dropdown_speaks_palette() -> None:
     """Dropdown as palette sibling (§25): wash hover/selected tokens, md
     row radius, selected inset accent border (never layout), 14px titles,

@@ -166,4 +166,60 @@ describe("switch animation", () => {
     api.switchLocal("1");
     assert.equal(doc.documentElement.getAttribute("data-aph-ws"), "1");
   });
+
+  // Arrival stagger: tabs carry a stub style bag (real tabs expose
+  // CSSStyleDeclaration; makeTab stubs don't, and the code must no-op).
+  function styledTab(env, label, o) {
+    const t = env.addTab(label, o);
+    const props = {};
+    t.style = {
+      setProperty: (k, v) => { props[k] = String(v); },
+      removeProperty: (k) => { delete props[k]; },
+      _props: props,
+    };
+    return t;
+  }
+
+  it("staggers the first arrivals, flat-fades the rest", () => {
+    const env = makeEnv();
+    env.addTab("home", { ws: "1" });
+    const incoming = [];
+    for (let i = 0; i < 10; i++) {
+      incoming.push(styledTab(env, `t${i}`, { ws: "2" }));
+    }
+    env.api.switchTo("2");
+    for (const t of incoming) {
+      assert.ok(t.classList.contains("aph-ws-enter"), "every arrival animates");
+    }
+    for (let i = 0; i < 8; i++) {
+      assert.equal(incoming[i].style._props["animation-delay"], `${i * 35}ms`, `tab ${i} sequenced`);
+    }
+    assert.ok(!("animation-delay" in incoming[8].style._props), "9th arrival joins the flat fade");
+    assert.ok(!("animation-delay" in incoming[9].style._props), "10th arrival joins the flat fade");
+  });
+
+  it("clears classes and inline delays after the worst-case fade", async () => {
+    const env = makeEnv();
+    env.addTab("home", { ws: "1" });
+    const incoming = [];
+    for (let i = 0; i < 9; i++) {
+      incoming.push(styledTab(env, `t${i}`, { ws: "2" }));
+    }
+    env.api.switchTo("2");
+    assert.equal(incoming[7].style._props["animation-delay"], "245ms");
+    await new Promise((r) => setTimeout(r, 650));
+    for (const t of incoming) {
+      assert.ok(!t.classList.contains("aph-ws-enter"), "class released");
+      assert.ok(!("animation-delay" in t.style._props), "inline delay cleared");
+    }
+  });
+
+  it("no-ops without a style API (bare stubs never throw)", () => {
+    const { api, addTab } = makeEnv();
+    addTab("a", { ws: "1" });
+    const b = addTab("b", { ws: "2" });
+    assert.ok(!("style" in b) || !b.style.setProperty, "stub has no style API");
+    api.switchTo("2");
+    assert.ok(b.classList.contains("aph-ws-enter"), "class still applies");
+  });
 });

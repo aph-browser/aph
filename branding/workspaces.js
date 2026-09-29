@@ -2262,8 +2262,23 @@
   // .aph-ws-dip via dipWorkspaceCard below): the synchronous swap reads
   // as a dissolve rather than a blink, with zero visibility-semantics
   // change. Pins are global (never change) so they are excluded.
-  // Fail-silent throughout (test tabs have no classList, which just
-  // no-ops; test documents return null for the card, also a no-op).
+  // Arrival stagger: the first APH_WS_ENTER_STAGGER_MAX incoming tabs
+  // rise in sequence (35ms steps, 4px rise in the keyframes) while the
+  // rest join the flat fade — the workspace reads as arriving, and a
+  // 40-tab workspace never cascades comically. Inline animation-delay is
+  // cleared with the class on the same timer, which covers the worst case
+  // (last delay + full fade). Rapid re-switches within that window reuse
+  // the still-present class (no replay) — the dip still plays, so mashing
+  // never sticks, it just stays calm. Fail-silent throughout (test tabs
+  // have no classList/style, which just no-ops; test documents return
+  // null for the card, also a no-op).
+  const APH_WS_ENTER_STAGGER_MAX = 8;
+  const APH_WS_ENTER_STAGGER_STEP_MS = 35;
+  const APH_WS_ENTER_FADE_MS = 150;
+  const APH_WS_ENTER_CLEANUP_MS =
+    (APH_WS_ENTER_STAGGER_MAX - 1) * APH_WS_ENTER_STAGGER_STEP_MS +
+    APH_WS_ENTER_FADE_MS +
+    55;
   function animateIncomingTabs(tabs) {
     try {
       if (
@@ -2274,6 +2289,7 @@
       }
     } catch (e) {}
     let animated = null;
+    let staggered = 0;
     try {
       for (const t of tabs || []) {
         try {
@@ -2290,6 +2306,19 @@
             continue;
           }
           t.classList.add("aph-ws-enter");
+          try {
+            if (
+              staggered < APH_WS_ENTER_STAGGER_MAX &&
+              t.style &&
+              typeof t.style.setProperty === "function"
+            ) {
+              t.style.setProperty(
+                "animation-delay",
+                `${staggered * APH_WS_ENTER_STAGGER_STEP_MS}ms`
+              );
+              staggered++;
+            }
+          } catch (e) {}
           (animated = animated || []).push(t);
         } catch (e) {}
       }
@@ -2304,9 +2333,14 @@
             try {
               t.classList.remove("aph-ws-enter");
             } catch (e) {}
+            try {
+              if (t.style && typeof t.style.removeProperty === "function") {
+                t.style.removeProperty("animation-delay");
+              }
+            } catch (e) {}
           }
         } catch (e) {}
-      }, 200);
+      }, APH_WS_ENTER_CLEANUP_MS);
     } catch (e) {}
   }
 
