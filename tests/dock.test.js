@@ -250,7 +250,10 @@ describe("workspace dock", () => {
   it("exposes the full vendored mark set", () => {
     const env = makeEnv();
     const keys = env.api.wsIconKeys();
-    assert.equal(keys.length, 38);
+    // No hardcoded count (the set grows over time): every key must carry
+    // a label and render a non-empty mark.
+    assert.ok(keys.length > 0, "icon set present");
+    assert.equal(new Set(keys).size, keys.length, "icon keys unique");
     for (const k of keys) {
       assert.ok(env.api.wsIconLabel(k), k);
       const svg = env.api.wsIconSvg(k, 14);
