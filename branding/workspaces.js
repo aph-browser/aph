@@ -2263,9 +2263,11 @@
   // as a dissolve rather than a blink, with zero visibility-semantics
   // change. Pins are global (never change) so they are excluded.
   // Arrival stagger: the first APH_WS_ENTER_STAGGER_MAX incoming tabs
-  // rise in sequence (35ms steps, 4px rise in the keyframes) while the
+  // rise in sequence (25ms steps, 3px rise in the keyframes) while the
   // rest join the flat fade — the workspace reads as arriving, and a
-  // 40-tab workspace never cascades comically. Inline animation-delay is
+  // 40-tab workspace never cascades comically. Tuned down from 4px/35ms:
+  // the full-strength version read as bouncy rather than calm, and the
+  // cascade window (last delay + fade) is what sets the perceived weight. Inline animation-delay is
   // cleared with the class on the same timer, which covers the worst case
   // (last delay + full fade). The delay is set with "important" priority
   // on purpose: the .aph-ws-enter rule carries `animation: ... !important`
@@ -2278,8 +2280,8 @@
   // throughout (test tabs have no classList/style, which just no-ops;
   // test documents return null for the card, also a no-op).
   const APH_WS_ENTER_STAGGER_MAX = 8;
-  const APH_WS_ENTER_STAGGER_STEP_MS = 35;
-  const APH_WS_ENTER_FADE_MS = 150;
+  const APH_WS_ENTER_STAGGER_STEP_MS = 25;
+  const APH_WS_ENTER_FADE_MS = 130;
   const APH_WS_ENTER_CLEANUP_MS =
     (APH_WS_ENTER_STAGGER_MAX - 1) * APH_WS_ENTER_STAGGER_STEP_MS +
     APH_WS_ENTER_FADE_MS +

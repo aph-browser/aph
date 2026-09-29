@@ -196,7 +196,7 @@ describe("switch animation", () => {
       assert.ok(t.classList.contains("aph-ws-enter"), "every arrival animates");
     }
     for (let i = 0; i < 8; i++) {
-      assert.equal(incoming[i].style._props["animation-delay"], `${i * 35}ms`, `tab ${i} sequenced`);
+      assert.equal(incoming[i].style._props["animation-delay"], `${i * 25}ms`, `tab ${i} sequenced`);
       assert.equal(incoming[i].style._prio["animation-delay"], "important", `tab ${i} beats the !important shorthand`);
     }
     assert.ok(!("animation-delay" in incoming[8].style._props), "9th arrival joins the flat fade");
@@ -211,8 +211,8 @@ describe("switch animation", () => {
       incoming.push(styledTab(env, `t${i}`, { ws: "2" }));
     }
     env.api.switchTo("2");
-    assert.equal(incoming[7].style._props["animation-delay"], "245ms");
-    await new Promise((r) => setTimeout(r, 650));
+    assert.equal(incoming[7].style._props["animation-delay"], "175ms");
+    await new Promise((r) => setTimeout(r, 500));
     for (const t of incoming) {
       assert.ok(!t.classList.contains("aph-ws-enter"), "class released");
       assert.ok(!("animation-delay" in t.style._props), "inline delay cleared");
