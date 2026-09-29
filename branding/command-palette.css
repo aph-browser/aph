@@ -1,6 +1,8 @@
 /* Aph command palette — bold Raycast-class overlay. Centered, grouped,
    animated. Always-dark Spotlight slab (never follows the paper room),
    so text stays pinned light for guaranteed contrast. */
+/* Shared tokens (shipped as chrome://browser/content/aph-tokens.css). */
+@import url("chrome://browser/content/aph-tokens.css");
 #aph-palette-overlay {
   position: fixed !important;
   inset: 0 !important;

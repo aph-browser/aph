@@ -1,10 +1,13 @@
 /* Aph design tokens — single source of truth for every Aph surface.
  *
- * theme.css, command-palette.css, settings.css, archive.css and welcome.css
- * each mirror these values in their own :root (separate documents, no
- * shared cascade — chrome window vs chrome-tab pages). Keep them in sync:
- * test_settings_voice_parity + test_archive_voice_parity pin the nine
- * workspace hues to theme.css §21.
+ * Shipped as chrome://browser/content/aph-tokens.css and @imported by
+ * theme.css, command-palette.css, settings.css, archive.css and
+ * welcome.css (separate documents, no shared cascade — chrome window
+ * vs chrome-tab pages). Each consumer keeps its local :root mirrors
+ * as fallback so an older omni without this entry still paints.
+ * Keep values in sync: test_settings_voice_parity +
+ * test_archive_voice_parity pin the nine workspace hues to
+ * theme.css §21.
  *
  * Canvas faces follow prefers-color-scheme (tracks the theme scheme).
  * Voice = workspace accent once :root[data-aph-ws] stamps, theme voice

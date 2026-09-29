@@ -25,6 +25,7 @@ from ..constants import (
     TEXTPICK_PARENT_JA_PATH,
     TEXTPICK_SHARED_JA_PATH,
     THEME_JA_PATH,
+    TOKENS_CSS_JA_PATH,
     WELCOME_CSS_JA_PATH,
     WELCOME_HTML_JA_PATH,
     WELCOME_PAGE_JA_PATH,
@@ -62,6 +63,30 @@ class ThemeInjector:
         if self._css is not None and THEME_JA_PATH not in existing:
             counts.css += 1
             return [(THEME_JA_PATH, self._css)]
+        return []
+
+
+class TokensInjector:
+    """Design tokens (aph-tokens.css): tag-less shared @import target.
+
+    Shipped beside the theme; theme + palette + all three pages pull it
+    via ``@import url("chrome://browser/content/aph-tokens.css")`` so no
+    browser.xhtml tag is needed. Local mirrors stay as fallback, so an
+    older omni without this entry still paints correctly.
+    """
+
+    name = "tokens"
+
+    def __init__(self, css: bytes | None) -> None:
+        self._css = css
+
+    def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
+        return data
+
+    def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
+        if self._css is not None and TOKENS_CSS_JA_PATH not in existing:
+            counts.tokens += 1
+            return [(TOKENS_CSS_JA_PATH, self._css)]
         return []
 
 

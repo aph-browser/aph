@@ -2,6 +2,11 @@
    Aph Theme: Clean Auto-Hide Top Bar (Negative-Margin Slide Architecture)
    ========================================================================== */
 
+/* Shared tokens (shipped as chrome://browser/content/aph-tokens.css).
+   Local :root mirrors below stay as fallback so an older omni without
+   the tokens entry still paints correctly. */
+@import url("chrome://browser/content/aph-tokens.css");
+
 /* ==========================================================================
    23. Chrome type: Inter (SIL OFL, branding/fonts/) for every chrome
    surface. @font-face is document-level — one definition serves this

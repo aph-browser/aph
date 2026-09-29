@@ -27,6 +27,7 @@ class PatchCounts:
     xhtml: int = 0
     wsjs: int = 0
     css: int = 0
+    tokens: int = 0
     paljs: int = 0
     palcss: int = 0
     textpick: int = 0
@@ -49,6 +50,7 @@ class PatchCounts:
             self.xhtml,
             self.wsjs,
             self.css,
+            self.tokens,
             self.paljs,
             self.palcss,
             self.textpick,

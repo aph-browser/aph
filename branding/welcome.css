@@ -6,6 +6,10 @@
    and settings, which stamp data-ws and pin their tables to
    theme.css §21). */
 
+/* Shared tokens (shipped as chrome://browser/content/aph-tokens.css).
+   Local --wel-* mirrors below stay as fallback. */
+@import url("chrome://browser/content/aph-tokens.css");
+
 @font-face {
   font-family: "Inter";
   src: url("aph-fonts/inter-400-latin.woff2") format("woff2");

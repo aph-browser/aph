@@ -36,6 +36,8 @@ def test_patch_replaces_brand_and_appends_features(synthetic_ja) -> None:
     assert (counts.brand, counts.sync, counts.brandings) == (1, 1, 1)
     assert (counts.props, counts.dtd, counts.logos, counts.xhtml) == (1, 1, 1, 1)
     assert counts.wsjs == 1
+    assert counts.css == 1
+    assert counts.tokens == 1
     assert counts.textpick == 4  # controller + shared/child/parent
     assert (counts.archivejs, counts.archiveshared) == (1, 1)
     assert counts.archivepage == 3  # html/css/page
@@ -47,6 +49,8 @@ def test_patch_replaces_brand_and_appends_features(synthetic_ja) -> None:
         assert {i.compress_type for i in z.infolist()} == {zipfile.ZIP_STORED}
         names = set(z.namelist())
         assert "chrome/browser/content/browser/workspaces.js" in names
+        assert "chrome/browser/content/browser/aph-theme.css" in names
+        assert "chrome/browser/content/browser/aph-tokens.css" in names
         assert "chrome/browser/content/browser/tabrename.js" in names
         for w in (400, 500, 600, 700):
             assert f"chrome/browser/content/browser/aph-fonts/inter-{w}-latin.woff2" in names

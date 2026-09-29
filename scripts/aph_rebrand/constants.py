@@ -42,6 +42,14 @@ THEME_CSS_SRC = BRANDING_DIR / "theme.css"
 THEME_JA_PATH = "chrome/browser/content/browser/aph-theme.css"
 THEME_LINK_TAG = '<link rel="stylesheet" href="chrome://browser/content/aph-theme.css" />'
 
+# Design tokens: single source of truth (branding/tokens.css) shipped as
+# aph-tokens.css and @imported by theme + palette + all three pages.
+# No browser.xhtml tag — consumers pull it via CSS @import so the
+# canonical xhtml tag order stays untouched.
+TOKENS_CSS_SRC = BRANDING_DIR / "tokens.css"
+TOKENS_CSS_JA_PATH = "chrome/browser/content/browser/aph-tokens.css"
+TOKENS_CSS_URL = "chrome://browser/content/aph-tokens.css"
+
 # Chrome type: Inter (SIL OFL — see branding/fonts/OFL.txt), static latin
 # subsets, one file per weight. Pure additions under aph-fonts/; the CSS
 # reaches them as chrome://browser/content/aph-fonts/<file> (content/

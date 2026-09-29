@@ -10,6 +10,10 @@
    duplicated here by design — test_settings_voice_parity pins it to
    theme.css §21. */
 
+/* Shared tokens (shipped as chrome://browser/content/aph-tokens.css).
+   Local --set-* mirrors below stay as fallback. */
+@import url("chrome://browser/content/aph-tokens.css");
+
 @font-face {
   font-family: "Inter";
   src: url("aph-fonts/inter-400-latin.woff2") format("woff2");

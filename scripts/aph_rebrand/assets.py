@@ -41,6 +41,7 @@ from .constants import (
     TEXTPICK_SHARED_JA_PATH,
     TEXTPICK_SHARED_SRC,
     THEME_CSS_SRC,
+    TOKENS_CSS_SRC,
     WELCOME_CSS_JA_PATH,
     WELCOME_CSS_SRC,
     WELCOME_HTML_JA_PATH,
@@ -59,6 +60,7 @@ class PatchPayloads:
     logos: dict[str, bytes] = field(default_factory=dict)
     workspaces_js: bytes | None = None
     theme_css: bytes | None = None
+    tokens_css: bytes | None = None
     palette_js: bytes | None = None
     palette_css: bytes | None = None
     textpick_js: bytes | None = None
@@ -157,6 +159,7 @@ def load_payloads(icon_buffers: dict[int, bytes]) -> PatchPayloads:
 
     payloads.workspaces_js = _read(WORKSPACES_JS_SRC, "workspaces injection")
     payloads.theme_css = _read(THEME_CSS_SRC, "theme injection")
+    payloads.tokens_css = _read(TOKENS_CSS_SRC, "tokens injection")
     payloads.palette_js = _read(PALETTE_JS_SRC, "palette injection")
     payloads.palette_css = _read(PALETTE_CSS_SRC, "palette CSS injection")
     payloads.textpick_js = _read(TEXTPICK_JS_SRC, "picker injection")

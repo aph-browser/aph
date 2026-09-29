@@ -24,6 +24,7 @@ from .injectors.features import (
     TabrenameInjector,
     TextpickInjector,
     ThemeInjector,
+    TokensInjector,
     WelcomeInjector,
     WorkspacesInjector,
 )
@@ -42,6 +43,7 @@ LEAGCY_LOG_FIELDS = (
     "browser.xhtml",
     "workspaces.js",
     "theme.css",
+    "tokens.css",
     "palette.js",
     "palette.css",
     "textpick files (controller/shared/child/parent)",
@@ -70,6 +72,7 @@ class BrandPatcher:
         features: list[Injector] = [
             WorkspacesInjector(payloads.workspaces_js),
             ThemeInjector(payloads.theme_css),
+            TokensInjector(payloads.tokens_css),
             PaletteInjector(payloads.palette_js, payloads.palette_css),
             TextpickInjector(payloads.textpick_js, payloads.textpick_files),
             ArchiveInjector(
@@ -199,6 +202,7 @@ class BrandPatcher:
             f"{counts.logos} logos, "
             f"{counts.xhtml} browser.xhtml, {counts.wsjs} workspaces.js, "
             f"{counts.css} theme.css, "
+            f"{counts.tokens} tokens.css, "
             f"{counts.paljs} palette.js, {counts.palcss} palette.css, "
             f"{counts.textpick} textpick files (controller/shared/child/parent), "
             f"{counts.archivejs} archive.js, {counts.archiveshared} archive-shared.js, "
