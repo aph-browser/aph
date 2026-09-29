@@ -169,13 +169,17 @@ describe("switch animation", () => {
 
   // Arrival stagger: tabs carry a stub style bag (real tabs expose
   // CSSStyleDeclaration; makeTab stubs don't, and the code must no-op).
+  // The stub records priority too: the delay MUST win over the
+  // `animation: ... !important` shorthand or the cascade silently flats.
   function styledTab(env, label, o) {
     const t = env.addTab(label, o);
     const props = {};
+    const prio = {};
     t.style = {
-      setProperty: (k, v) => { props[k] = String(v); },
-      removeProperty: (k) => { delete props[k]; },
+      setProperty: (k, v, p) => { props[k] = String(v); prio[k] = p; },
+      removeProperty: (k) => { delete props[k]; delete prio[k]; },
       _props: props,
+      _prio: prio,
     };
     return t;
   }
@@ -193,6 +197,7 @@ describe("switch animation", () => {
     }
     for (let i = 0; i < 8; i++) {
       assert.equal(incoming[i].style._props["animation-delay"], `${i * 35}ms`, `tab ${i} sequenced`);
+      assert.equal(incoming[i].style._prio["animation-delay"], "important", `tab ${i} beats the !important shorthand`);
     }
     assert.ok(!("animation-delay" in incoming[8].style._props), "9th arrival joins the flat fade");
     assert.ok(!("animation-delay" in incoming[9].style._props), "10th arrival joins the flat fade");

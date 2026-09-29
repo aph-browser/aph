@@ -165,11 +165,16 @@
   // rest join the flat fade — the workspace reads as arriving, and a
   // 40-tab workspace never cascades comically. Inline animation-delay is
   // cleared with the class on the same timer, which covers the worst case
-  // (last delay + full fade). Rapid re-switches within that window reuse
-  // the still-present class (no replay) — the dip still plays, so mashing
-  // never sticks, it just stays calm. Fail-silent throughout (test tabs
-  // have no classList/style, which just no-ops; test documents return
-  // null for the card, also a no-op).
+  // (last delay + full fade). The delay is set with "important" priority
+  // on purpose: the .aph-ws-enter rule carries `animation: ... !important`
+  // (needed to beat stock), and an !important shorthand beats a plain
+  // inline longhand — without the priority every tab would silently fall
+  // back to delay 0 and the cascade would be a flat fade (same bug class
+  // as the old pop-in delay stutter). Rapid re-switches within the cleanup
+  // window reuse the still-present class (no replay) — the dip still
+  // plays, so mashing never sticks, it just stays calm. Fail-silent
+  // throughout (test tabs have no classList/style, which just no-ops;
+  // test documents return null for the card, also a no-op).
   const APH_WS_ENTER_STAGGER_MAX = 8;
   const APH_WS_ENTER_STAGGER_STEP_MS = 35;
   const APH_WS_ENTER_FADE_MS = 150;
@@ -212,7 +217,8 @@
             ) {
               t.style.setProperty(
                 "animation-delay",
-                `${staggered * APH_WS_ENTER_STAGGER_STEP_MS}ms`
+                `${staggered * APH_WS_ENTER_STAGGER_STEP_MS}ms`,
+                "important"
               );
               staggered++;
             }
