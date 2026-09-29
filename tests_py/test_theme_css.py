@@ -925,3 +925,20 @@ def test_rest_rows_whisper() -> None:
     body = css[head : css.find("}", head)]
     assert "4%" in body and "color-mix" in body, "rest rows must whisper, not vanish"
     assert "background: transparent" not in body
+
+
+def test_pending_tabs_read_parked() -> None:
+    """§8: icon-only dimming proved too quiet — loaded vs unloaded was
+    unreadable. Pending unselected tabs must dim the icon fully AND step
+    the label down (opacity only, never layout); selected stays exempt."""
+    css = _css()
+    icon_sel = ".tabbrowser-tab[pending]:not([selected]) .tab-icon-image"
+    head = css.find(icon_sel)
+    assert head != -1, "pending icon rule missing"
+    icon_body = css[head : css.find("}", head)]
+    assert "grayscale(1)" in icon_body, "pending icon must fully desaturate"
+    assert "opacity: 0.45" in icon_body
+    label_sel = ".tabbrowser-tab[pending]:not([selected]) .tab-label"
+    lhead = css.find(label_sel)
+    assert lhead != -1, "pending label rule missing"
+    assert "opacity: 0.6" in css[lhead : css.find("}", lhead)]

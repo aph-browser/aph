@@ -450,22 +450,28 @@ tab[usercontextid]:not([data-aph-bound-match="1"]):not([selected]) .tab-context-
 }
 
 /* ==========================================================================
-   8. Unloaded (discarded) tabs: subtle dim of the exception, not the rule.
+   8. Unloaded (discarded) tabs: parked rows must read parked at a glance.
    Loaded is the default state, so only pending tabs are styled. Stock
-   Firefox sets `pending` on discard and grays the icon; this extends that
-   to the label for vertical-strip readability. Opacity only (never layout)
-   so horizontal / vertical / collapsed geometry never shifts. Selected is
-   exempt: pending+selected is transient (reload fires on select).
+   Firefox sets `pending` on discard and grays the icon; icon-only proved
+   too quiet — loaded vs unloaded was unreadable. So pending dims the
+   icon fully AND steps the label down (opacity, never a smaller size or
+   italic, so rows stay legible and scannable). Opacity only (never
+   layout) so horizontal / vertical / collapsed geometry never shifts.
+   Selected is exempt: pending+selected is transient (reload fires on
+   select).
    ========================================================================== */
 
-/* Pending = icon signal only: the favicon dims + desaturates while the
-   label keeps its normal (§22) ink, so unloaded tabs remain scannable.
-   Selected is exempt: pending+selected is transient (reload fires on
-   select). */
+/* Pending = parked: the favicon dims + fully desaturates while the label
+   steps down a tier. Both stay legible — parked, not gone. Selected is
+   exempt: pending+selected is transient (reload fires on select). */
 tab[pending]:not([selected]) .tab-icon-image,
 .tabbrowser-tab[pending]:not([selected]) .tab-icon-image {
-  opacity: 0.55 !important;
-  filter: grayscale(0.6) !important;
+  opacity: 0.45 !important;
+  filter: grayscale(1) !important;
+}
+tab[pending]:not([selected]) .tab-label,
+.tabbrowser-tab[pending]:not([selected]) .tab-label {
+  opacity: 0.6 !important;
 }
 
 /* ==========================================================================
