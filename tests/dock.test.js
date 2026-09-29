@@ -189,7 +189,7 @@ describe("workspace dock", () => {
     assert.ok(env.plus(), "plus pill present");
   });
 
-  it("labels named workspaces with the first grapheme and shows counts", () => {
+  it("shows the bare number for named workspaces without icons, and shows counts", () => {
     const env = makeEnv({ "aph.workspaces.names": JSON.stringify({ 2: "💼 Work" }) });
     const a = addTab(env, { label: "a", ws: "1" });
     addTab(env, { label: "a2", ws: "1" });
@@ -198,9 +198,65 @@ describe("workspace dock", () => {
     env.api.renderDock();
     const byWs = {};
     for (const p of env.pills()) byWs[pillWs(p)] = p;
-    assert.equal(byWs["2"].textContent, "💼");
+    // Letters retired: names live in tooltips/titles and the indicator.
+    assert.equal(byWs["2"].textContent, "2");
     const count = byWs["1"].children.find((c) => c.className === "aph-ws-count");
     assert.equal(count && count.textContent, "2");
+  });
+
+  it("renders the icon mark when set, number otherwise", () => {
+    const env = makeEnv({
+      "aph.workspaces.names": JSON.stringify({ 2: "Work" }),
+      "aph.workspaces.icons": JSON.stringify({ 2: "mail" }),
+    });
+    const a = addTab(env, { label: "a", ws: "1" });
+    addTab(env, { label: "c", ws: "2" });
+    env.select(a);
+    env.api.renderDock();
+    const byWs = {};
+    for (const p of env.pills()) byWs[pillWs(p)] = p;
+    assert.equal(byWs["1"].textContent, "1");
+    const marked = byWs["2"];
+    assert.equal(marked.textContent, "");
+    const svg = marked.children.find((c) => c.localName === "svg");
+    assert.ok(svg, "icon mark present");
+    assert.equal(svg.getAttribute("viewBox"), "0 0 24 24");
+    assert.equal(svg.getAttribute("stroke"), "currentColor");
+    assert.equal(svg.getAttribute("aria-hidden"), "true");
+    const shapes = svg.children.filter((c) => ["path", "rect", "circle"].includes(c.localName));
+    assert.ok(shapes.length >= 2, "lucide shapes present");
+  });
+
+  it("validates icon keys on write and read", () => {
+    const env = makeEnv();
+    assert.equal(env.api.setWsIcon("2", "mail"), true);
+    assert.equal(env.api.getWsIcon("2"), "mail");
+    assert.equal(env.api.setWsIcon("3", "nope"), false);
+    assert.equal(env.api.getWsIcon("3"), "");
+    assert.equal(env.api.setWsIcon("x", "mail"), false);
+    assert.equal(env.api.setWsIcon("10", "mail"), false);
+    assert.equal(env.api.setWsIcon("2", ""), true);
+    assert.equal(env.api.getWsIcon("2"), "");
+  });
+
+  it("ignores unknown icon keys persisted in the pref", () => {
+    const env = makeEnv({
+      "aph.workspaces.icons": JSON.stringify({ 2: "nope", 3: "mail" }),
+    });
+    assert.equal(env.api.getWsIcon("2"), "");
+    assert.equal(env.api.getWsIcon("3"), "mail");
+  });
+
+  it("exposes the full vendored mark set", () => {
+    const env = makeEnv();
+    const keys = env.api.wsIconKeys();
+    assert.equal(keys.length, 38);
+    for (const k of keys) {
+      assert.ok(env.api.wsIconLabel(k), k);
+      const svg = env.api.wsIconSvg(k, 14);
+      assert.ok(svg && svg.localName === "svg", k);
+      assert.ok(svg.children.length > 0, k);
+    }
   });
 
   it("Aph key renders a geometric mark, not text", () => {

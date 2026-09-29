@@ -25,6 +25,9 @@
   // Rename prompt mode: {title, initial, onCommit} — the input becomes a
   // text field and Enter commits instead of running a row.
   let prompt = null;
+  // Icon-pick mode: {ws} — the list becomes the vendored Lucide grid for
+  // one workspace; typing filters by key/label, Enter commits, Esc cancels.
+  let iconPick = null;
   // Pending close-animation timer (cancelled when the palette reopens).
   let closeTimer = null;
   // Sacred return-of-focus: element that held focus before open() stole it
@@ -1346,7 +1349,7 @@
 
   function isWorkspaceCommandTitle(title) {
     try {
-      return /^(Switch to |Send (Active|Group|\d+ Tabs)|Route |Bind |Rename )/i.test(
+      return /^(Switch to |Send (Active|Group|\d+ Tabs)|Route |Bind |Rename |Set Icon )/i.test(
         String(title || "")
       );
     } catch (e) {
@@ -1971,6 +1974,13 @@
           keepOpen: true,
           run: () => renameCurrent(),
         });
+        cmds.push({
+          title: `Set Icon for ${wsFull(api, cur)}…`,
+          hint: "",
+          sub: "Lucide mark grid · typing filters · Enter sets",
+          keepOpen: true,
+          run: () => startIconPick(cur),
+        });
       }
     } catch (e) {}
     cmds.push({
@@ -2398,6 +2408,63 @@
     }
   }
 
+  // Icon grid rows for icon-pick mode (one workspace): the vendored
+  // Lucide marks plus a None row clearing back to the number. Substring
+  // match on key + label — thirty rows need no fuzzy scoring. run
+  // commits directly so click, Enter, and Alt+number share one commit.
+  function iconRows(api, wsId, q) {
+    const out = [];
+    try {
+      const keys = (api && api.wsIconKeys && api.wsIconKeys()) || [];
+      const labelOf = (k) => {
+        try {
+          return (api && api.wsIconLabel && api.wsIconLabel(k)) || k;
+        } catch (e) {
+          return k;
+        }
+      };
+      const needle = String(q || "").toLowerCase();
+      let cur = "";
+      try {
+        cur = (api && api.getWsIcon && api.getWsIcon(wsId)) || "";
+      } catch (e) {}
+      const push = (key, title, sub, hint) => {
+        out.push(
+          tag(
+            {
+              title,
+              sub,
+              hint: hint || "",
+              section: "Workspace icons",
+              kind: "wsicon",
+              icon: "",
+              iconSVG: key,
+              iconKey: key,
+              run: () => commitIconKey(wsId, key),
+            },
+            "wsicon",
+            "Workspace icons"
+          )
+        );
+      };
+      for (const k of keys) {
+        const label = labelOf(k);
+        let extra = "";
+        try {
+          extra = (api && api.wsIconSearch && api.wsIconSearch(k)) || "";
+        } catch (e) {}
+        if (needle && String(`${k} ${label} ${extra}`).toLowerCase().indexOf(needle) === -1) {
+          continue;
+        }
+        push(k, label, `Icon for Workspace ${wsId} · ${k}`, k === cur ? "Current" : "Enter");
+      }
+      if (!needle || "none".indexOf(needle) !== -1 || "number".indexOf(needle) !== -1) {
+        push("", "None", `Back to the bare number for Workspace ${wsId}`, cur ? "Enter" : "Current");
+      }
+    } catch (e) {}
+    return out;
+  }
+
   // "Route github.com to Workspace N" × 9 for the active site. Titles
   // start with "Route" so typing `route` lists them all inline.
   function routeCommands(api, host) {
@@ -2807,6 +2874,13 @@
   }
 
   function render(filter) {
+    if (iconPick) {
+      items =
+        typeof iconRows === "function" ? iconRows(ws(), iconPick.ws, filter) : [];
+      selected = 0;
+      paint();
+      return;
+    }
     if (prompt) {
       items = [
         {
@@ -2976,9 +3050,33 @@
     row.id = `aph-palette-row-${i}`;
     row.className = "aph-palette-item" + (sel ? " selected" : "");
     row.setAttribute("aria-selected", sel ? "true" : "false");
-    // Icon slot: favicon img wins, else tab letter avatar, else glyph.
+    // Icon slot: vendored workspace mark wins, else favicon img, else
+    // tab letter avatar, else glyph. Pooled rows are reconfigured in
+    // place — clear the mark slot first so a reused row never stacks
+    // an old svg under new content.
     try {
-      if (it && it.iconURL) {
+      if (it && it.iconSVG) {
+        let svg = null;
+        try {
+          const api = ws();
+          svg = api && api.wsIconSvg ? api.wsIconSvg(it.iconSVG, 14) : null;
+        } catch (_e) {}
+        R.img.hidden = true;
+        while (R.ic.firstChild) {
+          R.ic.removeChild(R.ic.firstChild);
+        }
+        R.ic.className = "aph-palette-icon";
+        try {
+          R.ic.style.background = "";
+        } catch (_e) {}
+        if (svg) {
+          R.ic.hidden = false;
+          R.ic.appendChild(svg);
+        } else {
+          R.ic.hidden = false;
+          R.ic.textContent = "◈";
+        }
+      } else if (it && it.iconURL) {
         R.img.setAttribute("src", it.iconURL);
         R.img.hidden = false;
         R.ic.hidden = true;
@@ -3252,6 +3350,7 @@
     }
     captureFocus();
     prompt = null;
+    iconPick = null;
     try {
       if (typeof invalidatePaletteCache === "function") {
         invalidatePaletteCache();
@@ -3302,6 +3401,7 @@
       return;
     }
     prompt = opts;
+    iconPick = null;
     cancelCloseTimer();
     overlay.hidden = false;
     try {
@@ -3323,8 +3423,7 @@
     }, 0);
   }
 
-  function renameCurrent() {
-    const api = ws();
+  function renameCurrent() {    const api = ws();
     if (!api || !api.getCurrent || !api.setWsName) {
       return;
     }
@@ -3345,6 +3444,61 @@
         } catch (e) {}
       },
     });
+  }
+
+  // Icon-pick mode: the list becomes the vendored Lucide grid for one
+  // workspace. Typing filters by key/label, Enter commits the mark,
+  // Esc cancels via close(). Single code path for the palette command,
+  // the dock-menu shortcut, and Alt+number (all funnel through choose
+  // or the row run below).
+  function startIconPick(n) {
+    const api = ws();
+    if (!api || typeof api.setWsIcon !== "function") {
+      return;
+    }
+    let id = "";
+    try {
+      id = /^[1-9]$/.test(String(n)) ? String(n) : (api.getCurrent && api.getCurrent()) || "";
+    } catch (e) {}
+    if (!/^[1-9]$/.test(id)) {
+      return;
+    }
+    if (!overlay) {
+      build();
+    }
+    if (!overlay || !input) {
+      return;
+    }
+    prompt = null;
+    iconPick = { ws: id };
+    cancelCloseTimer();
+    overlay.hidden = false;
+    try {
+      input.setAttribute(
+        "placeholder",
+        `Icon for Workspace ${id} — type to filter, Enter sets, Esc cancels`
+      );
+    } catch (e) {}
+    try {
+      input.value = "";
+    } catch (e) {}
+    render("");
+    setTimeout(() => {
+      try {
+        input.focus();
+      } catch (e) {}
+    }, 0);
+  }
+
+  function commitIconKey(wsId, key) {
+    const api = ws();
+    iconPick = null;
+    close();
+    try {
+      if (api && typeof api.setWsIcon === "function") {
+        api.setWsIcon(wsId, key || "");
+      }
+    } catch (e) {}
   }
 
   // Tab rename entry point: prompts for the selected tab via the tab-rename
@@ -3371,6 +3525,7 @@
 
   function close() {
     prompt = null;
+    iconPick = null;
     try {
       if (typeof invalidatePaletteCache === "function") {
         invalidatePaletteCache();
@@ -3483,6 +3638,19 @@
   // In rename-prompt mode Enter commits the input instead. Rows marked
   // keepOpen (e.g. Rename) run without closing first.
   function choose(useTemp) {
+    if (iconPick) {
+      const it = items[selected];
+      // Empty filter match: nothing to commit — just leave.
+      if (!it) {
+        iconPick = null;
+        close();
+        return;
+      }
+      const wsId = iconPick.ws;
+      const key = it.iconKey || "";
+      commitIconKey(wsId, key);
+      return;
+    }
     if (prompt) {
       const cb = prompt.onCommit;
       let v = "";
@@ -3832,7 +4000,13 @@
 
   // Public API for the workspace badge / shortcuts / tab rename.
   try {
-    window.AphPalette = { open, toggle, renameCurrent, prompt: startPrompt };
+    window.AphPalette = {
+      open,
+      toggle,
+      renameCurrent,
+      setWsIcon: (n) => startIconPick(n),
+      prompt: startPrompt,
+    };
   } catch (e) {}
 
   if (document.readyState === "complete") {

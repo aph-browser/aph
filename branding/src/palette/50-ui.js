@@ -42,6 +42,13 @@
   }
 
   function render(filter) {
+    if (iconPick) {
+      items =
+        typeof iconRows === "function" ? iconRows(ws(), iconPick.ws, filter) : [];
+      selected = 0;
+      paint();
+      return;
+    }
     if (prompt) {
       items = [
         {
@@ -211,9 +218,33 @@
     row.id = `aph-palette-row-${i}`;
     row.className = "aph-palette-item" + (sel ? " selected" : "");
     row.setAttribute("aria-selected", sel ? "true" : "false");
-    // Icon slot: favicon img wins, else tab letter avatar, else glyph.
+    // Icon slot: vendored workspace mark wins, else favicon img, else
+    // tab letter avatar, else glyph. Pooled rows are reconfigured in
+    // place — clear the mark slot first so a reused row never stacks
+    // an old svg under new content.
     try {
-      if (it && it.iconURL) {
+      if (it && it.iconSVG) {
+        let svg = null;
+        try {
+          const api = ws();
+          svg = api && api.wsIconSvg ? api.wsIconSvg(it.iconSVG, 14) : null;
+        } catch (_e) {}
+        R.img.hidden = true;
+        while (R.ic.firstChild) {
+          R.ic.removeChild(R.ic.firstChild);
+        }
+        R.ic.className = "aph-palette-icon";
+        try {
+          R.ic.style.background = "";
+        } catch (_e) {}
+        if (svg) {
+          R.ic.hidden = false;
+          R.ic.appendChild(svg);
+        } else {
+          R.ic.hidden = false;
+          R.ic.textContent = "◈";
+        }
+      } else if (it && it.iconURL) {
         R.img.setAttribute("src", it.iconURL);
         R.img.hidden = false;
         R.ic.hidden = true;

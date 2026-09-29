@@ -67,6 +67,7 @@
     }
     captureFocus();
     prompt = null;
+    iconPick = null;
     try {
       if (typeof invalidatePaletteCache === "function") {
         invalidatePaletteCache();
@@ -117,6 +118,7 @@
       return;
     }
     prompt = opts;
+    iconPick = null;
     cancelCloseTimer();
     overlay.hidden = false;
     try {
@@ -138,8 +140,7 @@
     }, 0);
   }
 
-  function renameCurrent() {
-    const api = ws();
+  function renameCurrent() {    const api = ws();
     if (!api || !api.getCurrent || !api.setWsName) {
       return;
     }
@@ -160,6 +161,61 @@
         } catch (e) {}
       },
     });
+  }
+
+  // Icon-pick mode: the list becomes the vendored Lucide grid for one
+  // workspace. Typing filters by key/label, Enter commits the mark,
+  // Esc cancels via close(). Single code path for the palette command,
+  // the dock-menu shortcut, and Alt+number (all funnel through choose
+  // or the row run below).
+  function startIconPick(n) {
+    const api = ws();
+    if (!api || typeof api.setWsIcon !== "function") {
+      return;
+    }
+    let id = "";
+    try {
+      id = /^[1-9]$/.test(String(n)) ? String(n) : (api.getCurrent && api.getCurrent()) || "";
+    } catch (e) {}
+    if (!/^[1-9]$/.test(id)) {
+      return;
+    }
+    if (!overlay) {
+      build();
+    }
+    if (!overlay || !input) {
+      return;
+    }
+    prompt = null;
+    iconPick = { ws: id };
+    cancelCloseTimer();
+    overlay.hidden = false;
+    try {
+      input.setAttribute(
+        "placeholder",
+        `Icon for Workspace ${id} — type to filter, Enter sets, Esc cancels`
+      );
+    } catch (e) {}
+    try {
+      input.value = "";
+    } catch (e) {}
+    render("");
+    setTimeout(() => {
+      try {
+        input.focus();
+      } catch (e) {}
+    }, 0);
+  }
+
+  function commitIconKey(wsId, key) {
+    const api = ws();
+    iconPick = null;
+    close();
+    try {
+      if (api && typeof api.setWsIcon === "function") {
+        api.setWsIcon(wsId, key || "");
+      }
+    } catch (e) {}
   }
 
   // Tab rename entry point: prompts for the selected tab via the tab-rename
@@ -186,6 +242,7 @@
 
   function close() {
     prompt = null;
+    iconPick = null;
     try {
       if (typeof invalidatePaletteCache === "function") {
         invalidatePaletteCache();
@@ -298,6 +355,19 @@
   // In rename-prompt mode Enter commits the input instead. Rows marked
   // keepOpen (e.g. Rename) run without closing first.
   function choose(useTemp) {
+    if (iconPick) {
+      const it = items[selected];
+      // Empty filter match: nothing to commit — just leave.
+      if (!it) {
+        iconPick = null;
+        close();
+        return;
+      }
+      const wsId = iconPick.ws;
+      const key = it.iconKey || "";
+      commitIconKey(wsId, key);
+      return;
+    }
     if (prompt) {
       const cb = prompt.onCommit;
       let v = "";

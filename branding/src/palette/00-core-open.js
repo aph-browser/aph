@@ -24,6 +24,9 @@
   // Rename prompt mode: {title, initial, onCommit} — the input becomes a
   // text field and Enter commits instead of running a row.
   let prompt = null;
+  // Icon-pick mode: {ws} — the list becomes the vendored Lucide grid for
+  // one workspace; typing filters by key/label, Enter commits, Esc cancels.
+  let iconPick = null;
   // Pending close-animation timer (cancelled when the palette reopens).
   let closeTimer = null;
   // Sacred return-of-focus: element that held focus before open() stole it

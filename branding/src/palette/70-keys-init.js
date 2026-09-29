@@ -294,7 +294,13 @@
 
   // Public API for the workspace badge / shortcuts / tab rename.
   try {
-    window.AphPalette = { open, toggle, renameCurrent, prompt: startPrompt };
+    window.AphPalette = {
+      open,
+      toggle,
+      renameCurrent,
+      setWsIcon: (n) => startIconPick(n),
+      prompt: startPrompt,
+    };
   } catch (e) {}
 
   if (document.readyState === "complete") {

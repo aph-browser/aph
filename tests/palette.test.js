@@ -41,7 +41,7 @@ run(
   "command-palette.js",
   sb,
   'window.addEventListener("keydown", onKey, true);',
-  "window.__aphTest = { isLikelyURL, navFallback, allItems, fuzzyScore };"
+  "window.__aphTest = { isLikelyURL, navFallback, allItems, fuzzyScore, iconRows };"
 );
 const T = sb.window.__aphTest;
 
@@ -234,6 +234,11 @@ describe("bookmarks + history search", () => {
           sendTabTo: () => {},
           openBoundTab: (u, w) => { opened.push([u, w || ""]); },
           openTempTab: (u) => { opened.push([u, "temp"]); },
+          getWsIcon: () => "",
+          setWsIcon: () => true,
+          wsIconKeys: () => [],
+          wsIconLabel: (k) => k,
+          wsIconSvg: () => null,
         },
       },
       document: { readyState: "loading" },
@@ -823,6 +828,7 @@ describe("return-of-focus", () => {
 describe("terminal history + modifier peek", () => {
   function domSandbox() {
     const created = [];
+    const iconCommits = [];
     const winHandlers = {};
     function stubEl() {
       const el = {
@@ -870,6 +876,11 @@ describe("terminal history + modifier peek", () => {
           sendTabTo: () => {},
           openBoundTab: () => ({}),
           openTempTab: () => ({}),
+          getWsIcon: () => "",
+          setWsIcon: (n, k) => { iconCommits.push([n, k]); return true; },
+          wsIconKeys: () => ["briefcase", "mail"],
+          wsIconLabel: (k) => (k === "mail" ? "Mail" : "Briefcase"),
+          wsIconSvg: () => null,
         },
       },
       document: {
@@ -898,11 +909,11 @@ describe("terminal history + modifier peek", () => {
       "command-palette.js",
       sb2,
       'window.addEventListener("keydown", onKey, true);',
-      "window.__aphTest = { open, close, render };"
+      "window.__aphTest = { open, close, render, startIconPick };"
     );
     // build() runs lazily on open(); index created elements after that.
     // build() order: overlay, box, input, list, footer.
-    return { api: sb2.window.__aphTest, created, winHandlers };
+    return { api: sb2.window.__aphTest, created, winHandlers, iconCommits };
   }
 
   function key(k, extra) {
@@ -942,4 +953,100 @@ describe("terminal history + modifier peek", () => {
     }
     assert.equal(String(footer.textContent || ""), base);
   });
+
+describe("workspace icon picker", () => {
+  function itemRows(list) {
+    return list.children.filter((c) => String(c.className || "").startsWith("aph-palette-item"));
+  }
+
+  it("opens the mark grid with a None row", () => {
+    const { api, created } = domSandbox();
+    api.open();
+    api.startIconPick("2");
+    const list = created[3];
+    const rows = itemRows(list);
+    assert.equal(rows.length, 3, "2 marks + None");
+  });
+
+  it("filters by key and label as you type", () => {
+    const { api, created } = domSandbox();
+    api.open();
+    api.startIconPick("2");
+    const input = created[2];
+    const list = created[3];
+    input.value = "mail";
+    api.render("mail");
+    assert.equal(itemRows(list).length, 1);
+    input.value = "zzz";
+    api.render("zzz");
+    assert.equal(itemRows(list).length, 0);
+    input.value = "none";
+    api.render("none");
+    assert.equal(itemRows(list).length, 1);
+  });
+
+  it("commits the highlighted mark on Enter", () => {
+    const { api, created, iconCommits } = domSandbox();
+    api.open();
+    api.startIconPick("2");
+    const input = created[2];
+    input.value = "mail";
+    api.render("mail");
+    input._h.keydown(key("Enter"));
+    assert.deepEqual(iconCommits, [["2", "mail"]]);
+  });
+
+  it("clears back to the number from the None row", () => {
+    const { api, created, iconCommits } = domSandbox();
+    api.open();
+    api.startIconPick("2");
+    const input = created[2];
+    input.value = "none";
+    api.render("none");
+    input._h.keydown(key("Enter"));
+    assert.deepEqual(iconCommits, [["2", ""]]);
+  });
+
+  it("cancels on Escape without committing", () => {
+    const { api, created, iconCommits } = domSandbox();
+    api.open();
+    api.startIconPick("2");
+    const input = created[2];
+    input._h.keydown(key("Escape"));
+    assert.deepEqual(iconCommits, []);
+  });
+
+  it("lists a Set Icon command for the current workspace", () => {
+    const rows = T.allItems("set icon");
+    assert.ok(
+      rows.some((r) => r.title.startsWith("Set Icon for Workspace 1")),
+      rows.map((r) => r.title).join(" | ")
+    );
+  });
+
+  it("exposes icon rows with mark keys", () => {
+    const api = {
+      wsIconKeys: () => ["briefcase", "mail"],
+      wsIconLabel: (k) => k,
+      getWsIcon: () => "mail",
+    };
+    const rows = T.iconRows(api, "2", "");
+    assert.equal(rows.length, 3);
+    assert.equal(rows[0].iconKey, "briefcase");
+    assert.equal(rows[1].hint, "Current");
+    assert.equal(rows[2].title, "None");
+  });
+
+  it("matches search aliases like home for house", () => {
+    const api = {
+      wsIconKeys: () => ["house", "mail"],
+      wsIconLabel: (k) => (k === "house" ? "Home" : "Mail"),
+      wsIconSearch: (k) => (k === "house" ? "home" : ""),
+      getWsIcon: () => "",
+    };
+    const rows = T.iconRows(api, "1", "home");
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].iconKey, "house");
+  });
+});
 });

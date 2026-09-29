@@ -42,7 +42,7 @@
 
   function isWorkspaceCommandTitle(title) {
     try {
-      return /^(Switch to |Send (Active|Group|\d+ Tabs)|Route |Bind |Rename )/i.test(
+      return /^(Switch to |Send (Active|Group|\d+ Tabs)|Route |Bind |Rename |Set Icon )/i.test(
         String(title || "")
       );
     } catch (e) {
@@ -667,6 +667,13 @@
           keepOpen: true,
           run: () => renameCurrent(),
         });
+        cmds.push({
+          title: `Set Icon for ${wsFull(api, cur)}…`,
+          hint: "",
+          sub: "Lucide mark grid · typing filters · Enter sets",
+          keepOpen: true,
+          run: () => startIconPick(cur),
+        });
       }
     } catch (e) {}
     cmds.push({
@@ -1092,6 +1099,63 @@
     } catch (e) {
       return "";
     }
+  }
+
+  // Icon grid rows for icon-pick mode (one workspace): the vendored
+  // Lucide marks plus a None row clearing back to the number. Substring
+  // match on key + label — thirty rows need no fuzzy scoring. run
+  // commits directly so click, Enter, and Alt+number share one commit.
+  function iconRows(api, wsId, q) {
+    const out = [];
+    try {
+      const keys = (api && api.wsIconKeys && api.wsIconKeys()) || [];
+      const labelOf = (k) => {
+        try {
+          return (api && api.wsIconLabel && api.wsIconLabel(k)) || k;
+        } catch (e) {
+          return k;
+        }
+      };
+      const needle = String(q || "").toLowerCase();
+      let cur = "";
+      try {
+        cur = (api && api.getWsIcon && api.getWsIcon(wsId)) || "";
+      } catch (e) {}
+      const push = (key, title, sub, hint) => {
+        out.push(
+          tag(
+            {
+              title,
+              sub,
+              hint: hint || "",
+              section: "Workspace icons",
+              kind: "wsicon",
+              icon: "",
+              iconSVG: key,
+              iconKey: key,
+              run: () => commitIconKey(wsId, key),
+            },
+            "wsicon",
+            "Workspace icons"
+          )
+        );
+      };
+      for (const k of keys) {
+        const label = labelOf(k);
+        let extra = "";
+        try {
+          extra = (api && api.wsIconSearch && api.wsIconSearch(k)) || "";
+        } catch (e) {}
+        if (needle && String(`${k} ${label} ${extra}`).toLowerCase().indexOf(needle) === -1) {
+          continue;
+        }
+        push(k, label, `Icon for Workspace ${wsId} · ${k}`, k === cur ? "Current" : "Enter");
+      }
+      if (!needle || "none".indexOf(needle) !== -1 || "number".indexOf(needle) !== -1) {
+        push("", "None", `Back to the bare number for Workspace ${wsId}`, cur ? "Enter" : "Current");
+      }
+    } catch (e) {}
+    return out;
   }
 
   // "Route github.com to Workspace N" × 9 for the active site. Titles

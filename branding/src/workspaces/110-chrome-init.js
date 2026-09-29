@@ -125,9 +125,15 @@
         Services.prefs.removeObserver(WS_NAMES_PREF, nameObserver);
       }
     } catch (e) {}
+    try {
+      if (wsIconObserver) {
+        Services.prefs.removeObserver(WS_ICONS_PREF, wsIconObserver);
+      }
+    } catch (e) {}
     bindingObserver = null;
     routeObserver = null;
     nameObserver = null;
+    wsIconObserver = null;
     try {
       if (startupRestoreObserver && Services.obs) {
         Services.obs.removeObserver(
@@ -304,6 +310,12 @@
         matchRoute,
         getWsName,
         setWsName,
+        getWsIcon,
+        setWsIcon,
+        wsIconKeys: () => WS_ICON_KEYS.slice(),
+        wsIconLabel: (k) => WS_ICON_LABELS[k] || String(k || ""),
+        wsIconSearch: (k) => WS_ICON_SEARCH[k] || "",
+        wsIconSvg: (k, s) => makeWsIconSvg(k, s),
         getCurrent: () => current,
         getWs,
         stampLastViewed,
@@ -465,6 +477,20 @@
       Services.prefs.addObserver(WS_NAMES_PREF, nameObserver);
     } catch (e) {
       nameObserver = null;
+    }
+    // Cross-window icon sync: drop the cache and repaint badge + dock.
+    try {
+      wsIconObserver = {
+        observe() {
+          try {
+            wsIcons = null;
+            updateIndicator();
+          } catch (e) {}
+        },
+      };
+      Services.prefs.addObserver(WS_ICONS_PREF, wsIconObserver);
+    } catch (e) {
+      wsIconObserver = null;
     }
     try {
       initRouteListener();

@@ -1,7 +1,32 @@
-  // Workspace indicator: number, or "N: name" pill once named. Click
+  // Workspace indicator pill (nav-bar): icon + name readout, click
   // renames via the command palette (no popover exists — this is the
   // mouse path). The `data-aph-ws` attribute on tabContainer already
   // existed but nothing rendered it — this badge does.
+  // Indicator: icon + name. The icon (when set) leads, the label is
+  // the name or the bare number — the dock below already shows all
+  // nine numbers, and the tooltip keeps `Workspace N: Name`, so the
+  // address survives one hover away. Mixed content (never textContent:
+  // that would stringify the mark); the svg is aria-hidden paint.
+  function paintIndicatorLabel(el, wsId, name) {
+    try {
+      while (el.firstChild) {
+        el.removeChild(el.firstChild);
+      }
+    } catch (e) {}
+    try {
+      const mark = makeWsIconSvg(getWsIcon(wsId), 14);
+      if (mark) {
+        try {
+          el.appendChild(mark);
+        } catch (e) {}
+      }
+    } catch (e) {}
+    try {
+      el.appendChild(document.createTextNode(name || wsId));
+    } catch (e) {
+      el.textContent = name || wsId;
+    }
+  }
   function ensureIndicator() {
     try {
       let el = document.getElementById("aph-ws-indicator");
@@ -38,12 +63,11 @@
       if (el) {
         const cur = isValidId(current) ? current : "1";
         const name = getWsName(cur);
-        // Name-only: the number is the address, but the pill is the
-        // always-visible readout and the dock below already shows all
-        // nine numbers. Unnamed workspaces keep the bare number. The
-        // tooltip below keeps `Workspace N: Name` + shortcuts, so the
-        // address survives one hover away.
-        el.textContent = name || cur;
+        // Icon + name readout (paintIndicatorLabel above): the icon
+        // leads when set, the label is the name or the bare number.
+        // The tooltip below keeps `Workspace N: Name` + shortcuts, so
+        // the address survives one hover away.
+        paintIndicatorLabel(el, cur, name);
         // Bound container: tooltip only, no color marker — bound pills
         // read identical to unbound ones (monochrome chrome). The palette
         // Bind rows are the editor; this title is the checker.
@@ -88,6 +112,7 @@
   let bindingObserver = null;
   let routeObserver = null;
   let nameObserver = null;
+  let wsIconObserver = null;
   let startupRestoreObserver = null;
   let navPopupObserver = null;
   // Original window.BrowserOpenTab, captured before initBoundNewTab wraps

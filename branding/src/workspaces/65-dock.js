@@ -225,17 +225,18 @@
     }
   }
 
+  // Dock glyph: the workspace icon when set, else the bare number.
+  // Names live in tooltips/titles and the indicator — never as pill
+  // letters (first-grapheme letters read as text noise at 12px and
+  // break the monochrome mark language).
   function dockGlyph(id) {
     try {
-      const name = getWsName(id);
-      if (name) {
-        const first = Array.from(String(name))[0];
-        if (first) {
-          return first;
-        }
+      const icon = getWsIcon(id);
+      if (icon) {
+        return { icon, text: "" };
       }
     } catch (e) {}
-    return id;
+    return { icon: "", text: id };
   }
 
   function dockCounts() {
@@ -387,7 +388,24 @@
         } catch (e) {}
       }
       const glyph = dockGlyph(id);
-      pill.textContent = glyph;
+      // Glyph is icon-only (number fallback): clear first (pooled hosts
+      // would concatenate), then append the mark or the bare number.
+      // Clicks land on the pill — the svg is aria-hidden paint.
+      try {
+        while (pill.firstChild) {
+          pill.removeChild(pill.firstChild);
+        }
+      } catch (e) {}
+      try {
+        const mark = makeWsIconSvg(glyph.icon, 14);
+        if (mark) {
+          pill.appendChild(mark);
+        } else {
+          pill.appendChild(document.createTextNode(glyph.text));
+        }
+      } catch (e) {
+        pill.textContent = glyph.text;
+      }
       // Counts are per-window tab tags — this window's own set.
       if (count > 0) {
         try {
@@ -1390,6 +1408,22 @@
       if (rename) {
         try {
           menu.appendChild(rename);
+        } catch (err) {}
+      }
+      const setIcon = makeDockMenuItem(
+        "aph-dock-set-icon",
+        `Set Icon for ${head}…`,
+        () => {
+          try {
+            if (window.AphPalette && typeof window.AphPalette.setWsIcon === "function") {
+              window.AphPalette.setWsIcon(id);
+            }
+          } catch (err) {}
+        }
+      );
+      if (setIcon) {
+        try {
+          menu.appendChild(setIcon);
         } catch (err) {}
       }
       if (!isPrivateWindow()) {
