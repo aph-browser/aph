@@ -2100,10 +2100,13 @@
       return true;
     }
   }
-  // Workspace indicator pill (nav-bar): icon + name readout, click
-  // renames via the command palette (no popover exists — this is the
-  // mouse path). The `data-aph-ws` attribute on tabContainer already
-  // existed but nothing rendered it — this badge does.
+  // Workspace indicator pill (nav-bar): icon + name readout. Click
+  // renames via the command palette, right-click opens the icon picker
+  // (same Rename / Set Icon pair as the dock right-click menu — the pill
+  // is the top-left equivalent for the current workspace). No popover
+  // exists — both are mouse paths into the palette. The `data-aph-ws`
+  // attribute on tabContainer already existed but nothing rendered it —
+  // this badge does.
   // Indicator: icon + name. The icon (when set) leads, the label is
   // the name or the bare number — the dock below already shows all
   // nine numbers, and the tooltip keeps `Workspace N: Name`, so the
@@ -2142,7 +2145,7 @@
       el = document.createElement("div");
       el.id = "aph-ws-indicator";
       el.textContent = isValidId(current) ? current : "1";
-      el.title = "Workspace (Alt+1..9 switch, Alt+Shift+]/[ cycle, Alt+Shift+Tab last)";
+      el.title = "Workspace (Alt+1..9 switch, Alt+Shift+]/[ cycle, Alt+Shift+Tab last, click to rename, right-click for icon)";
       try {
         el.addEventListener("click", () => {
           try {
@@ -2150,6 +2153,30 @@
               window.AphPalette.renameCurrent();
             }
           } catch (e) {}
+        });
+      } catch (e) {}
+      // Right-click edits the mark, mirroring the dock menu's Set Icon
+      // item for the current workspace. Suppresses the stock nav-bar
+      // context menu on the pill (toolbar customize lives everywhere
+      // else on the bar). Fail-silent: test pills have no addEventListener.
+      try {
+        el.addEventListener("contextmenu", (e) => {
+          try {
+            if (e && typeof e.preventDefault === "function") {
+              e.preventDefault();
+            }
+          } catch (_e) {}
+          try {
+            if (e && typeof e.stopPropagation === "function") {
+              e.stopPropagation();
+            }
+          } catch (_e) {}
+          try {
+            const api = window.AphPalette;
+            if (api && typeof api.setWsIcon === "function") {
+              api.setWsIcon(isValidId(current) ? current : "1");
+            }
+          } catch (_e) {}
         });
       } catch (e) {}
       navBar.prepend(el);
@@ -2173,13 +2200,13 @@
         // Bound container: tooltip only, no color marker — bound pills
         // read identical to unbound ones (monochrome chrome). The palette
         // Bind rows are the editor; this title is the checker.
-        let title = `Workspace ${cur}${name ? `: ${name}` : ""} (Alt+1..9 switch · Alt+Shift+]/[ cycle · Alt+Shift+Tab last · click to rename)`;
+        let title = `Workspace ${cur}${name ? `: ${name}` : ""} (Alt+1..9 switch · Alt+Shift+]/[ cycle · Alt+Shift+Tab last · click to rename · right-click for icon)`;
         try {
           const bid = getWsContainerId(cur);
           if (bid) {
             const d = describeContainer(bid);
             if (d && d.name) {
-              title = `Workspace ${cur}${name ? `: ${name}` : ""} · ${d.name} container (Ctrl+T opens here · click to rename)`;
+              title = `Workspace ${cur}${name ? `: ${name}` : ""} · ${d.name} container (Ctrl+T opens here · click to rename · right-click for icon)`;
             }
           }
         } catch (e) {}
