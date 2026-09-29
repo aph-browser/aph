@@ -84,7 +84,22 @@ panelview :is(.subviewbutton, toolbarbutton)[disabled="true"] {
 
 /* 5. Item insets: constant 4px side margins (rest AND hover — margin
    never changes between states, so hover can't reflow the list) so
-   the 6px hover pills float off the popup edge. */
+   the 6px hover pills float off the popup edge. Comfortable 6px block
+   padding keeps rows tappable; icons align on a 16px grid. */
 menupopup > :is(menu, menuitem) {
   margin-inline: 4px !important;
+  padding-block: 6px !important;
+}
+
+menupopup > :is(menu, menuitem) > .menu-iconic-icon,
+panelview .subviewbutton > .toolbarbutton-icon {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+/* Keyboard focus: same voice wash as hover, never the stock dotted ring. */
+menupopup > :is(menu, menuitem):focus-visible,
+panelview :is(.subviewbutton, toolbarbutton):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--aph-voice, var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28))) 60%, transparent) !important;
+  outline-offset: -2px !important;
 }

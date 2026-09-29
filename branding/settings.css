@@ -55,6 +55,7 @@
   --set-radius-md: 6px;
   --set-radius-lg: 8px;
   --set-radius-xl: 10px;
+  --set-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 12px 32px -16px rgba(0, 0, 0, 0.5);
   /* Workspace hues — mirror of theme.css §21 (parity-tested). */
   --set-ws-1: #e54666;
   --set-ws-2: #f76808;
@@ -95,6 +96,18 @@ html, body {
   padding: 28px 24px 60px;
 }
 
+@media (min-width: 1100px) {
+  #aph-settings {
+    max-width: 1080px;
+  }
+  #aph-settings-list.has-search {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+}
+
 #aph-settings-head {
   position: sticky;
   top: 0;
@@ -117,6 +130,29 @@ html, body {
 
 #aph-settings-sub {
   font-size: 13px;
+  color: var(--set-faint);
+}
+
+#aph-settings-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 12px;
+  background: var(--set-surface);
+  color: var(--set-text);
+  border: 1px solid var(--set-line);
+  border-radius: var(--set-radius-lg);
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+#aph-settings-search:focus {
+  border-color: color-mix(in srgb, var(--set-accent) 65%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--set-accent) 25%, transparent);
+}
+
+#aph-settings-search::placeholder {
   color: var(--set-faint);
 }
 
@@ -375,11 +411,150 @@ html, body {
 .aph-settings-toggle::after {
   transition: left 0.12s ease-out, background-color 0.12s ease-out;
 }
+
+/* Cards: groups read as elevated sections, not bare rows. */
+.aph-settings-group {
+  background: color-mix(in srgb, var(--set-surface) 55%, transparent);
+  border: 1px solid var(--set-line);
+  border-radius: var(--set-radius-xl);
+  padding: 6px 6px 10px;
+}
+.aph-settings-group > h2 {
+  padding: 8px 10px 4px;
+}
+.aph-settings-row:focus-visible,
+.aph-settings-toggle:focus-visible,
+.aph-settings-number:focus-visible,
+#aph-settings-export:focus-visible,
+#aph-settings-import:focus-visible,
+#aph-settings-reset-frecency:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--set-accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+/* Inline editors for names / bindings / routes. */
+.aph-settings-edit {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 220px;
+  background: var(--set-raised);
+  color: var(--set-text);
+  border: 1px solid var(--set-line);
+  border-radius: var(--set-radius-lg);
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.aph-settings-edit:focus {
+  border-color: color-mix(in srgb, var(--set-accent) 65%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--set-accent) 25%, transparent);
+}
+.aph-settings-rowbtn {
+  flex: 0 0 auto;
+  background: transparent;
+  color: var(--set-muted);
+  border: 1px solid var(--set-line);
+  border-radius: var(--set-radius-lg);
+  padding: 5px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.aph-settings-rowbtn:hover {
+  background: var(--set-raised);
+  color: var(--set-text);
+}
+.aph-settings-rowbtn.danger {
+  color: var(--set-danger);
+}
+
+/* Modal (replaces native confirm for import/reset). */
+#aph-settings-modal[hidden] {
+  display: none;
+}
+#aph-settings-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+}
+#aph-settings-modal-card {
+  width: min(440px, 94vw);
+  background: var(--set-surface);
+  color: var(--set-text);
+  border: 1px solid var(--set-line);
+  border-radius: var(--set-radius-xl);
+  box-shadow: var(--set-shadow);
+  padding: 20px;
+}
+#aph-settings-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+#aph-settings-modal-desc {
+  font-size: 13px;
+  color: var(--set-muted);
+  line-height: 1.5;
+}
+#aph-settings-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+#aph-settings-modal-cancel,
+#aph-settings-modal-ok {
+  border-radius: var(--set-radius-lg);
+  padding: 7px 16px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid var(--set-line);
+}
+#aph-settings-modal-cancel {
+  background: transparent;
+  color: var(--set-muted);
+}
+#aph-settings-modal-cancel:hover {
+  background: var(--set-raised);
+  color: var(--set-text);
+}
+#aph-settings-modal-ok {
+  background: color-mix(in srgb, var(--set-accent) 55%, transparent);
+  border-color: transparent;
+  color: var(--set-text);
+  font-weight: 500;
+}
+#aph-settings-modal-ok.danger {
+  background: color-mix(in srgb, var(--set-danger) 70%, transparent);
+}
+#aph-settings-modal-ok:hover {
+  filter: brightness(1.1);
+}
+
+@media (max-width: 640px) {
+  #aph-settings {
+    padding: 20px 16px 48px;
+  }
+  .aph-settings-edit {
+    max-width: 140px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .aph-settings-row,
   .aph-settings-toggle,
   .aph-settings-toggle::after,
-  #aph-settings-toast {
+  #aph-settings-toast,
+  .aph-settings-rowbtn,
+  .aph-settings-edit {
     transition: none;
   }
 }

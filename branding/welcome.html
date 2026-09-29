@@ -13,9 +13,27 @@
     <div id="aph-welcome-title">Welcome to Aph</div>
     <div id="aph-welcome-sub">A workspaces-first browser on stock Firefox. Three habits cover most of it.</div>
   </header>
+  <section id="aph-welcome-hero" aria-label="Aph at a glance">
+    <div id="aph-welcome-hero-art" aria-hidden="true">
+      <div class="aph-hero-pill aph-hero-pill-on"><span>1</span></div>
+      <div class="aph-hero-pill"><span>2</span></div>
+      <div class="aph-hero-pill"><span>3</span></div>
+      <div id="aph-hero-bar"><span id="aph-hero-caret">▍</span><span id="aph-hero-query">Ctrl+K switch to Workspace 2…</span></div>
+    </div>
+    <div id="aph-welcome-hero-copy">
+      <div id="aph-welcome-hero-steps"><span class="aph-hero-step on">1 Workspaces</span><span class="aph-hero-step">2 Palette</span><span class="aph-hero-step">3 Tabs</span></div>
+      <p>Numbers switch spaces, <kbd>Ctrl+K</kbd> runs everything, tabs park instead of closing. Try it below — no setup needed.</p>
+    </div>
+  </section>
   <main id="aph-welcome-list"></main>
   <footer id="aph-welcome-foot">
-    <button id="aph-welcome-dismiss" type="button">Get started</button>
+    <span id="aph-welcome-donot">
+      <input id="aph-welcome-skip" type="checkbox" />
+      <label for="aph-welcome-skip">Don't show again</label>
+    </span>
+    <span id="aph-welcome-actions">
+      <button id="aph-welcome-dismiss" type="button">Get started</button>
+    </span>
     <span id="aph-welcome-links">
       <a id="aph-welcome-open-settings" href="chrome://browser/content/aph-settings.html">Aph Settings</a>
       <span aria-hidden="true"> · </span>

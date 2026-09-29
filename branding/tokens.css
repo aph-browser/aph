@@ -1,0 +1,103 @@
+/* Aph design tokens — single source of truth for every Aph surface.
+ *
+ * theme.css, command-palette.css, settings.css, archive.css and welcome.css
+ * each mirror these values in their own :root (separate documents, no
+ * shared cascade — chrome window vs chrome-tab pages). Keep them in sync:
+ * test_settings_voice_parity + test_archive_voice_parity pin the nine
+ * workspace hues to theme.css §21.
+ *
+ * Canvas faces follow prefers-color-scheme (tracks the theme scheme).
+ * Voice = workspace accent once :root[data-aph-ws] stamps, theme voice
+ * otherwise. Presence spends: tab 35%, pill/indicator/dock 45%,
+ * hover 30%, palette/urlbar-selected 55%.
+ */
+
+:root {
+  /* Type */
+  --aph-font-chrome: "Inter", system-ui, "Segoe UI", Roboto, "Noto Sans",
+    Ubuntu, Cantarell, sans-serif;
+  --aph-tracking-ui: 0.015em;
+
+  /* Radii — single source, sm fields → card canvas */
+  --aph-radius-sm: 4px;
+  --aph-radius-md: 6px;
+  --aph-radius-lg: 8px;
+  --aph-radius-xl: 10px;
+  --aph-radius-card: 14px;
+  --aph-radius-pill: 999px;
+
+  /* Canvas — dark room (default) */
+  --aph-base: #17181f;
+  --aph-surface: #202028;
+  --aph-field: #22232f;
+  --aph-raised: #2a2c3a;
+  --aph-ink: #e8e8ec;
+  --aph-ink-dim: #a3a8ba;
+  --aph-ink-faint: #626880;
+  --aph-line: rgba(255, 255, 255, 0.09);
+
+  /* Voice + selection + hairline */
+  --aph-ws-6: #0090ff;
+  --aph-voice: color-mix(in srgb, var(--aph-ws-6, #0090ff) 28%, transparent);
+  --aph-select: color-mix(in srgb, var(--aph-voice) 45%, transparent);
+  --aph-hairline: color-mix(in srgb, var(--aph-ink, #e8e8ec) 12%, transparent);
+
+  /* Workspace hues — mirror of theme.css §21 (parity-tested) */
+  --aph-ws-1: #e54666;
+  --aph-ws-2: #f76808;
+  --aph-ws-3: #f5b301;
+  --aph-ws-4: #29a383;
+  --aph-ws-5: #00a2c7;
+  --aph-ws-7: #8e4ec6;
+  --aph-ws-8: #d6409f;
+  --aph-ws-9: #707885;
+
+  /* Functional */
+  --aph-danger: #ff5d73;
+  --aph-warn-bg: #3a2430;
+  --aph-warn-text: #ff9aae;
+  --aph-star: #e8b64c;
+  --aph-secondary-opacity: 0.5;
+
+  /* Gutters (content card frame) */
+  --aph-gutter-top: 8px;
+  --aph-gutter-side: 12px;
+  --aph-gutter-bottom: 12px;
+
+  /* Elevation — L1 toast/rename, L2 dropdown, L3 palette/modal */
+  --aph-shadow-l1: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --aph-shadow-l2: 0 2px 12px rgba(0, 0, 0, 0.35), 0 24px 80px rgba(0, 0, 0, 0.6);
+  --aph-shadow-card:
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    0 12px 32px -16px rgba(0, 0, 0, 0.5),
+    0 32px 64px -32px rgba(0, 0, 0, 0.35);
+
+  /* Motion — split pop tokens (never merge: animation shorthand
+     misreads a second <time> as delay) */
+  --aph-pop-in-duration: 180ms;
+  --aph-pop-in-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --aph-motion-hover: 0.12s ease-out;
+  --aph-motion-glide: 0.15s ease-out;
+  --aph-motion-pop: 0.18s ease-out;
+
+  /* Palette geometry (bold Raycast) */
+  --aph-palette-width: 680px;
+  --aph-palette-max-h: 72vh;
+
+  /* Page geometry */
+  --aph-page-width: 860px;
+  --aph-page-wide: 1080px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --aph-base: #e8e0c9;
+    --aph-surface: #f5efe0;
+    --aph-field: #faf6ea;
+    --aph-raised: #fffdf4;
+    --aph-ink: #26262b;
+    --aph-ink-dim: #585c64;
+    --aph-ink-faint: #6b6f78;
+    --aph-line: rgba(38, 38, 43, 0.12);
+  }
+}

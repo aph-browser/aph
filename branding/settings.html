@@ -12,6 +12,7 @@
   <header id="aph-settings-head">
     <div id="aph-settings-title">Aph Settings</div>
     <div id="aph-settings-sub">Workspaces, archive, tabs, add-ons and sidebar. Changes apply immediately and persist.</div>
+    <input id="aph-settings-search" type="search" placeholder="Filter settings…  ( / focuses)" autocomplete="off" spellcheck="false" aria-label="Filter settings" />
   </header>
   <main id="aph-settings-list"></main>
   <footer id="aph-settings-foot">
@@ -28,6 +29,16 @@
     </span>
   </footer>
   <div id="aph-settings-toast"></div>
+  <div id="aph-settings-modal" hidden>
+    <div id="aph-settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="aph-settings-modal-title">
+      <div id="aph-settings-modal-title"></div>
+      <div id="aph-settings-modal-desc"></div>
+      <div id="aph-settings-modal-actions">
+        <button id="aph-settings-modal-cancel" type="button">Cancel</button>
+        <button id="aph-settings-modal-ok" type="button">Confirm</button>
+      </div>
+    </div>
+  </div>
 </div>
 </body>
 </html>

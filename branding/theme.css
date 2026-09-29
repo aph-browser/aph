@@ -64,6 +64,16 @@
      truth with no time slot to misread. */
   --aph-pop-in-duration: 180ms;
   --aph-pop-in-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Shared motion + elevation + geometry (see branding/tokens.css —
+     mirrored here because the chrome window owns its own :root). */
+  --aph-motion-hover: 0.12s ease-out;
+  --aph-motion-glide: 0.15s ease-out;
+  --aph-motion-pop: 0.18s ease-out;
+  --aph-shadow-l1: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --aph-shadow-l2: 0 2px 12px rgba(0, 0, 0, 0.35), 0 24px 80px rgba(0, 0, 0, 0.6);
+  --aph-palette-width: 680px;
+  --aph-palette-max-h: 72vh;
+  --aph-radius-pill: 999px;
   /* Dim tiers (§3/§4): secondary bar buttons idle here, glide to 1 on
      hover/focus/open. 0.5 keeps color icons legible while reading quiet. */
   --aph-secondary-opacity: 0.5;
@@ -387,7 +397,17 @@
   opacity: 1 !important;
   user-select: none !important;
   cursor: pointer !important;
-  transition: background-color 0.2s ease, color 0.2s ease !important;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out, box-shadow 0.12s ease-out, transform 0.12s ease-out !important;
+}
+
+#aph-ws-indicator:hover {
+  background: color-mix(in srgb, var(--aph-voice, rgba(0, 144, 255, 0.28)) 30%, transparent) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2) !important;
+}
+
+#aph-ws-indicator:focus-visible {
+  outline: 2px solid var(--aph-urlbar-accent, #0090ff) !important;
+  outline-offset: 1px !important;
 }
 
 /* Indicator mark: Lucide glyph at pill rhythm, 6px off the label (the
@@ -506,16 +526,18 @@ tab[pending]:not([selected]) .tab-label,
   bottom: 24px !important;
   transform: translateX(-50%) translateY(8px) !important;
   max-width: 60ch !important;
-  padding: 8px 14px !important;
+  padding: 9px 16px !important;
   border-radius: var(--aph-radius-lg) !important;
+  border: 1px solid color-mix(in srgb, var(--aph-ink, #e8e8ec) 12%, transparent) !important;
   /* Aph surface/ink, slightly translucent. */
   background: color-mix(
     in srgb,
-    var(--aph-surface, #202028) 92%,
+    var(--aph-surface, #202028) 94%,
     transparent
   ) !important;
   color: var(--aph-ink, #e8e8ec) !important;
   font-size: 13px !important;
+  font-weight: 500 !important;
   line-height: 1.4 !important;
   white-space: nowrap !important;
   overflow: hidden !important;
@@ -803,6 +825,17 @@ tab[selected] > .tab-stack > .tab-background {
   opacity: 1 !important;
   /* Hover spend (30%) stays visibly quieter than current (45%, §21). */
   background: color-mix(in srgb, var(--aph-voice, rgba(255, 255, 255, 0.12)) 30%, transparent) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25) !important;
+}
+
+.aph-ws-pill:focus-visible {
+  outline: 2px solid var(--aph-urlbar-accent, #0090ff) !important;
+  outline-offset: 1px !important;
+}
+
+.aph-ws-pill:active {
+  transform: translateY(0) !important;
 }
 
 .aph-ws-pill.drop-target {
@@ -810,6 +843,8 @@ tab[selected] > .tab-stack > .tab-background {
   outline-offset: -2px !important;
   opacity: 1 !important;
   background: color-mix(in srgb, var(--aph-voice, #0090ff) 30%, transparent) !important;
+  transform: scale(1.06) !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3) !important;
 }
 
 /* Pill mark: Lucide glyph at pill rhythm (same box as the Aph key
@@ -1173,11 +1208,13 @@ menupopup > menuitem:last-child {
 }
 /* Indicator pill (§6): same 45% recipe as the dock current pill below
    (the selected fill §13 spends a quieter 35%) — top, tab, and bottom
-   rhyme in one hue. Text stays toolbar ink throughout. */
+   rhyme in one hue. Text stays toolbar ink throughout. Bold: inner ring
+   + soft drop so the stamped pill leads the bar. */
 :root[data-aph-ws] #aph-ws-indicator {
   background: color-mix(in srgb, var(--aph-ws-accent) 45%, transparent) !important;
   color: var(--aph-ink, #e8e8ec) !important;
   opacity: 1 !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--aph-ws-accent) 55%, transparent), 0 1px 6px rgba(0, 0, 0, 0.3) !important;
 }
 
 /* Dock pills: monochrome rest, color on current only (data-ws set in
@@ -1196,6 +1233,7 @@ menupopup > menuitem:last-child {
 .aph-ws-pill[data-ws][data-current="1"] {
   background: color-mix(in srgb, var(--aph-ws-accent) 45%, transparent) !important;
   color: var(--aph-ink, #e8e8ec) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--aph-ws-accent) 60%, transparent), 0 1px 6px rgba(0, 0, 0, 0.3) !important;
 }
 
 /* ==========================================================================
@@ -1329,7 +1367,7 @@ tab > .tab-stack > .tab-background {
 /* Dock glide: pills and the Aph key ease washes and drag-mode dimming. */
 .aph-ws-pill,
 .aph-dock-aph {
-  transition: background-color 0.12s ease-out, opacity 0.12s ease-out !important;
+  transition: background-color 0.12s ease-out, opacity 0.12s ease-out, transform 0.12s ease-out, box-shadow 0.12s ease-out !important;
 }
 
 /* Switch dissolve: the commit is synchronous (hidden swap), so a

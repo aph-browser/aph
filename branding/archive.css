@@ -144,10 +144,105 @@ html, body {
 
 #aph-archive-search:focus {
   border-color: color-mix(in srgb, var(--arch-text) 45%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--arch-text) 12%, transparent);
 }
 
 #aph-archive-search::placeholder {
   color: var(--arch-faint);
+}
+
+#aph-archive-tools {
+  margin-top: 4px;
+}
+
+#aph-archive-sortbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--arch-faint);
+  flex-wrap: wrap;
+}
+
+#aph-archive-sort {
+  background: var(--arch-surface);
+  color: var(--arch-text);
+  border: 1px solid var(--arch-line);
+  border-radius: var(--arch-radius-md);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
+#aph-archive-sort:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--arch-text) 45%, transparent);
+  outline-offset: 1px;
+}
+
+#aph-archive-keep {
+  margin-inline-start: auto;
+  background: var(--arch-surface);
+  border: 1px solid var(--arch-line);
+  border-radius: var(--arch-radius-md);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+#aph-archive-bulkbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: var(--arch-surface);
+  border: 1px solid var(--arch-line);
+  border-radius: var(--arch-radius-lg);
+  font-size: 13px;
+}
+
+#aph-archive-bulkbar[hidden] {
+  display: none;
+}
+
+#aph-archive-bulkcount {
+  color: var(--arch-text);
+  font-weight: 600;
+  margin-inline-end: auto;
+}
+
+#aph-archive-bulk-restore,
+#aph-archive-bulk-clear {
+  background: transparent;
+  color: var(--arch-muted);
+  border: 1px solid var(--arch-line);
+  border-radius: var(--arch-radius-md);
+  padding: 4px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#aph-archive-bulk-restore:hover,
+#aph-archive-bulk-clear:hover {
+  background: var(--arch-raised);
+  color: var(--arch-text);
+}
+
+#aph-archive-bulk-delete {
+  background: transparent;
+  color: var(--arch-danger);
+  border: 1px solid var(--arch-line);
+  border-radius: var(--arch-radius-md);
+  padding: 4px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#aph-archive-bulk-delete:hover {
+  background: var(--arch-raised);
 }
 
 #aph-archive-pills {
@@ -203,12 +298,19 @@ html, body {
 }
 
 .aph-archive-group > h2 {
+  position: sticky;
+  top: 118px;
+  z-index: 1;
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--arch-faint);
   margin: 0 0 8px 2px;
+  padding: 6px 2px;
+  background: color-mix(in srgb, var(--arch-bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
 .aph-archive-row {
@@ -218,10 +320,21 @@ html, body {
   padding: 10px 12px;
   border-radius: var(--arch-radius-xl);
   cursor: pointer;
+  border: 1px solid transparent;
 }
 
 .aph-archive-row:hover {
   background: var(--arch-surface);
+}
+
+.aph-archive-row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--arch-text) 45%, transparent);
+  outline-offset: -2px;
+}
+
+.aph-archive-row.selected {
+  background: var(--arch-surface);
+  border-color: var(--arch-line);
 }
 
 .aph-archive-fav {
@@ -289,16 +402,35 @@ html, body {
   background: var(--arch-raised);
 }
 
+.aph-archive-check {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--arch-text);
+  cursor: pointer;
+}
+
+.aph-archive-mark {
+  background: color-mix(in srgb, var(--arch-text) 22%, transparent);
+  border-radius: 3px;
+  padding: 0 1px;
+  color: inherit;
+  font-weight: 600;
+}
+
 .aph-archive-del {
   flex: 0 0 auto;
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
   color: var(--arch-faint);
   font-size: 15px;
+  line-height: 1;
   border-radius: var(--arch-radius-md);
-  padding: 2px 8px;
+  padding: 6px 10px;
   cursor: pointer;
-  opacity: 0;
+  min-width: 36px;
+  min-height: 32px;
+  opacity: 0.45;
 }
 
 .aph-archive-row:hover .aph-archive-del,
@@ -309,6 +441,19 @@ html, body {
 .aph-archive-del:hover {
   color: var(--arch-danger);
   background: var(--arch-raised);
+  border-color: var(--arch-line);
+}
+
+.aph-archive-del:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--arch-danger) 60%, transparent);
+  outline-offset: 1px;
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .aph-archive-row .aph-archive-del:not([hidden]) {
+    opacity: 0.8;
+  }
 }
 
 #aph-archive-empty {
@@ -322,11 +467,33 @@ html, body {
 
 #aph-archive-nobridge {
   margin-top: 12px;
-  padding: 10px 14px;
+  padding: 12px 14px;
   border-radius: var(--arch-radius-lg);
   background: var(--arch-warn-bg);
   color: var(--arch-warn-text);
   font-size: 13px;
+  border: 1px solid color-mix(in srgb, var(--arch-danger) 35%, transparent);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#aph-archive-nobridge[hidden] {
+  display: none;
+}
+
+#aph-archive-nobridge button {
+  margin-inline-start: auto;
+  flex: none;
+  background: transparent;
+  color: inherit;
+  border: 1px solid currentColor;
+  border-radius: var(--arch-radius-md);
+  padding: 4px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 #aph-archive-toast {

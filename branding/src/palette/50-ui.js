@@ -242,7 +242,7 @@
           R.ic.appendChild(svg);
         } else {
           R.ic.hidden = false;
-          R.ic.textContent = "◈";
+          R.ic.textContent = "⬢";
         }
       } else if (it && it.iconURL) {
         R.img.setAttribute("src", it.iconURL);

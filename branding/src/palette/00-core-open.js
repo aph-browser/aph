@@ -58,16 +58,17 @@
   // Section order for grouped rendering (Go first, Search last — matches
   // the old unshift/push navFallback contract).
   const SECTION_ORDER = ["Go", "Tabs", "Commands", "Workspaces", "Bookmarks", "History", "Archive", "Help", "Search"];
-  const SECTION_CAP = 12;
-  const TOTAL_CAP = 80;
+  const SECTION_CAP = 15;
+  const TOTAL_CAP = 100;
   // Kind -> icon glyph (text, no external assets in chrome context).
+  // Geometric set (Raycast-style): no emoji — history was 🕘, now ◷.
   const KIND_ICONS = {
     go: "→",
     tab: "◐",
     command: "⌘",
-    workspace: "⛁",
+    workspace: "⬢",
     bookmark: "★",
-    history: "🕘",
+    history: "◷",
     archive: "▣",
     help: "?",
     search: "⌕",

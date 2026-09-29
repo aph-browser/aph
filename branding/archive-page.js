@@ -19,7 +19,15 @@
   let contextId = 0;
   let query = "";
   let pill = "all";
+  let sortMode = "newest";
+  let selectedIds = null;
   let toastTimer = null;
+
+  try {
+    selectedIds = new Set();
+  } catch (e) {
+    selectedIds = { has: () => false, add: () => {}, delete: () => {}, clear: () => {}, get size() { return 0; } };
+  }
 
   function L() {
     try {
@@ -89,6 +97,23 @@
       const nb = $("aph-archive-nobridge");
       if (nb) {
         nb.hidden = bridge;
+        if (!bridge && !nb.querySelector("button")) {
+          try {
+            nb.textContent = "Archive bridge unavailable — restores are disabled. ";
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = "Retry";
+            btn.addEventListener("click", () => {
+              detectBridge();
+              if (bridge) {
+                toast("Bridge restored");
+              } else {
+                toast("Still unavailable — reload this page");
+              }
+            });
+            nb.appendChild(btn);
+          } catch (_e) {}
+        }
       }
     } catch (e) {}
   }
@@ -133,9 +158,70 @@
     try {
       const rest = readEntries().filter((e) => e && e.id !== id);
       writeEntries(rest);
+      try {
+        selectedIds.delete(id);
+      } catch (e) {}
       render();
       toast("Deleted");
     } catch (e) {}
+  }
+
+  function paintText(el, text, indices) {
+    try {
+      if (!indices || !indices.length) {
+        el.textContent = text;
+        return;
+      }
+      const set = new Set(indices);
+      while (el.firstChild) {
+        el.removeChild(el.firstChild);
+      }
+      let buf = "";
+      let cur = null;
+      const flush = () => {
+        if (!buf) {
+          return;
+        }
+        if (cur) {
+          const mark = document.createElement("span");
+          mark.className = "aph-archive-mark";
+          mark.textContent = buf;
+          el.appendChild(mark);
+        } else {
+          el.appendChild(document.createTextNode(buf));
+        }
+        buf = "";
+      };
+      for (let i = 0; i < text.length; i++) {
+        const m = set.has(i);
+        if (cur === null) {
+          cur = m;
+        } else if (m !== cur) {
+          flush();
+          cur = m;
+        }
+        buf += text[i];
+      }
+      flush();
+    } catch (e) {
+      try {
+        el.textContent = text;
+      } catch (_e) {}
+    }
+  }
+
+  function titleIndices(entry) {
+    try {
+      const l = L();
+      const q = String(query || "").trim();
+      if (!l || !l.fuzzyEntry || !q) {
+        return [];
+      }
+      const m = l.fuzzyEntry(q.split(/\s+/)[0] || "", entry.title || "");
+      return (m && m.indices) || [];
+    } catch (e) {
+      return [];
+    }
   }
 
   function initialOf(entry) {
@@ -179,9 +265,30 @@
 
   function makeRow(entry, names) {
     const row = document.createElement("div");
-    row.className = "aph-archive-row";
+    row.className = "aph-archive-row" + (selectedIds.has(entry.id) ? " selected" : "");
     row.setAttribute("role", "button");
     row.setAttribute("tabindex", "0");
+    row.setAttribute("aria-selected", selectedIds.has(entry.id) ? "true" : "false");
+
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.className = "aph-archive-check";
+    check.checked = selectedIds.has(entry.id);
+    check.setAttribute("aria-label", `Select ${entry.title || entry.url}`);
+    check.addEventListener("click", (ev) => {
+      try {
+        ev.stopPropagation();
+      } catch (e) {}
+      try {
+        if (check.checked) {
+          selectedIds.add(entry.id);
+        } else {
+          selectedIds.delete(entry.id);
+        }
+      } catch (e) {}
+      render();
+    });
+    row.appendChild(check);
 
     const fav = document.createElement("div");
     fav.className = "aph-archive-fav";
@@ -192,7 +299,7 @@
     main.className = "aph-archive-main";
     const title = document.createElement("div");
     title.className = "aph-archive-title";
-    title.textContent = entry.title || entry.url;
+    paintText(title, entry.title || entry.url, titleIndices(entry));
     title.title = entry.url || "";
     main.appendChild(title);
     const dom = document.createElement("div");
@@ -231,6 +338,10 @@
     const go = (keep) => requestRestore(entry.id, keep);
     row.addEventListener("click", (ev) => {
       try {
+        // Checkbox clicks already handled; row click restores.
+        if (ev.target === check) {
+          return;
+        }
         go(!!ev.shiftKey);
       } catch (e) {}
     });
@@ -240,6 +351,14 @@
           go(!!ev.shiftKey);
         } else if (ev.key === "Delete" || ev.key === "Backspace") {
           deleteEntry(entry.id);
+        } else if (ev.key === " ") {
+          ev.preventDefault();
+          if (selectedIds.has(entry.id)) {
+            selectedIds.delete(entry.id);
+          } else {
+            selectedIds.add(entry.id);
+          }
+          render();
         }
       } catch (e) {}
     });
@@ -299,17 +418,43 @@
     const l = L();
     const names = readNames();
     let entries = readEntries();
+    const total = entries.length;
     const count = $("aph-archive-count");
     if (count) {
       try {
-        count.textContent = entries.length ? `${entries.length}/300` : "";
+        count.textContent = total ? `${total}/300` : "";
       } catch (e) {}
     }
     renderPills(entries, names);
     if (pill !== "all") {
       entries = entries.filter((e) => e && e.ws === pill);
     }
-    entries = l ? l.filterEntries(entries, query, names) : entries;
+    // Fuzzy filter (relevance-sorted) when available; legacy substring
+    // AND otherwise. Either way the result then sorts by sortMode.
+    let scored = null;
+    try {
+      if (l && l.fuzzyFilter) {
+        scored = l.fuzzyFilter(entries, query, names);
+        entries = scored.map((s) => s.entry);
+      } else if (l) {
+        entries = l.filterEntries(entries, query, names);
+      }
+    } catch (e) {
+      entries = l ? l.filterEntries(entries, query, names) : entries;
+    }
+    try {
+      if (l && l.sortEntries) {
+        // Keep fuzzy relevance when searching; sortMode wins when idle.
+        if (!String(query || "").trim()) {
+          entries = l.sortEntries(entries, sortMode);
+        }
+      } else if (sortMode === "oldest") {
+        entries = entries.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+      } else if (sortMode === "site") {
+        entries = entries.slice().sort((a, b) => String(a.host || "").localeCompare(String(b.host || "")));
+      }
+    } catch (e) {}
+    updateBulkbar(total);
     const list = $("aph-archive-list");
     if (!list) {
       return;
@@ -344,6 +489,54 @@
       }
       list.appendChild(wrap);
     }
+  }
+
+  function updateBulkbar(total) {
+    try {
+      const bar = $("aph-archive-bulkbar");
+      const cnt = $("aph-archive-bulkcount");
+      if (!bar || !cnt) {
+        return;
+      }
+      const n = selectedIds.size || 0;
+      bar.hidden = n === 0;
+      cnt.textContent = n ? `${n} selected` : "";
+    } catch (e) {}
+  }
+
+  function bulkDelete() {
+    try {
+      if (!selectedIds.size) {
+        return;
+      }
+      const ids = new Set(selectedIds);
+      const rest = readEntries().filter((e) => e && !ids.has(e.id));
+      writeEntries(rest);
+      selectedIds.clear();
+      render();
+      toast("Deleted selected");
+    } catch (e) {}
+  }
+
+  function bulkRestore() {
+    try {
+      if (!selectedIds.size) {
+        return;
+      }
+      const ids = Array.from(selectedIds);
+      let i = 0;
+      const next = () => {
+        if (i >= ids.length) {
+          return;
+        }
+        const id = ids[i++];
+        requestRestore(id, true);
+        // Stagger restores so the owner window processes them in order.
+        setTimeout(next, 120);
+      };
+      next();
+      toast(`Restoring ${ids.length}…`);
+    } catch (e) {}
   }
 
   function init() {
@@ -412,6 +605,39 @@
               s.focus();
             }
           } catch (e) {}
+        });
+      }
+    } catch (e) {}
+    try {
+      const sort = $("aph-archive-sort");
+      if (sort) {
+        sort.value = sortMode;
+        sort.addEventListener("change", () => {
+          try {
+            sortMode = sort.value || "newest";
+          } catch (e) {
+            sortMode = "newest";
+          }
+          render();
+        });
+      }
+    } catch (e) {}
+    try {
+      const bd = $("aph-archive-bulk-delete");
+      if (bd) {
+        bd.addEventListener("click", bulkDelete);
+      }
+      const br = $("aph-archive-bulk-restore");
+      if (br) {
+        br.addEventListener("click", bulkRestore);
+      }
+      const bc = $("aph-archive-bulk-clear");
+      if (bc) {
+        bc.addEventListener("click", () => {
+          try {
+            selectedIds.clear();
+          } catch (e) {}
+          render();
         });
       }
     } catch (e) {}

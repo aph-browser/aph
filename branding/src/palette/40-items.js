@@ -1023,7 +1023,7 @@
         if (muted) {
           badge.push("muted");
         } else if (playing) {
-          badge.push("🔊 playing");
+          badge.push("playing");
         }
       } catch (e) {}
       let url = "";

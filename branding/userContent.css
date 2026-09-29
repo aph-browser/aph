@@ -1,12 +1,14 @@
 /* ==========================================================================
-   Aph desk backdrop (designed gradient): about:newtab / about:home /
+   Aph desk backdrop (softened): about:newtab / about:home /
    about:blank are never flat and never borrowed. Layered top to bottom:
    film grain (inline SVG data URI — self-contained, no network), top
    glow, voice-blue whisper (bottom-right, ties the page to the chrome
-   accent), 2x2-echo grid (the logo geometry at ~3% alpha, fading out
-   under the vignette), edge vignette, depth base. If any layer ever
-   fails to parse, the shorthand drops and background-color still holds
-   the room — degradation is a flat Aph base, never white.
+   accent), 2x2-echo grid (the logo geometry at ~2% alpha, fading out
+   under the vignette), edge vignette, depth base. Softened pass: grid
+   and vignette stepped down so stock Activity Stream cards lead instead
+   of fighting the desk. If any layer ever fails to parse, the shorthand
+   drops and background-color still holds the room — degradation is a
+   flat Aph base, never white.
    Underlay stacking (no wallpaper guard): Activity Stream paints its
    wallpaper as body background-image driven by an inline
    --newtab-wallpaper custom property, over an otherwise opaque body
@@ -16,34 +18,43 @@
    the wallpaper feed, so a renamed property or moved inline style cannot
    silently amputate the user's photo. about:blank has no wallpaper
    concept and keeps the plain body rule. Search and all page behavior
-   keep working (paint only).
+   keep working (paint only). Stock Activity Stream is kept as-is —
+   only card contrast is owned below so shortcuts stay legible on both
+   rooms.
    ========================================================================== */
 @-moz-document url(about:newtab), url(about:home) {
   html {
     background:
-      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.05'/></svg>"),
-      radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.06), transparent 60%),
-      radial-gradient(90% 70% at 85% 100%, rgba(0, 144, 255, 0.07), transparent 65%),
-      repeating-linear-gradient(0deg, rgba(232, 232, 236, 0.028) 0 1px, transparent 1px 72px),
-      repeating-linear-gradient(90deg, rgba(232, 232, 236, 0.028) 0 1px, transparent 1px 72px),
-      radial-gradient(140% 120% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.38) 100%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.04'/></svg>"),
+      radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.05), transparent 60%),
+      radial-gradient(90% 70% at 85% 100%, rgba(0, 144, 255, 0.05), transparent 65%),
+      repeating-linear-gradient(0deg, rgba(232, 232, 236, 0.018) 0 1px, transparent 1px 72px),
+      repeating-linear-gradient(90deg, rgba(232, 232, 236, 0.018) 0 1px, transparent 1px 72px),
+      radial-gradient(140% 120% at 50% 45%, transparent 60%, rgba(0, 0, 0, 0.28) 100%),
       linear-gradient(#202028, #17181f) !important;
     background-color: #17181f !important;
   }
   body {
     background-color: transparent !important;
   }
+  /* Stock cards: lift off the softened desk without repainting them. */
+  .top-site-outer .tile {
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
+  }
+  .top-site-outer .title {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5) !important;
+  }
 }
 
 @-moz-document url(about:blank) {
   body {
     background:
-      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.05'/></svg>"),
-      radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.06), transparent 60%),
-      radial-gradient(90% 70% at 85% 100%, rgba(0, 144, 255, 0.07), transparent 65%),
-      repeating-linear-gradient(0deg, rgba(232, 232, 236, 0.028) 0 1px, transparent 1px 72px),
-      repeating-linear-gradient(90deg, rgba(232, 232, 236, 0.028) 0 1px, transparent 1px 72px),
-      radial-gradient(140% 120% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.38) 100%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.04'/></svg>"),
+      radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.05), transparent 60%),
+      radial-gradient(90% 70% at 85% 100%, rgba(0, 144, 255, 0.05), transparent 65%),
+      repeating-linear-gradient(0deg, rgba(232, 232, 236, 0.018) 0 1px, transparent 1px 72px),
+      repeating-linear-gradient(90deg, rgba(232, 232, 236, 0.018) 0 1px, transparent 1px 72px),
+      radial-gradient(140% 120% at 50% 45%, transparent 60%, rgba(0, 0, 0, 0.28) 100%),
       linear-gradient(#202028, #17181f) !important;
     background-color: #17181f !important;
   }
@@ -53,28 +64,38 @@
   @-moz-document url(about:newtab), url(about:home) {
     html {
       background:
-        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.06'/></svg>"),
-        radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.65), transparent 60%),
-        radial-gradient(90% 70% at 85% 100%, rgba(0, 144, 255, 0.05), transparent 65%),
-        repeating-linear-gradient(0deg, rgba(38, 38, 43, 0.035) 0 1px, transparent 1px 72px),
-        repeating-linear-gradient(90deg, rgba(38, 38, 43, 0.035) 0 1px, transparent 1px 72px),
-        radial-gradient(140% 120% at 50% 45%, transparent 55%, rgba(120, 100, 60, 0.14) 100%),
+        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.05'/></svg>"),
+        radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.5), transparent 60%),
+        radial-gradient(90% 70% at 85% 100%, rgba(0, 144, 255, 0.04), transparent 65%),
+        repeating-linear-gradient(0deg, rgba(38, 38, 43, 0.025) 0 1px, transparent 1px 72px),
+        repeating-linear-gradient(90deg, rgba(38, 38, 43, 0.025) 0 1px, transparent 1px 72px),
+        radial-gradient(140% 120% at 50% 45%, transparent 60%, rgba(120, 100, 60, 0.1) 100%),
         linear-gradient(#faf6ec, #f1e9d6) !important;
       background-color: #f6f1e3 !important;
     }
     body {
       background-color: transparent !important;
     }
+    /* Cream room: stock cards gain a hairline + soft drop so shortcuts
+       stay legible on paper without repainting Activity Stream. */
+    .top-site-outer .tile {
+      border: 1px solid rgba(38, 38, 43, 0.1) !important;
+      box-shadow: 0 1px 3px rgba(120, 100, 60, 0.18) !important;
+    }
+    .top-site-outer .title,
+    .search-handoff-button {
+      color: #26262b !important;
+    }
   }
   @-moz-document url(about:blank) {
     body {
       background:
-        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.06'/></svg>"),
-        radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.65), transparent 60%),
-        radial-gradient(90% 70% at 85% 100%, rgba(0, 144, 255, 0.05), transparent 65%),
-        repeating-linear-gradient(0deg, rgba(38, 38, 43, 0.035) 0 1px, transparent 1px 72px),
-        repeating-linear-gradient(90deg, rgba(38, 38, 43, 0.035) 0 1px, transparent 1px 72px),
-        radial-gradient(140% 120% at 50% 45%, transparent 55%, rgba(120, 100, 60, 0.14) 100%),
+        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.05'/></svg>"),
+        radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.5), transparent 60%),
+        radial-gradient(90% 70% at 85% 100%, rgba(0, 144, 255, 0.04), transparent 65%),
+        repeating-linear-gradient(0deg, rgba(38, 38, 43, 0.025) 0 1px, transparent 1px 72px),
+        repeating-linear-gradient(90deg, rgba(38, 38, 43, 0.025) 0 1px, transparent 1px 72px),
+        radial-gradient(140% 120% at 50% 45%, transparent 60%, rgba(120, 100, 60, 0.1) 100%),
         linear-gradient(#faf6ec, #f1e9d6) !important;
       background-color: #f6f1e3 !important;
     }

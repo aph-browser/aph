@@ -164,6 +164,131 @@ var AphArchiveLogic = (function () {
     });
   }
 
+  // Scored fuzzy match (palette dialect, simplified): exact prefix >
+  // word-boundary substring > plain substring > subsequence. Returns
+  // {score, indices} or null. Powers highlight + relevance sort.
+  function fuzzyEntry(query, text) {
+    try {
+      const needle = String(query || "").toLowerCase();
+      const hay = String(text || "").toLowerCase();
+      const n = needle.length;
+      if (!n || !hay) {
+        return n ? null : { score: 0, indices: [] };
+      }
+      if (hay.startsWith(needle)) {
+        const indices = [];
+        for (let i = 0; i < n; i++) {
+          indices.push(i);
+        }
+        return { score: 1000 - hay.length, indices };
+      }
+      const isBoundary = (i) => i === 0 || /[^a-z0-9]/.test(hay[i - 1]);
+      const at = hay.indexOf(needle);
+      if (at !== -1) {
+        const indices = [];
+        for (let i = 0; i < n; i++) {
+          indices.push(at + i);
+        }
+        return { score: (isBoundary(at) ? 800 : 600) - at, indices };
+      }
+      // Subsequence with consecutive + boundary bonuses.
+      const indices = [];
+      let ti = 0;
+      let score = 400;
+      let consec = 0;
+      let prev = -2;
+      for (let qi = 0; qi < n; qi++) {
+        const c = needle[qi];
+        let f = -1;
+        for (let j = ti; j < hay.length; j++) {
+          if (hay[j] === c) {
+            f = j;
+            break;
+          }
+        }
+        if (f === -1) {
+          return null;
+        }
+        if (f === prev + 1) {
+          consec++;
+          score += 12;
+        }
+        if (isBoundary(f)) {
+          score += 10;
+        }
+        score -= Math.max(0, f - ti) * 2;
+        indices.push(f);
+        prev = f;
+        ti = f + 1;
+      }
+      score += consec * 4;
+      return { score, indices };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function hayOf(entry, wsNames) {
+    try {
+      const names = wsNames || {};
+      const wname = String((names && names[entry.ws]) || "");
+      return [entry.title || "", entry.host || "", entry.url || "", `ws ${entry.ws || ""}`, wname, entry.cname || ""].join(" ");
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Fuzzy filter with per-token AND + relevance score. Returns
+  // [{entry, score, indices}] sorted by score desc. Empty query returns
+  // all entries unscored (score 0).
+  function fuzzyFilter(entries, q, wsNames) {
+    const needle = String(q == null ? "" : q).trim().toLowerCase();
+    if (!needle) {
+      return (entries || []).map((entry) => ({ entry, score: 0, indices: [] }));
+    }
+    const parts = needle.split(/\s+/).filter(Boolean);
+    const out = [];
+    for (const entry of entries || []) {
+      try {
+        if (!entry) {
+          continue;
+        }
+        const hay = hayOf(entry, wsNames);
+        let score = 0;
+        let indices = [];
+        let ok = true;
+        for (const part of parts) {
+          const m = fuzzyEntry(part, hay);
+          if (!m) {
+            ok = false;
+            break;
+          }
+          score += m.score;
+          indices = indices.concat(m.indices);
+        }
+        if (ok) {
+          out.push({ entry, score, indices });
+        }
+      } catch (err) {}
+    }
+    out.sort((a, b) => b.score - a.score);
+    return out;
+  }
+
+  function sortEntries(entries, mode) {
+    const list = (entries || []).slice();
+    try {
+      if (mode === "oldest") {
+        list.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+      } else if (mode === "site") {
+        list.sort((a, b) => String(a.host || "").localeCompare(String(b.host || "")) || (b.ts || 0) - (a.ts || 0));
+      } else {
+        list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      }
+    } catch (e) {}
+    return list;
+  }
+
   return {
     MAX_ENTRIES,
     isArchivableUrl,
@@ -173,5 +298,8 @@ var AphArchiveLogic = (function () {
     dayLabel,
     groupByDate,
     filterEntries,
+    fuzzyEntry,
+    fuzzyFilter,
+    sortEntries,
   };
 })();

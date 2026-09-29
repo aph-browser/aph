@@ -164,6 +164,159 @@ kbd {
   flex-wrap: wrap;
 }
 
+#aph-welcome-donot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--wel-muted);
+}
+
+#aph-welcome-skip {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--wel-accent);
+}
+
+#aph-welcome-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Hero: dock pills + palette mock in pure CSS (neutral — the tour
+   carries no workspace identity, so no hues here by design). */
+#aph-welcome-hero {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: center;
+  background: var(--wel-surface);
+  border: 1px solid var(--wel-line);
+  border-radius: var(--wel-radius-xl);
+  padding: 20px;
+}
+
+#aph-welcome-hero-art {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.aph-hero-pill {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--wel-radius-md);
+  background: color-mix(in srgb, var(--wel-text) 10%, transparent);
+  color: var(--wel-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.aph-hero-pill-on {
+  background: color-mix(in srgb, var(--wel-accent) 45%, transparent);
+}
+
+#aph-hero-bar {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--wel-raised);
+  border: 1px solid var(--wel-line);
+  border-radius: var(--wel-radius-lg);
+  padding: 10px 14px;
+  font-size: 14px;
+  color: var(--wel-text);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+#aph-hero-caret {
+  color: var(--wel-accent);
+  font-weight: 700;
+  animation: aph-hero-blink 1.1s steps(2) infinite;
+}
+
+@keyframes aph-hero-blink {
+  50% { opacity: 0; }
+}
+
+#aph-hero-query {
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#aph-welcome-hero-copy p {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--wel-muted);
+  margin: 10px 0 0;
+}
+
+#aph-welcome-hero-steps {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.aph-hero-step {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--wel-faint);
+  background: transparent;
+  border: 1px solid var(--wel-line);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.aph-hero-step.on {
+  color: var(--wel-text);
+  border-color: color-mix(in srgb, var(--wel-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--wel-accent) 18%, transparent);
+}
+
+.aph-welcome-demo {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.aph-welcome-demobtn {
+  background: transparent;
+  color: var(--wel-muted);
+  border: 1px solid var(--wel-line);
+  border-radius: var(--wel-radius-lg);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.aph-welcome-demobtn:hover {
+  background: var(--wel-surface);
+  color: var(--wel-text);
+}
+
+.aph-welcome-demobtn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--wel-accent) 65%, transparent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  #aph-welcome-hero {
+    grid-template-columns: 1fr;
+  }
+}
+
 #aph-welcome-dismiss {
   background: color-mix(in srgb, var(--wel-accent) 55%, transparent);
   color: var(--wel-text);
@@ -190,16 +343,22 @@ kbd {
 }
 
 /* Motion language (§24 in theme.css, same dialect): hovers ease instead
-   of snapping. Reduced-motion kills every transition. */
+   of snapping. Reduced-motion kills every transition + the hero caret. */
 .aph-welcome-card {
   transition: background-color 0.12s ease-out;
 }
 #aph-welcome-dismiss {
   transition: background-color 0.12s ease-out;
 }
+.aph-welcome-demobtn {
+  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+}
 @media (prefers-reduced-motion: reduce) {
   .aph-welcome-card,
-  #aph-welcome-dismiss {
+  #aph-welcome-dismiss,
+  .aph-welcome-demobtn,
+  #aph-hero-caret {
     transition: none;
+    animation: none;
   }
 }

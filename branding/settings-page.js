@@ -305,6 +305,8 @@ var AphSettingsLogic = (function () {
 
   const TOAST_MS = 2400;
   let toastTimer = null;
+  let searchQuery = "";
+  let modalOk = null;
 
   function $(id) {
     try {
@@ -449,6 +451,10 @@ var AphSettingsLogic = (function () {
     }
   }
 
+  function writeJsonObject(pref, obj) {
+    return writeString(pref, obj || {});
+  }
+
   function readJsonArray(pref) {
     try {
       const raw = readString(pref);
@@ -523,6 +529,52 @@ var AphSettingsLogic = (function () {
         toastTimer = null;
       }, TOAST_MS);
     } catch (e) {}
+  }
+
+  // Modal confirm (replaces native confirm for import/reset). Falls back
+  // to window.confirm when the modal DOM is absent (tests, minimal page).
+  function showModal(opts) {
+    const o = opts || {};
+    try {
+      const m = $("aph-settings-modal");
+      const t = $("aph-settings-modal-title");
+      const d = $("aph-settings-modal-desc");
+      const ok = $("aph-settings-modal-ok");
+      const cancel = $("aph-settings-modal-cancel");
+      if (!m || !t || !d || !ok || !cancel) {
+        let fallback = false;
+        try {
+          fallback = window.confirm(`${o.title || "Confirm"}\n${o.desc || ""}`);
+        } catch (e) {
+          fallback = false;
+        }
+        if (fallback && typeof o.onOk === "function") {
+          o.onOk();
+        }
+        return;
+      }
+      t.textContent = o.title || "Confirm";
+      d.textContent = o.desc || "";
+      ok.textContent = o.okLabel || "Confirm";
+      try {
+        ok.classList.toggle("danger", !!o.danger);
+      } catch (e) {}
+      modalOk = typeof o.onOk === "function" ? o.onOk : null;
+      m.hidden = false;
+      try {
+        ok.focus();
+      } catch (e) {}
+    } catch (e) {}
+  }
+
+  function hideModal() {
+    try {
+      const m = $("aph-settings-modal");
+      if (m) {
+        m.hidden = true;
+      }
+    } catch (e) {}
+    modalOk = null;
   }
 
   function makeToggle(pref, current) {
@@ -651,26 +703,36 @@ var AphSettingsLogic = (function () {
     return wrap;
   }
 
-  function makeTable(title, headers, entries, emptyText, hint) {
+  function makeEditableTable(opts) {
+    const o = opts || {};
     const section = document.createElement("section");
     section.className = "aph-settings-group";
+    section.dataset.group = o.title || "";
     const h = document.createElement("h2");
-    h.textContent = title;
+    h.textContent = o.title || "";
     section.appendChild(h);
 
+    const entries = o.entries || [];
     if (!entries.length) {
       const empty = document.createElement("div");
       empty.className = "aph-settings-empty";
-      empty.textContent = emptyText;
+      empty.textContent = o.emptyText || "Nothing here yet.";
       section.appendChild(empty);
     } else {
       const table = document.createElement("table");
       table.className = "aph-settings-table";
       const thead = document.createElement("thead");
       const hr = document.createElement("tr");
-      for (const c of headers) {
+      for (const c of o.headers || []) {
         const th = document.createElement("th");
         th.textContent = c;
+        th.setAttribute("scope", "col");
+        hr.appendChild(th);
+      }
+      if (o.editable) {
+        const th = document.createElement("th");
+        th.textContent = "Edit";
+        th.setAttribute("scope", "col");
         hr.appendChild(th);
       }
       thead.appendChild(hr);
@@ -683,73 +745,234 @@ var AphSettingsLogic = (function () {
             tr.setAttribute("data-ws", e.ws);
           }
         } catch (_e) {}
-        for (const c of e.cells) {
-          const td = document.createElement("td");
-          td.textContent = c;
-          tr.appendChild(td);
+        if (o.editable && typeof o.renderEditor === "function") {
+          for (const c of e.cells) {
+            const td = document.createElement("td");
+            td.textContent = c;
+            tr.appendChild(td);
+          }
+          const tdEdit = document.createElement("td");
+          try {
+            const editor = o.renderEditor(e);
+            if (editor) {
+              tdEdit.appendChild(editor);
+            }
+          } catch (_e) {}
+          // Delete button for bindings/routes/names.
+          if (typeof o.onDelete === "function" && e.key) {
+            try {
+              const del = document.createElement("button");
+              del.type = "button";
+              del.className = "aph-settings-rowbtn danger";
+              del.textContent = "Clear";
+              del.setAttribute("aria-label", `Clear ${e.key}`);
+              del.addEventListener("click", (ev) => {
+                try {
+                  ev.stopPropagation();
+                } catch (_e) {}
+                o.onDelete(e.key);
+              });
+              tdEdit.appendChild(document.createTextNode(" "));
+              tdEdit.appendChild(del);
+            } catch (_e) {}
+          }
+          tr.appendChild(tdEdit);
+        } else {
+          for (const c of e.cells) {
+            const td = document.createElement("td");
+            td.textContent = c;
+            tr.appendChild(td);
+          }
         }
         tb.appendChild(tr);
       }
       table.appendChild(tb);
       section.appendChild(table);
     }
-    if (hint) {
+    if (o.hint) {
       const hEl = document.createElement("div");
       hEl.className = "aph-settings-hint";
-      hEl.textContent = hint;
+      hEl.textContent = o.hint;
       section.appendChild(hEl);
     }
     return section;
+  }
+
+  function makeTable(title, headers, entries, emptyText, hint) {
+    return makeEditableTable({ title, headers, entries, emptyText, hint, editable: false });
+  }
+
+  function nameEditor(ws, current) {
+    const input = document.createElement("input");
+    input.className = "aph-settings-edit";
+    input.type = "text";
+    input.value = current || "";
+    input.placeholder = `Workspace ${ws}`;
+    input.maxLength = 40;
+    input.setAttribute("aria-label", `Name for workspace ${ws}`);
+    input.addEventListener("change", () => {
+      try {
+        const l = L();
+        const pref = l ? l.NAMES_PREF : "aph.workspaces.names";
+        const names = readJsonObject(pref);
+        const v = String(input.value || "").trim().slice(0, 40);
+        if (v) {
+          names[ws] = v;
+        } else {
+          delete names[ws];
+        }
+        if (writeJsonObject(pref, names)) {
+          toast(v ? "Name saved" : "Name cleared");
+          refreshTables();
+        } else {
+          toast("Write failed");
+        }
+      } catch (e) {
+        toast("Write failed");
+      }
+    });
+    return input;
+  }
+
+  function routeEditor(host, currentWs) {
+    const input = document.createElement("input");
+    input.className = "aph-settings-edit";
+    input.type = "text";
+    input.value = currentWs || "";
+    input.placeholder = "1–9";
+    input.inputMode = "numeric";
+    input.maxLength = 1;
+    input.setAttribute("aria-label", `Workspace for ${host}`);
+    input.addEventListener("change", () => {
+      try {
+        const l = L();
+        const pref = l ? l.ROUTES_PREF : "aph.workspaces.domainRoutes";
+        const routes = readJsonObject(pref);
+        const v = String(input.value || "").trim();
+        if (/^[1-9]$/.test(v)) {
+          routes[host] = v;
+          if (writeJsonObject(pref, routes)) {
+            toast("Route saved");
+            refreshTables();
+          } else {
+            toast("Write failed");
+          }
+        } else if (!v) {
+          delete routes[host];
+          if (writeJsonObject(pref, routes)) {
+            toast("Route cleared");
+            refreshTables();
+          }
+        } else {
+          toast("Use 1–9");
+          input.value = currentWs || "";
+        }
+      } catch (e) {
+        toast("Write failed");
+      }
+    });
+    return input;
   }
 
   function advancedSections() {
     const out = [];
     try {
       const l = L();
-      const names = readJsonObject(l ? l.NAMES_PREF : "aph.workspaces.names");
-      const bindings = readJsonObject(l ? l.BINDINGS_PREF : "aph.workspaces.containerBindings");
-      const routes = readJsonObject(l ? l.ROUTES_PREF : "aph.workspaces.domainRoutes");
+      const namesPref = l ? l.NAMES_PREF : "aph.workspaces.names";
+      const bindPref = l ? l.BINDINGS_PREF : "aph.workspaces.containerBindings";
+      const routesPref = l ? l.ROUTES_PREF : "aph.workspaces.domainRoutes";
+      const names = readJsonObject(namesPref);
+      const bindings = readJsonObject(bindPref);
+      const routes = readJsonObject(routesPref);
       const n = archiveCount();
 
       const nameEntries = Object.keys(names || {})
         .filter((k) => /^[1-9]$/.test(k))
         .sort()
-        .map((k) => ({ ws: k, cells: [`WS ${k}`, String(names[k])] }));
+        .map((k) => ({ ws: k, key: k, cells: [`WS ${k}`, String(names[k])] }));
+      // Always show all 9 slots so names are editable inline even when empty.
+      const nameRows = [];
+      for (let i = 1; i <= 9; i++) {
+        const k = String(i);
+        const cur = names[k] ? String(names[k]) : "";
+        nameRows.push({
+          ws: k,
+          key: k,
+          cells: [`WS ${k}`, cur || "—"],
+          _cur: cur,
+        });
+      }
       out.push(
-        makeTable(
-          "Workspace names",
-          ["Workspace", "Name"],
-          nameEntries,
-          "No custom names yet.",
-          "Rename via the palette (Ctrl+K → Rename) or the Aph menu."
-        )
+        makeEditableTable({
+          title: "Workspace names",
+          headers: ["Workspace", "Name"],
+          entries: searchQuery ? nameEntries : nameRows,
+          emptyText: "No custom names yet.",
+          hint: "Edit inline — empty clears back to “Workspace N”. Also in palette (Ctrl+K → Rename).",
+          editable: true,
+          renderEditor: (e) => nameEditor(e.key, e._cur != null ? e._cur : String((names[e.key] || ""))),
+          onDelete: (key) => {
+            try {
+              const cur = readJsonObject(namesPref);
+              delete cur[key];
+              if (writeJsonObject(namesPref, cur)) {
+                toast("Name cleared");
+                refreshTables();
+              }
+            } catch (_e) {}
+          },
+        })
       );
 
       const bindEntries = Object.keys(bindings || {})
         .filter((k) => /^[1-9]$/.test(k))
         .sort()
-        .map((k) => ({ ws: k, cells: [`WS ${k}`, `Container ${bindings[k]}`] }));
+        .map((k) => ({ ws: k, key: k, cells: [`WS ${k}`, `Container ${bindings[k]}`] }));
       out.push(
-        makeTable(
-          "Container bindings",
-          ["Workspace", "Binding"],
-          bindEntries,
-          "No bindings yet — new tabs open containerless.",
-          "Bind via the palette (Ctrl+K → Bind) or the Aph menu."
-        )
+        makeEditableTable({
+          title: "Container bindings",
+          headers: ["Workspace", "Binding"],
+          entries: bindEntries,
+          emptyText: "No bindings yet — new tabs open containerless.",
+          hint: "Bind via the palette (Ctrl+K → Bind). Clear removes the binding here.",
+          editable: true,
+          renderEditor: () => null,
+          onDelete: (key) => {
+            try {
+              const cur = readJsonObject(bindPref);
+              delete cur[key];
+              if (writeJsonObject(bindPref, cur)) {
+                toast("Binding cleared");
+                refreshTables();
+              }
+            } catch (_e) {}
+          },
+        })
       );
 
       const routeEntries = Object.keys(routes || {})
         .sort()
-        .map((k) => ({ ws: String(routes[k] || ""), cells: [k, `WS ${routes[k]}`] }));
+        .map((k) => ({ ws: String(routes[k] || ""), key: k, cells: [k, `WS ${routes[k]}`], _cur: String(routes[k] || "") }));
       out.push(
-        makeTable(
-          "Domain routes",
-          ["Host", "Workspace"],
-          routeEntries,
-          "No domain routes yet.",
-          "Route via the palette (Ctrl+K → Route) on any http(s) tab."
-        )
+        makeEditableTable({
+          title: "Domain routes",
+          headers: ["Host", "Workspace"],
+          entries: routeEntries,
+          emptyText: "No domain routes yet.",
+          hint: "Edit the workspace (1–9) inline or clear to remove. Route via palette on any http(s) tab.",
+          editable: true,
+          renderEditor: (e) => routeEditor(e.key, e._cur),
+          onDelete: (key) => {
+            try {
+              const cur = readJsonObject(routesPref);
+              delete cur[key];
+              if (writeJsonObject(routesPref, cur)) {
+                toast("Route cleared");
+                refreshTables();
+              }
+            } catch (_e) {}
+          },
+        })
       );
 
       out.push(
@@ -765,6 +988,30 @@ var AphSettingsLogic = (function () {
     return out;
   }
 
+  // Light refresh for pref-observer updates: re-render tables only when
+  // the user isn't editing (avoids clobbering an in-progress input).
+  function refreshTables() {
+    try {
+      const ae = document.activeElement;
+      if (ae && ae.className === "aph-settings-edit") {
+        return;
+      }
+    } catch (e) {}
+    render();
+  }
+
+  function matchesSearch(text) {
+    try {
+      const q = String(searchQuery || "").trim().toLowerCase();
+      if (!q) {
+        return true;
+      }
+      return String(text || "").toLowerCase().includes(q);
+    } catch (e) {
+      return true;
+    }
+  }
+
   function render() {
     const list = $("aph-settings-list");
     if (!list) {
@@ -777,12 +1024,22 @@ var AphSettingsLogic = (function () {
       const l = L();
       const groups = (l && l.GROUPS) || [];
       for (const g of groups) {
+        const rows = (g.rows || []).filter((r) => {
+          if (!matchesSearch(`${r.title || ""} ${r.desc || ""} ${r.pref || ""} ${g.name || ""}`)) {
+            return false;
+          }
+          return true;
+        });
+        if (searchQuery && !rows.length) {
+          continue;
+        }
         const section = document.createElement("section");
         section.className = "aph-settings-group";
+        section.dataset.group = g.name || "";
         const h = document.createElement("h2");
         h.textContent = g.name;
         section.appendChild(h);
-        for (const row of g.rows || []) {
+        for (const row of rows) {
           try {
             section.appendChild(row.kind === "int" ? makeIntRow(row) : makeBoolRow(row));
           } catch (_e) {}
@@ -791,50 +1048,71 @@ var AphSettingsLogic = (function () {
       }
       const adv = document.createElement("section");
       adv.className = "aph-settings-group";
+      adv.dataset.group = "Advanced";
       const ah = document.createElement("h2");
       ah.textContent = "Advanced";
       adv.appendChild(ah);
       const note = document.createElement("div");
       note.className = "aph-settings-hint";
-      note.textContent = "Workspace names, bindings and routes are managed from the palette — shown here read-only.";
+      note.textContent = "Workspace names and routes edit inline below; bindings clear here (set them from the palette).";
       adv.appendChild(note);
       list.appendChild(adv);
       for (const s of advancedSections()) {
+        // Search filters tables row-wise via text match on the section.
+        if (searchQuery) {
+          try {
+            const txt = s.textContent || "";
+            if (!matchesSearch(txt)) {
+              continue;
+            }
+          } catch (_e) {}
+        }
         list.appendChild(s);
       }
+      try {
+        list.classList.toggle("has-search", window.innerWidth >= 1100);
+      } catch (e) {}
     } catch (e) {}
   }
 
   function resetFrecency() {
-    try {
-      const l = L();
-      const p = prefs();
-      const key = (l && l.FRECENCY_PREF) || "aph.palette.frecency";
-      if (p) {
+    showModal({
+      title: "Reset command frecency?",
+      desc: "Clears the palette's learned ranking. Commands return to default order.",
+      okLabel: "Reset",
+      danger: true,
+      onOk: () => {
         try {
-          if (typeof p.clearUserPref === "function") {
-            p.clearUserPref(key);
-            toast("Frecency reset");
-            return;
+          const l = L();
+          const p = prefs();
+          const key = (l && l.FRECENCY_PREF) || "aph.palette.frecency";
+          if (p) {
+            try {
+              if (typeof p.clearUserPref === "function") {
+                p.clearUserPref(key);
+                toast("Frecency reset");
+                return;
+              }
+            } catch (e) {}
+            try {
+              if (typeof p.setStringPref === "function") {
+                p.setStringPref(key, "{}");
+                toast("Frecency reset");
+                return;
+              }
+              if (typeof p.setCharPref === "function") {
+                p.setCharPref(key, "{}");
+                toast("Frecency reset");
+                return;
+              }
+            } catch (e) {}
           }
-        } catch (e) {}
-        try {
-          if (typeof p.setStringPref === "function") {
-            p.setStringPref(key, "{}");
-            toast("Frecency reset");
-            return;
-          }
-          if (typeof p.setCharPref === "function") {
-            p.setCharPref(key, "{}");
-            toast("Frecency reset");
-            return;
-          }
-        } catch (e) {}
-      }
-      toast("Reset failed");
-    } catch (e) {
-      toast("Reset failed");
-    }
+          toast("Reset failed");
+        } catch (e) {
+          toast("Reset failed");
+        }
+      },
+    });
   }
 
   // Writes only keys present in the backup (merge, never delete).
@@ -927,18 +1205,19 @@ var AphSettingsLogic = (function () {
         }
         const summary = l.summarizeBackup(r.prefs);
         const when = r.exportedAt ? ` from ${r.exportedAt.slice(0, 10)}` : "";
-        let ok = false;
-        try {
-          ok = window.confirm(`Import Aph backup${when}?\nReplaces: ${summary}.`);
-        } catch (e) {
-          ok = false;
-        }
-        if (!ok) {
-          return;
-        }
-        const n = writeBackupPrefs(r.prefs);
-        render();
-        toast(n > 0 ? "Backup imported" : "Nothing to import");
+        const commit = () => {
+          const n = writeBackupPrefs(r.prefs);
+          render();
+          toast(n > 0 ? "Backup imported" : "Nothing to import");
+        };
+        // Modal first; window.confirm fallback lives inside showModal.
+        showModal({
+          title: `Import Aph backup${when}?`,
+          desc: `Replaces: ${summary}. Missing keys are left alone (merge, never delete).`,
+          okLabel: "Import",
+          danger: false,
+          onOk: commit,
+        });
       } catch (e) {
         toast("Import failed");
       }
@@ -951,8 +1230,78 @@ var AphSettingsLogic = (function () {
     }
   }
 
+  function initSearch() {
+    try {
+      const s = $("aph-settings-search");
+      if (!s) {
+        return;
+      }
+      s.addEventListener("input", () => {
+        try {
+          searchQuery = s.value || "";
+        } catch (e) {
+          searchQuery = "";
+        }
+        // Targeted: re-render list only, keep focus in the search field.
+        render();
+        try {
+          s.focus();
+        } catch (e) {}
+      });
+      document.addEventListener("keydown", (ev) => {
+        try {
+          if (ev.key === "/" && document.activeElement !== s &&
+              (!document.activeElement || !/INPUT|TEXTAREA/.test(document.activeElement.tagName || ""))) {
+            ev.preventDefault();
+            s.focus();
+          }
+        } catch (e) {}
+      });
+    } catch (e) {}
+  }
+
+  function initModal() {
+    try {
+      const cancel = $("aph-settings-modal-cancel");
+      const ok = $("aph-settings-modal-ok");
+      const m = $("aph-settings-modal");
+      if (cancel) {
+        cancel.addEventListener("click", hideModal);
+      }
+      if (ok) {
+        ok.addEventListener("click", () => {
+          const fn = modalOk;
+          hideModal();
+          if (fn) {
+            try {
+              fn();
+            } catch (e) {}
+          }
+        });
+      }
+      if (m) {
+        m.addEventListener("mousedown", (ev) => {
+          try {
+            if (ev.target === m) {
+              hideModal();
+            }
+          } catch (e) {}
+        });
+      }
+      document.addEventListener("keydown", (ev) => {
+        try {
+          if (ev.key === "Escape" && m && !m.hidden) {
+            hideModal();
+          }
+        } catch (e) {}
+      });
+    } catch (e) {}
+  }
+
   function init() {
     render();
+    initSearch();
+    initModal();
     try {
       const btn = $("aph-settings-reset-frecency");
       if (btn) {
@@ -1009,12 +1358,35 @@ var AphSettingsLogic = (function () {
           observe(subj, topic, data) {
             try {
               if (!data || watched.indexOf(data) !== -1) {
-                render();
-                // Keep focus where the user is typing across re-renders.
+                // Targeted update: keep focus where the user is typing
+                // across re-renders (search, number, inline editors).
+                const ae = document.activeElement;
+                let selStart = -1;
+                let selEnd = -1;
                 try {
-                  const a = document.activeElement;
-                  if (a && a.className === "aph-settings-number") {
-                    a.focus();
+                  if (ae && (ae.id === "aph-settings-search" || ae.className === "aph-settings-edit" || ae.className === "aph-settings-number") && typeof ae.selectionStart === "number") {
+                    selStart = ae.selectionStart;
+                    selEnd = ae.selectionEnd;
+                  }
+                } catch (_e) {}
+                const aeId = ae && ae.id ? ae.id : "";
+                const aeLabel = ae && ae.getAttribute ? ae.getAttribute("aria-label") : "";
+                render();
+                try {
+                  let back = null;
+                  if (aeId) {
+                    back = document.getElementById(aeId);
+                  }
+                  if (!back && aeLabel) {
+                    back = document.querySelector(`[aria-label="${aeLabel}"]`);
+                  }
+                  if (back && back.focus) {
+                    back.focus();
+                    if (selStart >= 0 && typeof back.setSelectionRange === "function") {
+                      try {
+                        back.setSelectionRange(selStart, selEnd);
+                      } catch (_e) {}
+                    }
                   }
                 } catch (_e) {}
               }
