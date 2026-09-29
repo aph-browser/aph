@@ -1243,6 +1243,12 @@ tab[image] .tab-icon-stack {
   -moz-box-pack: center !important;
   background: transparent !important;
   padding: 2px !important;
+  /* Breathing room before the label: stock .tab-label carries
+     margin-inline: 0 and Aph zeroes the image margin to keep glyphs
+     centered, so the fixed box above is the entire gap. This margin
+     restores it past stock's 7.5px image margin. Logical prop keeps
+     RTL correct; geometry shift is small and inside the row. */
+  margin-inline-end: 6px !important;
   box-sizing: border-box !important;
 }
 .tabbrowser-tab[image] .tab-icon-image,

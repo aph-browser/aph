@@ -942,3 +942,15 @@ def test_pending_tabs_read_parked() -> None:
     lhead = css.find(label_sel)
     assert lhead != -1, "pending label rule missing"
     assert "opacity: 0.6" in css[lhead : css.find("}", lhead)]
+
+
+def test_icon_to_label_gap() -> None:
+    """Stock .tab-label carries margin-inline: 0, so Aph's fixed 20px
+    icon box is the entire icon→text gap — without an explicit margin
+    the glyph kisses the label."""
+    css = _css()
+    sel = ".tabbrowser-tab[image] .tab-icon-stack"
+    head = css.find(sel)
+    assert head != -1, "favicon box rule missing"
+    body = css[head : css.find("}", head)]
+    assert "margin-inline-end: 6px" in body
