@@ -1437,6 +1437,16 @@ tab[selected][busy] > .tab-stack > .tab-background {
     background: transparent !important;
   }
 
+  /* No badge cutouts: stock carves a corner notch out of typed-row
+     favicons (bookmark/history/tab/pinned badge masks), with geometry
+     tuned for its own 16px box (24px mask at -4px offset). Inside
+     Aph's 20px box the mask clips against the border box and chews
+     the icon's corners instead. Whole icons, no notch — the separate
+     type badge still overlays where stock puts it. */
+  .urlbarView-favicon {
+    mask-image: none !important;
+  }
+
   /* Text-match highlight: palette-mark sibling — select-token wash +
      soft corners, never the stock blue box with its own outline. */
   .urlbarView-highlight,

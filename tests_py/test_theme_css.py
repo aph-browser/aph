@@ -955,3 +955,15 @@ def test_icon_to_label_gap() -> None:
     assert head != -1, "favicon box rule missing"
     body = css[head : css.find("}", head)]
     assert "margin-inline-end: 6px" in body
+
+
+def test_dropdown_favicons_unmasked() -> None:
+    """Stock carves badge-mask notches into typed-row favicons with
+    geometry tuned for its 16px box; inside Aph's 20px box the mask
+    clips and chews icon corners. Favicons must render whole."""
+    css = _css()
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    sel = ".urlbarView-favicon {"
+    head = code.find(sel)
+    assert head != -1, "favicon unmask rule missing"
+    assert "mask-image: none" in code[head : code.find("}", head)]
