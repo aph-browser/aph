@@ -334,6 +334,21 @@ describe("workspace dock", () => {
     assert.equal((tabVals.get(a) || {}).aphWs, "2");
   });
 
+  it("drop on a pill pulses it as an ingestion confirm", () => {
+    const env = makeEnv();
+    const a = addTab(env, { label: "a", ws: "1" });
+    addTab(env, { label: "c", ws: "2" });
+    env.select(a);
+    env.api.renderDock();
+    env.containerHandlers.dragstart.forEach((fn) => fn({ target: a }));
+    const pill2 = env.pills().find((p) => pillWs(p) === "2");
+    firePill(pill2, "drop", { preventDefault() {}, dataTransfer: {} });
+    // The send re-renders the dock mid-drop, so re-query: the pre-drop
+    // pill object is stale by the time the pulse lands.
+    const fresh = env.pills().find((p) => pillWs(p) === "2");
+    assert.ok(fresh.classList.contains("aph-ws-drop-pulse"), "destination pill dips");
+  });
+
   it("close removes unpinned workspace tabs and skips pins", () => {
     const env = makeEnv();
     const a = addTab(env, { label: "a", ws: "1" });

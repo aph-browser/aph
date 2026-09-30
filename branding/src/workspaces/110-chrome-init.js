@@ -285,6 +285,8 @@
           typeof moveTabsToWindow === "function" ? moveTabsToWindow : () => 0,
         debugExclusive:
           typeof debugExclusive === "function" ? debugExclusive : () => ({}),
+        debugLastSwitch:
+          typeof debugLastSwitch === "function" ? debugLastSwitch : () => null,
         debugSession:
           typeof debugSession === "function" ? debugSession : () => ([]),
         scrubAdoptionGhost:

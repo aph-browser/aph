@@ -2248,8 +2248,7 @@
   // it so + button / menu births land in the bound container. Restored on
   // unload (cleanupWindowObservers).
   let origBrowserOpenTab = null;
-  function pulseWorkspaceIndicator() {
-    try {
+  function pulseWorkspaceIndicator() {    try {
       try {
         if (
           typeof window.matchMedia === "function" &&
@@ -2267,7 +2266,9 @@
       if (wsPulseTimer) {
         clearTimeout(wsPulseTimer);
       }
-      wsPulseTimer = setTimeout(() => {
+      // Short presence flash: clears well inside the bloom decay so the
+    // indicator never outlives the switch signal.
+    wsPulseTimer = setTimeout(() => {
         try {
           el.removeAttribute("data-aph-ws-pulse");
         } catch (e) {}
@@ -2277,43 +2278,47 @@
           }
         } catch (e) {}
         wsPulseTimer = null;
-      }, 200);
+      }, 140);
     } catch (e) {}
   }
 
-  // Switch animation: fade incoming tabs in after the synchronous
-  // hidden-attribute swap. A leave-side tab fade is impossible here — the
-  // whole switch commits in one task, so a leave frame would never paint
-  // (splitting the commit async would break every sync visibility
-  // assertion for a 100ms cosmetic). Instead the CARD dips (§24
-  // .aph-ws-dip via dipWorkspaceCard below): the synchronous swap reads
-  // as a dissolve rather than a blink, with zero visibility-semantics
-  // change. Pins are global (never change) so they are excluded.
-  // Arrival stagger: the first APH_WS_ENTER_STAGGER_MAX incoming tabs
-  // rise in sequence (25ms steps, 3px rise in the keyframes) while the
-  // rest join the flat fade — the workspace reads as arriving, and a
-  // 40-tab workspace never cascades comically. Tuned down from 4px/35ms:
-  // the full-strength version read as bouncy rather than calm, and the
-  // cascade window (last delay + fade) is what sets the perceived weight. Inline animation-delay is
-  // cleared with the class on the same timer, which covers the worst case
-  // (last delay + full fade). The delay is set with "important" priority
-  // on purpose: the .aph-ws-enter rule carries `animation: ... !important`
-  // (needed to beat stock), and an !important shorthand beats a plain
-  // inline longhand — without the priority every tab would silently fall
-  // back to delay 0 and the cascade would be a flat fade (same bug class
-  // as the old pop-in delay stutter). Rapid re-switches within the cleanup
-  // window reuse the still-present class (no replay) — the dip still
-  // plays, so mashing never sticks, it just stays calm. Fail-silent
-  // throughout (test tabs have no classList/style, which just no-ops;
-  // test documents return null for the card, also a no-op).
-  const APH_WS_ENTER_STAGGER_MAX = 8;
-  const APH_WS_ENTER_STAGGER_STEP_MS = 25;
-  const APH_WS_ENTER_FADE_MS = 130;
-  const APH_WS_ENTER_CLEANUP_MS =
-    (APH_WS_ENTER_STAGGER_MAX - 1) * APH_WS_ENTER_STAGGER_STEP_MS +
-    APH_WS_ENTER_FADE_MS +
-    55;
-  function animateIncomingTabs(tabs) {
+  // Switch animation: the commit is synchronous (hidden-attribute
+  // swap), so a leave-side fade could never paint — and a card dip
+  // flashed the whole page. Two calm signals instead: (1) a rim bloom
+  // on the content card (strikeBloom below — a fixed overlay flashing
+  // the destination accent, opacity-only, 220ms decay), and
+  // (2) incoming tabs gliding 10px as ONE unified plane, no stagger,
+  // full opacity throughout. Direction rides switchDir, captured in
+  // beginWorkspaceSwitch before the claim flips `current`: ascending
+  // (1->2) rises from below, descending sinks from above. Rapid
+  // re-switches strip both glide classes, reflow, and re-strike —
+  // transitions never queue, only the latest target animates. Pins are
+  // global (never change) so they are excluded. Fail-silent throughout
+  // (test tabs have no classList, which just no-ops; test documents
+  // return null for the card, also a no-op).
+  const APH_WS_ENTER_GLIDE_MS = 120;
+  const APH_WS_ENTER_CLEANUP_MS = APH_WS_ENTER_GLIDE_MS + 60;
+  const APH_WS_BLOOM_ID = "aph-ws-bloom";
+  let switchDir = 1;
+  // Breadcrumb for console diagnosis (did the switch animate?): set in
+  // beginWorkspaceSwitch, read via AphWorkspaces.debugLastSwitch().
+  let lastSwitchInfo = null;
+  function debugLastSwitch() {
+    try {
+      if (!lastSwitchInfo) {
+        return null;
+      }
+      return {
+        from: lastSwitchInfo.from,
+        to: lastSwitchInfo.to,
+        dir: lastSwitchInfo.dir,
+        at: lastSwitchInfo.at,
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+  function animateIncomingTabs(tabs, dir) {
     try {
       if (
         typeof window.matchMedia === "function" &&
@@ -2322,8 +2327,9 @@
         return;
       }
     } catch (e) {}
-    let animated = null;
-    let staggered = 0;
+    const cls = dir < 0 ? "aph-ws-enter-down" : "aph-ws-enter-up";
+    const other = dir < 0 ? "aph-ws-enter-up" : "aph-ws-enter-down";
+    let eligible = null;
     try {
       for (const t of tabs || []) {
         try {
@@ -2339,21 +2345,37 @@
           if (!t.classList || typeof t.classList.add !== "function") {
             continue;
           }
-          t.classList.add("aph-ws-enter");
-          try {
-            if (
-              staggered < APH_WS_ENTER_STAGGER_MAX &&
-              t.style &&
-              typeof t.style.setProperty === "function"
-            ) {
-              t.style.setProperty(
-                "animation-delay",
-                `${staggered * APH_WS_ENTER_STAGGER_STEP_MS}ms`,
-                "important"
-              );
-              staggered++;
-            }
-          } catch (e) {}
+          (eligible = eligible || []).push(t);
+        } catch (e) {}
+      }
+    } catch (e) {}
+    if (!eligible) {
+      return;
+    }
+    // Strip first, reflow, then add: the reflow between removal and
+    // application restarts the keyframes so a mid-flight re-switch
+    // re-glides instead of freezing mid-travel.
+    try {
+      for (const t of eligible) {
+        try {
+          t.classList.remove(cls);
+        } catch (e) {}
+        try {
+          t.classList.remove(other);
+        } catch (e) {}
+      }
+    } catch (e) {}
+    try {
+      const tc = gBrowser && gBrowser.tabContainer;
+      if (tc) {
+        void tc.offsetWidth;
+      }
+    } catch (e) {}
+    let animated = null;
+    try {
+      for (const t of eligible) {
+        try {
+          t.classList.add(cls);
           (animated = animated || []).push(t);
         } catch (e) {}
       }
@@ -2366,12 +2388,10 @@
         try {
           for (const t of animated) {
             try {
-              t.classList.remove("aph-ws-enter");
+              t.classList.remove(cls);
             } catch (e) {}
             try {
-              if (t.style && typeof t.style.removeProperty === "function") {
-                t.style.removeProperty("animation-delay");
-              }
+              t.classList.remove(other);
             } catch (e) {}
           }
         } catch (e) {}
@@ -2379,15 +2399,60 @@
     } catch (e) {}
   }
 
-  // Card dip dissolve (§24): called after reconcile's synchronous swap.
-  // Adds .aph-ws-dip to #tabbrowser-tabbox (100ms dip to 0.45) and
-  // removes it on a 120ms timer (180ms glide back). Retrigger-safe: a
-  // mid-dip switch clears the pending removal and re-arms, so mashing
-  // workspaces never sticks the card dim. Skipped under
-  // prefers-reduced-motion. Visual only — no visibility semantics, so
-  // sync tests observe nothing (their document stub returns null here).
-  let wsDipTimer = null;
-  function dipWorkspaceCard() {
+  // Rim bloom (§24): a fixed overlay flashing the destination accent
+  // at the card edge. The overlay is a plain div under
+  // documentElement, rect-locked to #tabbrowser-tabbox on every strike
+  // — fixed positioning (never a tabbox child) so the card's
+  // overflow:clip never eats the plume and no containing-block surgery
+  // touches findbar geometry. Painted once per strike (the glow is
+  // baked box-shadow reading live --aph-ws-accent, already flipped to
+  // the destination in begin); only opacity animates, so the compositor
+  // owns the whole 140ms. No cleanup timer: the keyframes land back at
+  // opacity 0 with no fill mode, and the next strike retriggers via
+  // remove → reflow → add. Skipped in DOM fullscreen (no card frame
+  // there) and under prefers-reduced-motion. Visual only — sync tests
+  // observe nothing (their document stub returns null here).
+  function ensureBloomLayer() {
+    try {
+      const doc = typeof document !== "undefined" ? document : null;
+      if (!doc) {
+        return null;
+      }
+      let layer = null;
+      try {
+        layer =
+          typeof doc.getElementById === "function"
+            ? doc.getElementById(APH_WS_BLOOM_ID)
+            : null;
+      } catch (e) {
+        layer = null;
+      }
+      if (layer) {
+        return layer;
+      }
+      if (typeof doc.createElement !== "function") {
+        return null;
+      }
+      layer = doc.createElement("div");
+      if (!layer) {
+        return null;
+      }
+      try {
+        layer.id = APH_WS_BLOOM_ID;
+      } catch (e) {}
+      try {
+        const root = doc.documentElement;
+        if (root && typeof root.appendChild === "function") {
+          root.appendChild(layer);
+          return layer;
+        }
+      } catch (e) {}
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+  function strikeBloom() {
     try {
       if (
         typeof window.matchMedia === "function" &&
@@ -2396,31 +2461,58 @@
         return;
       }
     } catch (e) {}
+    try {
+      const root = document && document.documentElement;
+      if (
+        root &&
+        typeof root.hasAttribute === "function" &&
+        root.hasAttribute("inDOMFullscreen")
+      ) {
+        return;
+      }
+    } catch (e) {}
     let box = null;
     try {
       box = document.getElementById("tabbrowser-tabbox");
     } catch (e) {}
-    if (!box || !box.classList || typeof box.classList.add !== "function") {
+    if (!box || typeof box.getBoundingClientRect !== "function") {
+      return;
+    }
+    let r = null;
+    try {
+      r = box.getBoundingClientRect();
+    } catch (e) {}
+    if (!r || !r.width || !r.height) {
+      return;
+    }
+    const layer = ensureBloomLayer();
+    if (!layer || !layer.style || !layer.classList) {
       return;
     }
     try {
-      if (wsDipTimer) {
-        clearTimeout(wsDipTimer);
-        wsDipTimer = null;
-      }
-    } catch (e) {}
-    try {
-      box.classList.add("aph-ws-dip");
+      layer.style.left = `${r.left}px`;
+      layer.style.top = `${r.top}px`;
+      layer.style.width = `${r.width}px`;
+      layer.style.height = `${r.height}px`;
     } catch (e) {
       return;
     }
     try {
-      wsDipTimer = setTimeout(() => {
-        wsDipTimer = null;
-        try {
-          box.classList.remove("aph-ws-dip");
-        } catch (e) {}
-      }, 120);
+      const cs =
+        typeof window.getComputedStyle === "function"
+          ? window.getComputedStyle(box)
+          : null;
+      const radius = cs && cs.borderRadius ? cs.borderRadius : "14px";
+      layer.style.borderRadius = radius;
+    } catch (e) {}
+    try {
+      layer.classList.remove("on");
+    } catch (e) {}
+    try {
+      void layer.offsetWidth;
+    } catch (e) {}
+    try {
+      layer.classList.add("on");
     } catch (e) {}
   }
 
@@ -2460,6 +2552,18 @@
     } catch (e) {}
     rememberCurrent(tabs);
     lastUsed = current;
+    // Glide direction for finishWorkspaceSwitch: ascending rises from
+    // below, descending sinks from above. Captured before the flip —
+    // every entry path (switchTo, switchLocal, cycle, dock, palette,
+    // startup) funnels through here.
+    try {
+      switchDir = Number(target) > Number(current) ? 1 : -1;
+    } catch (e) {
+      switchDir = 1;
+    }
+    try {
+      lastSwitchInfo = { from: current, to: target, dir: switchDir, at: Date.now() };
+    } catch (e) {}
     current = target;
     try {
       gBrowser.tabContainer.setAttribute("data-aph-ws", target);
@@ -2488,12 +2592,12 @@
     } catch (e) {}
     anchorAllGroups();
     reconcile(target, tabs);
-    dipWorkspaceCard();
+    strikeBloom();
     pruneExtraNewTabs(target);
     // Fresh snapshot: reconcile may have opened a tab for an empty
     // workspace, which the stale list above would miss.
     try {
-      animateIncomingTabs(Array.from(gBrowser.tabs));
+      animateIncomingTabs(Array.from(gBrowser.tabs), switchDir);
     } catch (e) {}
     // Pinned tabs match the viewed workspace (not their dormant tag), so
     // every switch re-syncs markers; unpinned matches are tag-stable and
@@ -3545,10 +3649,83 @@
       } else {
         sendTabTo(dest, dragTabs);
       }
+      // Ingestion confirm: a 100ms micro-dip on the destination pill so
+      // a drop onto an inactive workspace visibly lands. No full switch
+      // — the user stays put.
+      try {
+        pulseDockPill(dest);
+      } catch (e) {}
       return true;
     } catch (e) {
       return false;
     }
+  }
+
+  // Drop-ingestion micro-pulse: brief 2px dip on the destination pill.
+  // Timer-released; a second drop while armed re-arms (same retrigger
+  // idiom as the old card dip). Fail-silent: test docks without a
+  // queryable container just no-op.
+  let dockPulseTimer = null;
+  function pulseDockPill(dest) {
+    try {
+      let dock = null;
+      try {
+        dock = document.getElementById(DOCK_ID);
+      } catch (e) {}
+      if (!dock) {
+        return;
+      }
+      let pill = null;
+      try {
+        pill =
+          typeof dock.querySelector === "function"
+            ? dock.querySelector(`.aph-ws-pill[data-ws="${dest}"]`)
+            : null;
+      } catch (e) {
+        pill = null;
+      }
+      // Fallback scan: test doubles stub querySelector to null, and a
+      // hand-rolled lookup keeps the pulse working wherever the dock is
+      // a plain children list.
+      if (!pill && dock.children && typeof dock.children.length === "number") {
+        try {
+          for (const c of Array.from(dock.children)) {
+            try {
+              if (
+                c &&
+                typeof c.getAttribute === "function" &&
+                c.getAttribute("data-ws") === dest
+              ) {
+                pill = c;
+                break;
+              }
+            } catch (e) {}
+          }
+        } catch (e) {}
+      }
+      if (!pill || !pill.classList || typeof pill.classList.add !== "function") {
+        return;
+      }
+      try {
+        pill.classList.add("aph-ws-drop-pulse");
+      } catch (e) {
+        return;
+      }
+      try {
+        if (dockPulseTimer) {
+          clearTimeout(dockPulseTimer);
+          dockPulseTimer = null;
+        }
+      } catch (e) {}
+      try {
+        dockPulseTimer = setTimeout(() => {
+          dockPulseTimer = null;
+          try {
+            pill.classList.remove("aph-ws-drop-pulse");
+          } catch (e) {}
+        }, 120);
+      } catch (e) {}
+    } catch (e) {}
   }
 
   function flushDockPendingDrop() {
@@ -8263,6 +8440,8 @@
           typeof moveTabsToWindow === "function" ? moveTabsToWindow : () => 0,
         debugExclusive:
           typeof debugExclusive === "function" ? debugExclusive : () => ({}),
+        debugLastSwitch:
+          typeof debugLastSwitch === "function" ? debugLastSwitch : () => null,
         debugSession:
           typeof debugSession === "function" ? debugSession : () => ([]),
         scrubAdoptionGhost:

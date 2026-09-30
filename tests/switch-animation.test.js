@@ -1,6 +1,8 @@
-// Switch animation (workspaces/60-indicator-switch.js animateIncomingTabs):
-// after a switch, visible unpinned tabs carry .aph-ws-enter (CSS fades them
-// in); pinned tabs never animate (they are global), hidden tabs stay out.
+// Switch animation (workspaces/60-indicator-switch.js): the commit is
+// synchronous, so the switch reads as two calm signals — a rim bloom on
+// the card plus incoming tabs gliding 6px as one unified plane (no
+// stagger, no fade). Pinned tabs never animate (they are global),
+// hidden tabs stay out, the card never dips.
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { run, makeTab, makeSessionStore, makeCi, makeChromeUtils, nullIdentityService } = require("./helpers");
@@ -16,6 +18,20 @@ function classedTab(tabVals, o) {
   return t;
 }
 
+function makeLayer() {
+  const classes = new Set();
+  return {
+    id: "",
+    style: {},
+    offsetWidth: 0,
+    classList: {
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c),
+    },
+  };
+}
+
 function makeEnv() {
   const tabVals = new WeakMap();
   const tabs = [];
@@ -26,27 +42,35 @@ function makeEnv() {
       remove: (c) => dipClasses.delete(c),
       contains: (c) => dipClasses.has(c),
     },
+    getBoundingClientRect: () => ({ left: 10, top: 20, width: 800, height: 600 }),
   };
+  let bloomLayer = null;
   const prefStore = {};
   let sel = null;
   const sb = {
     // Real timers (see run()): this is the only suite asserting
-    // timer-driven removals (dip release). No other suite is affected.
+    // timer-driven removals (glide release). No other suite is affected.
     __aphRealTimers: true,
     window: { addEventListener() {}, removeEventListener() {}, opener: null },
     navigator: { onLine: true },
     document: {
       readyState: "complete",
-      getElementById: (id) => (id === "tabbrowser-tabbox" ? tabboxEl : null),
+      getElementById: (id) => {
+        if (id === "tabbrowser-tabbox") return tabboxEl;
+        if (id === "aph-ws-bloom") return bloomLayer;
+        return null;
+      },
       documentElement: {
         _attrs: {},
         setAttribute(k, v) { this._attrs[k] = v; },
         getAttribute(k) { return this._attrs[k]; },
+        hasAttribute(k) { return k in this._attrs; },
+        appendChild(el) {
+          if (el && el.id === "aph-ws-bloom") bloomLayer = el;
+          return el;
+        },
       },
-      createElement: () => ({
-        setAttribute() {}, removeAttribute() {}, addEventListener() {},
-        style: {}, className: "",
-      }),
+      createElement: () => makeLayer(),
       createEvent: () => ({ initEvent() {} }),
     },
     gBrowser: {
@@ -113,21 +137,45 @@ function makeEnv() {
     tabs.push(t);
     return t;
   }
-  return { api, tabs, addTab, doc: sb.document, tabboxEl, get sel() { return sel; } };
+  return { api, tabs, addTab, doc: sb.document, tabboxEl, get sel() { return sel; }, bloom: () => bloomLayer };
 }
 
 describe("switch animation", () => {
-  it("fades incoming unpinned tabs in, leaves the departed workspace out", () => {
+  it("glides incoming unpinned tabs in, leaves the departed workspace out", () => {
     const { api, addTab } = makeEnv();
     const a = addTab("a", { ws: "1" });
     const b = addTab("b", { ws: "2" });
     api.switchTo("2");
-    assert.ok(b.classList.contains("aph-ws-enter"), "incoming tab fades in");
-    assert.ok(!a.classList.contains("aph-ws-enter"), "departed (now hidden) tab does not animate");
+    assert.ok(b.classList.contains("aph-ws-enter-up"), "incoming tab glides in");
+    assert.ok(!a.classList.contains("aph-ws-enter-up"), "departed (now hidden) tab does not animate");
+    assert.ok(!a.classList.contains("aph-ws-enter-down"), "departed tab carries no direction either");
     assert.ok(a.hidden, "departed tab still hides synchronously");
     api.switchTo("1");
-    assert.ok(a.classList.contains("aph-ws-enter"), "return switch fades in too");
+    assert.ok(a.classList.contains("aph-ws-enter-down"), "return switch glides the other way");
     assert.ok(b.hidden, "departed tab still hides synchronously");
+  });
+
+  it("rises when ascending, sinks when descending", () => {
+    const { api, addTab } = makeEnv();
+    addTab("a", { ws: "1" });
+    const c = addTab("c", { ws: "3" });
+    api.switchTo("3");
+    assert.ok(c.classList.contains("aph-ws-enter-up"), "1->3 rises from below");
+    assert.ok(!c.classList.contains("aph-ws-enter-down"));
+  });
+
+  it("moves every arrival as one plane with no stagger", () => {
+    const env = makeEnv();
+    env.addTab("home", { ws: "1" });
+    const incoming = [];
+    for (let i = 0; i < 10; i++) {
+      incoming.push(env.addTab(`t${i}`, { ws: "2" }));
+    }
+    env.api.switchTo("2");
+    for (const t of incoming) {
+      assert.ok(t.classList.contains("aph-ws-enter-up"), "every arrival shares one class");
+      assert.ok(!t.classList.contains("aph-ws-enter-down"), "no tab takes the other direction");
+    }
   });
 
   it("never animates pinned tabs (global, always visible)", () => {
@@ -136,7 +184,8 @@ describe("switch animation", () => {
     addTab("other", { ws: "2" });
     api.switchTo("2");
     assert.ok(!pin.hidden, "pin stays visible");
-    assert.ok(!pin.classList.contains("aph-ws-enter"), "pin does not animate");
+    assert.ok(!pin.classList.contains("aph-ws-enter-up"), "pin does not glide");
+    assert.ok(!pin.classList.contains("aph-ws-enter-down"), "pin takes no direction");
   });
 
   it("switchLocal animates too (same settle path)", () => {
@@ -144,17 +193,47 @@ describe("switch animation", () => {
     addTab("a", { ws: "1" });
     const b = addTab("b", { ws: "2" });
     api.switchLocal("2");
-    assert.ok(b.classList.contains("aph-ws-enter"), "incoming tab fades in");
+    assert.ok(b.classList.contains("aph-ws-enter-up"), "incoming tab glides in");
   });
 
-  it("dips the card on switch (§24 dissolve) and releases it", async () => {
+  it("strikes the bloom on the card rect and re-arms on respawn", () => {
+    const { api, addTab, bloom } = makeEnv();
+    addTab("a", { ws: "1" });
+    addTab("b", { ws: "2" });
+    api.switchTo("2");
+    const layer = bloom();
+    assert.ok(layer, "bloom layer created under documentElement");
+    assert.equal(layer.style.left, "10px", "rect-locked to the card");
+    assert.equal(layer.style.top, "20px");
+    assert.equal(layer.style.width, "800px");
+    assert.equal(layer.style.height, "600px");
+    assert.ok(layer.classList.contains("on"), "bloom struck");
+    api.switchTo("1");
+    assert.ok(bloom().classList.contains("on"), "re-strike re-arms the same layer");
+  });
+
+  it("never dips the card (the dissolve is gone)", () => {
     const { api, addTab, tabboxEl } = makeEnv();
     addTab("a", { ws: "1" });
     addTab("b", { ws: "2" });
     api.switchTo("2");
-    assert.ok(tabboxEl.classList.contains("aph-ws-dip"), "card dips at the swap");
-    await new Promise((r) => setTimeout(r, 200));
-    assert.ok(!tabboxEl.classList.contains("aph-ws-dip"), "dip releases for the glide back");
+    assert.ok(!tabboxEl.classList.contains("aph-ws-dip"), "no dip class ever lands");
+  });
+
+  it("clears glide classes after the fade", async () => {
+    const env = makeEnv();
+    env.addTab("home", { ws: "1" });
+    const incoming = [];
+    for (let i = 0; i < 9; i++) {
+      incoming.push(env.addTab(`t${i}`, { ws: "2" }));
+    }
+    env.api.switchTo("2");
+    assert.ok(incoming[0].classList.contains("aph-ws-enter-up"), "glide applied");
+    await new Promise((r) => setTimeout(r, 300));
+    for (const t of incoming) {
+      assert.ok(!t.classList.contains("aph-ws-enter-up"), "class released");
+      assert.ok(!t.classList.contains("aph-ws-enter-down"), "other direction clear too");
+    }
   });
 
   it("stamps the live workspace on documentElement for the CSS tint (§21)", () => {
@@ -167,56 +246,19 @@ describe("switch animation", () => {
     assert.equal(doc.documentElement.getAttribute("data-aph-ws"), "1");
   });
 
-  // Arrival stagger: tabs carry a stub style bag (real tabs expose
-  // CSSStyleDeclaration; makeTab stubs don't, and the code must no-op).
-  // The stub records priority too: the delay MUST win over the
-  // `animation: ... !important` shorthand or the cascade silently flats.
-  function styledTab(env, label, o) {
-    const t = env.addTab(label, o);
-    const props = {};
-    const prio = {};
-    t.style = {
-      setProperty: (k, v, p) => { props[k] = String(v); prio[k] = p; },
-      removeProperty: (k) => { delete props[k]; delete prio[k]; },
-      _props: props,
-      _prio: prio,
-    };
-    return t;
-  }
-
-  it("staggers the first arrivals, flat-fades the rest", () => {
-    const env = makeEnv();
-    env.addTab("home", { ws: "1" });
-    const incoming = [];
-    for (let i = 0; i < 10; i++) {
-      incoming.push(styledTab(env, `t${i}`, { ws: "2" }));
-    }
-    env.api.switchTo("2");
-    for (const t of incoming) {
-      assert.ok(t.classList.contains("aph-ws-enter"), "every arrival animates");
-    }
-    for (let i = 0; i < 8; i++) {
-      assert.equal(incoming[i].style._props["animation-delay"], `${i * 25}ms`, `tab ${i} sequenced`);
-      assert.equal(incoming[i].style._prio["animation-delay"], "important", `tab ${i} beats the !important shorthand`);
-    }
-    assert.ok(!("animation-delay" in incoming[8].style._props), "9th arrival joins the flat fade");
-    assert.ok(!("animation-delay" in incoming[9].style._props), "10th arrival joins the flat fade");
-  });
-
-  it("clears classes and inline delays after the worst-case fade", async () => {
-    const env = makeEnv();
-    env.addTab("home", { ws: "1" });
-    const incoming = [];
-    for (let i = 0; i < 9; i++) {
-      incoming.push(styledTab(env, `t${i}`, { ws: "2" }));
-    }
-    env.api.switchTo("2");
-    assert.equal(incoming[7].style._props["animation-delay"], "175ms");
-    await new Promise((r) => setTimeout(r, 500));
-    for (const t of incoming) {
-      assert.ok(!t.classList.contains("aph-ws-enter"), "class released");
-      assert.ok(!("animation-delay" in t.style._props), "inline delay cleared");
-    }
+  it("records a debugLastSwitch breadcrumb for console diagnosis", () => {
+    const { api, addTab } = makeEnv();
+    addTab("a", { ws: "1" });
+    addTab("b", { ws: "3" });
+    api.switchTo("3");
+    assert.deepEqual(
+      { from: api.debugLastSwitch().from, to: api.debugLastSwitch().to, dir: api.debugLastSwitch().dir },
+      { from: "1", to: "3", dir: 1 }
+    );
+    assert.equal(typeof api.debugLastSwitch().at, "number", "timestamp present");
+    api.switchTo("1");
+    assert.equal(api.debugLastSwitch().dir, -1, "descending records -1");
+    assert.equal(api.debugLastSwitch().to, "1");
   });
 
   it("no-ops without a style API (bare stubs never throw)", () => {
@@ -225,6 +267,6 @@ describe("switch animation", () => {
     const b = addTab("b", { ws: "2" });
     assert.ok(!("style" in b) || !b.style.setProperty, "stub has no style API");
     api.switchTo("2");
-    assert.ok(b.classList.contains("aph-ws-enter"), "class still applies");
+    assert.ok(b.classList.contains("aph-ws-enter-up"), "class still applies");
   });
 });

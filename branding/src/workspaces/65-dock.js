@@ -176,10 +176,83 @@
       } else {
         sendTabTo(dest, dragTabs);
       }
+      // Ingestion confirm: a 100ms micro-dip on the destination pill so
+      // a drop onto an inactive workspace visibly lands. No full switch
+      // — the user stays put.
+      try {
+        pulseDockPill(dest);
+      } catch (e) {}
       return true;
     } catch (e) {
       return false;
     }
+  }
+
+  // Drop-ingestion micro-pulse: brief 2px dip on the destination pill.
+  // Timer-released; a second drop while armed re-arms (same retrigger
+  // idiom as the old card dip). Fail-silent: test docks without a
+  // queryable container just no-op.
+  let dockPulseTimer = null;
+  function pulseDockPill(dest) {
+    try {
+      let dock = null;
+      try {
+        dock = document.getElementById(DOCK_ID);
+      } catch (e) {}
+      if (!dock) {
+        return;
+      }
+      let pill = null;
+      try {
+        pill =
+          typeof dock.querySelector === "function"
+            ? dock.querySelector(`.aph-ws-pill[data-ws="${dest}"]`)
+            : null;
+      } catch (e) {
+        pill = null;
+      }
+      // Fallback scan: test doubles stub querySelector to null, and a
+      // hand-rolled lookup keeps the pulse working wherever the dock is
+      // a plain children list.
+      if (!pill && dock.children && typeof dock.children.length === "number") {
+        try {
+          for (const c of Array.from(dock.children)) {
+            try {
+              if (
+                c &&
+                typeof c.getAttribute === "function" &&
+                c.getAttribute("data-ws") === dest
+              ) {
+                pill = c;
+                break;
+              }
+            } catch (e) {}
+          }
+        } catch (e) {}
+      }
+      if (!pill || !pill.classList || typeof pill.classList.add !== "function") {
+        return;
+      }
+      try {
+        pill.classList.add("aph-ws-drop-pulse");
+      } catch (e) {
+        return;
+      }
+      try {
+        if (dockPulseTimer) {
+          clearTimeout(dockPulseTimer);
+          dockPulseTimer = null;
+        }
+      } catch (e) {}
+      try {
+        dockPulseTimer = setTimeout(() => {
+          dockPulseTimer = null;
+          try {
+            pill.classList.remove("aph-ws-drop-pulse");
+          } catch (e) {}
+        }, 120);
+      } catch (e) {}
+    } catch (e) {}
   }
 
   function flushDockPendingDrop() {

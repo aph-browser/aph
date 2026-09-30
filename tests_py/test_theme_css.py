@@ -396,31 +396,56 @@ def test_chrome_type_is_inter() -> None:
 
 
 def test_motion_language_glides_hovers_dissolves_and_guards() -> None:
-    """Motion language (§24): tab wash + dock ease both ways, the card
-    dip dissolve, accent load feedback (burst tint + busy sweep), and a
+    """Motion language (§24): tab wash + dock ease both ways, the switch
+    rim bloom, accent load feedback (burst tint + busy sweep), and a
     reduced-motion mirror that also covers the toast."""
     css = _css()
-    assert "aph-ws-dip" in css
+    assert "aph-ws-bloom" in css
     assert "aph-busy-sweep" in css
     assert "--tab-loading-fill" in css
     assert "prefers-reduced-motion" in css
     assert "#aph-toast" in css and "transition: none" in css
 
 
-def test_switch_arrival_staggers_and_rises() -> None:
-    """Arrival stagger (Option A): the enter keyframes rise gently as well
-    as fade (opacity + transform only, never layout), and the reduced-motion
-    mirror kills the enter animation with everything else."""
+def test_switch_arrival_glides_directionally() -> None:
+    """Arrival glide: incoming tabs travel 10px as one unified plane —
+    up when ascending, down when descending — full opacity throughout
+    (no stagger, no fade; the rim bloom carries the flash). Transform
+    only, never layout, with a reduced-motion mirror killing both runs
+    and the bloom."""
     css = _css()
-    head = css.find("@keyframes aph-ws-enter")
-    assert head != -1, "enter keyframes missing"
-    body = css[head : css.find("}", css.find("}", head) + 1) + 1]
-    assert "opacity: 0" in body
-    assert "translateY(3px)" in body
-    assert "translateY(0)" in body
+    for name, origin in (("up", "10px"), ("down", "-10px")):
+        head = css.find(f"@keyframes aph-ws-enter-{name}")
+        assert head != -1, f"enter-{name} keyframes missing"
+        body = css[head : css.find("}", css.find("}", head) + 1) + 1]
+        assert f"translateY({origin})" in body
+        assert "translateY(0)" in body
+        assert "opacity" not in body, "glide must not fade"
     rm = css.find("@media (prefers-reduced-motion: reduce)")
     assert rm != -1
-    assert "aph-ws-enter" in css[rm : rm + 2000] or "animation: none" in css[rm:]
+    tail = css[rm : rm + 3000]
+    assert "aph-ws-enter-up" in tail
+    assert "aph-ws-enter-down" in tail
+    # The §24 mirror is a second reduced-motion block further down.
+    rm2 = css.find("@media (prefers-reduced-motion: reduce)", rm + 1)
+    assert rm2 != -1, "second reduced-motion block missing"
+    tail2 = css[rm2 : rm2 + 3000]
+    assert "aph-ws-bloom" in tail2
+    assert "aph-ws-drop-pulse" in tail2
+
+
+def test_bloom_rest_state_never_pins_opacity() -> None:
+    """An !important base on a keyframe-animated property pins the value
+    for the whole run: the animation computes but can never win, and the
+    neutered animation vanishes from getAnimations() (seen live — sized,
+    styled, classed .on, zero animations, invisible bloom). The overlay
+    is Aph-owned with no stock competition, so plain opacity is safe."""
+    css = _css()
+    head = css.find("#aph-ws-bloom {")
+    assert head != -1, "bloom base rule missing"
+    body = css[head : css.find("}", head) + 1]
+    assert "opacity: 0" in body
+    assert "opacity: 0 !important" not in body
 
 
 def test_urlbar_dropdown_speaks_palette() -> None:

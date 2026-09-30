@@ -74,6 +74,11 @@
   --aph-motion-hover: 0.12s ease-out;
   --aph-motion-glide: 0.15s ease-out;
   --aph-motion-pop: 0.18s ease-out;
+  /* Committed-transition easing (workspace switch): quartic-out —
+     explosive start, soft landing. Split token on purpose (see the
+     pop-in note above): easing alone in `animation-timing-function:`
+     never parses as a delay, so one source of truth is safe here. */
+  --aph-motion-enter-ease: cubic-bezier(0.25, 1, 0.5, 1);
   --aph-shadow-l1: 0 2px 8px rgba(0, 0, 0, 0.25);
   --aph-shadow-l2: 0 2px 12px rgba(0, 0, 0, 0.35), 0 24px 80px rgba(0, 0, 0, 0.6);
   --aph-palette-width: 680px;
@@ -441,24 +446,35 @@
   opacity: 1 !important;
 }
 
-/* Switch animation: incoming workspace tabs fade in over 130ms after the
-   synchronous hidden-attribute swap (see animateIncomingTabs in
-   60-indicator-switch.js). The first few arrive staggered (inline
-   animation-delay, 25ms steps) with a 3px rise, so the workspace reads
-   as arriving; the rest join the flat fade. Opacity + transform only so
-   the strip never reflows mid-switch; the class (and the inline delay)
-   is removed on a timer. */
-@keyframes aph-ws-enter {
-  from { opacity: 0; transform: translateY(3px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Switch arrival: incoming workspace tabs glide 10px as one unified
+   plane — ascending rises from below, descending sinks from above —
+   full opacity throughout over 120ms. No stagger, no fade: every
+   arrival shares one motion (see animateIncomingTabs in
+   60-indicator-switch.js, direction from switchDir). Opacity is
+   deliberately absent — the rim bloom carries the flash so the strip
+   only travels. Transform-only, so the strip never reflows mid-switch;
+   classes are stripped on a timer. */
+@keyframes aph-ws-enter-up {
+  from { transform: translateY(10px); }
+  to { transform: translateY(0); }
 }
-tab.aph-ws-enter,
-.tabbrowser-tab.aph-ws-enter {
-  animation: aph-ws-enter 0.15s ease-out !important;
+@keyframes aph-ws-enter-down {
+  from { transform: translateY(-10px); }
+  to { transform: translateY(0); }
+}
+tab.aph-ws-enter-up,
+.tabbrowser-tab.aph-ws-enter-up {
+  animation: aph-ws-enter-up 0.12s var(--aph-motion-enter-ease, cubic-bezier(0.25, 1, 0.5, 1)) !important;
+}
+tab.aph-ws-enter-down,
+.tabbrowser-tab.aph-ws-enter-down {
+  animation: aph-ws-enter-down 0.12s var(--aph-motion-enter-ease, cubic-bezier(0.25, 1, 0.5, 1)) !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  tab.aph-ws-enter,
-  .tabbrowser-tab.aph-ws-enter {
+  tab.aph-ws-enter-up,
+  .tabbrowser-tab.aph-ws-enter-up,
+  tab.aph-ws-enter-down,
+  .tabbrowser-tab.aph-ws-enter-down {
     animation: none !important;
   }
 }
@@ -1254,6 +1270,18 @@ menupopup > menuitem:last-child {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--aph-ws-accent) 60%, transparent), 0 1px 6px rgba(0, 0, 0, 0.3) !important;
 }
 
+/* Drop-ingestion micro-pulse: a 2px dip-and-release on the destination
+   pill so a drop onto an inactive workspace visibly lands (see
+   pulseDockPill in 65-dock.js). 100ms, transform-only, no switch. */
+@keyframes aph-ws-drop-pulse {
+  0% { transform: translateY(0); }
+  40% { transform: translateY(2px); }
+  100% { transform: translateY(0); }
+}
+.aph-ws-pill.aph-ws-drop-pulse {
+  animation: aph-ws-drop-pulse 0.1s ease-out !important;
+}
+
 /* ==========================================================================
    22. Sidebar finish: the strip as furniture, not a toolbar (Arc recipe
    adapted). Rest rows wear a whisper fill so the strip reads as rows
@@ -1369,8 +1397,8 @@ tab:not([pinned]) > .tab-stack {
 /* ==========================================================================
    24. Motion language: one dialect everywhere. The palette already glides;
    everything else used to snap. These rules extend the same short eases
-   to the remaining hovers, the switch dissolve, and load feedback.
-   All background/opacity-only (never layout), all mirrored by a
+   to the remaining hovers, the switch bloom, and load feedback.
+   Background/opacity/transform-only (never layout), all mirrored by a
    reduced-motion block at the end of this section.
    ========================================================================== */
 
@@ -1388,17 +1416,43 @@ tab > .tab-stack > .tab-background {
   transition: background-color 0.12s ease-out, opacity 0.12s ease-out, transform 0.12s ease-out, box-shadow 0.12s ease-out !important;
 }
 
-/* Switch dissolve: the commit is synchronous (hidden swap), so a
-   leave-side tab fade could never paint — instead the whole card dips
-   to 0.45 over 100ms and glides back over 180ms (JS adds/removes
-   .aph-ws-dip in finishWorkspaceSwitch). Reads as a dissolve, not a
-   blink. Opacity-only on the card; fullscreen/dialog rules untouched. */
-#tabbrowser-tabbox {
-  transition: opacity 0.18s ease-out !important;
+/* Switch bloom: the commit is synchronous (hidden swap), so a
+   leave-side fade could never paint — and a card dip flashed the whole
+   page. Instead a fixed overlay (#aph-ws-bloom, rect-locked to the card
+   per strike by strikeBloom) discharges the destination accent at the
+   card edge: strike ring + inner glow + outward plume,    baked once,
+   opacity-crossfaded over 220ms so the compositor owns the motion.
+   Paint-once, fade-only; fullscreen skips the strike (no card frame).
+   Opacity-only on the overlay; card, fullscreen, and dialog rules
+   untouched. */
+#aph-ws-bloom {
+  position: fixed !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  pointer-events: none !important;
+  /* Rest opacity WITHOUT !important — on purpose. An !important base on
+     the animated property pins the value for the whole run: the
+     keyframes compute but can never win, and the neutered animation
+     doesn't even appear in getAnimations() (seen live: sized, styled,
+     classed .on, zero animations). The overlay is Aph-owned with no
+     stock competition, so plain opacity is safe. */
+  opacity: 0;
+  z-index: 2147483646 !important;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--aph-ws-accent, #707885) 75%, transparent),
+    0 0 6px 0 color-mix(in srgb, var(--aph-ws-accent, #707885) 50%, transparent),
+    0 0 28px -4px color-mix(in srgb, var(--aph-ws-accent, #707885) 30%, transparent) !important;
 }
-#tabbrowser-tabbox.aph-ws-dip {
-  opacity: 0.45 !important;
-  transition-duration: 0.1s !important;
+#aph-ws-bloom.on {
+  animation: aph-ws-bloom 0.22s var(--aph-motion-enter-ease, cubic-bezier(0.25, 1, 0.5, 1)) !important;
+}
+/* Strike-and-decay: full strength through ~18% (≈40ms) so the strike
+   registers, gone by 220ms. No fill mode — the overlay rests at
+   opacity 0, so no cleanup timer. */
+@keyframes aph-ws-bloom {
+  0% { opacity: 1; }
+  18% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 /* Load feedback, stock machinery: the burst uses --tab-loading-fill,
@@ -1446,7 +1500,14 @@ tab[selected][busy] > .tab-stack > .tab-background {
     transition: none !important;
   }
   .tabbrowser-tab[selected][busy] > .tab-stack > .tab-background,
-  tab[selected][busy] > .tab-stack > .tab-background {
+  tab[selected][busy] > .tab-stack > .tab-background,
+  tab.aph-ws-enter-up,
+  .tabbrowser-tab.aph-ws-enter-up,
+  tab.aph-ws-enter-down,
+  .tabbrowser-tab.aph-ws-enter-down,
+  #aph-ws-bloom,
+  #aph-ws-bloom.on,
+  .aph-ws-pill.aph-ws-drop-pulse {
     animation: none !important;
   }
 }
