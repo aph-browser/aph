@@ -317,10 +317,15 @@
 
 #urlbar-container {
   flex: 1 1 auto !important;
-  min-width: 0px !important;
+  /* Floor, not zero: this is the row's only shrinkable flex item, so a
+     zero minimum lets it absorb 100% of any width deficit and collapse
+     to a sliver at half-width windows. 140px keeps a readable field;
+     true excess sheds via native overflow into the >> panel. */
+  min-width: 140px !important;
   /* Fixed centered field (§3 stable footprint): capped so ultrawide
      windows don't get a runway bar. Same geometry at idle/hover/open —
-     no expand, no snap. Narrow windows shrink via flex + native overflow. */
+     no expand, no snap. Narrow windows shrink via flex down to the
+     min-width floor, then native overflow. */
   max-width: 880px !important;
   height: 30px !important;
   margin-inline: auto !important;
