@@ -299,53 +299,42 @@ jobs:
            - Profiles: Linux `~/.config/aph/profile` (daily install) ·
               Windows `%APPDATA%\Aph\profile` (seed-once user.js + userChrome.css + userContent.css)
 
-           ### What's new in 0.2.0
-
-           Workspaces
-           - Window-scoped: every window owns workspaces 1–9 with
-             independent tabs. Cross-window moves are explicit (palette /
-             tab right-click → Move Tab to Other Window); arrivals join
-             that window's current workspace.
-           - Jump with `Alt+1..9` (was `Alt+Shift`; still accepted),
-             cycle with `Alt+Shift+]/[`, last-used with `Alt+Shift+Tab`.
-           - Tree-style tabs are gone — native tab groups live inside
-             workspaces instead.
-           - Dock pills, per-workspace container bindings, starred and
-             pinned tabs with base-page reset, tab rename, manual tab
-             unloading, and domain routes (`#route` in the palette).
+           ### What's new in 0.3.0
 
            Command palette (`Ctrl+K`)
-           - Prefix modes: `>` commands, `@` tabs, `#` workspaces,
-             `b:` bookmarks, `h:` history, `a:` archive, `?` help —
-             with fuzzy search and frecency.
-           - Tab actions: copy URL / markdown, clean URL, pin, duplicate,
-             unload inactive, reopen closed.
+           - Bold Raycast-style restyle with no open-flash-reopen
+             stutter, fuzzy archive search, and frecency ranking.
+           - Workspace icon picker is reachable from the palette and
+             from the dock menu.
 
-           Archive
-           - Park tabs with workspace + container restore, auto-sweep
-             with staleness control, unified with the browser theme.
+           Settings, welcome & archive
+           - Settings page is editable in place; welcome page has a
+             new hero tour (both re-openable from the Aph menu and
+             the palette).
+           - Archive search is fuzzy with workspace + container
+             restore and staleness control intact.
 
-           Privacy, profiles & defaults
-           - One profile everywhere on Linux (`~/.config/aph/profile`);
-             an old `~/.aph/profile` moves automatically on first launch.
-             External links reuse the running window.
-           - Captive-portal detection on (cafe/hotel WiFi works);
-             tracking protection no longer locked; first-run and Help
-             pages point at the real site.
-           - No theme ships anymore — Aph paints its own canvas and
-             leaves color-scheme to the OS.
-           - Preinstalled extensions trimmed to uBlock Origin
-             (install anything else from AMO as usual).
-           - New-tab backdrop and Inter typeface ship offline.
+           Workspaces
+           - Ten new workspace marks (research to fitness) with Lucide
+             icons; top-left pill renames on left-click and opens the
+             icon picker on right-click.
+           - Workspace switch now staggers tab arrival (calm cascade
+             for the first tabs, flat fade beyond) and respects
+             reduced-motion.
+           - Shared `aph-tokens.css` theme payload for palette,
+             settings, welcome, and archive.
 
-           ### Heads-up upgrading from 0.1.x
+           Upstream robustness
+           - Drift detector pins every stock selector/token/pref Aph
+             depends on against the packaged Firefox (fails loud on
+             upstream removal).
 
-           - Workspace shortcut changed (`Alt+Shift+1..9` →
-             `Alt+1..9`); the old chord still works.
-           - Profile moved (`~/.aph/profile` →
-             `~/.config/aph/profile`); migrates itself, nothing to do.
-           - Tree-style tabs removed; Bitwarden/SponsorBlock no longer
-             preinstalled.
+           ### Heads-up upgrading from 0.2.x
+
+           - No profile migration, no shortcut changes — drop-in
+             re-download over 0.2.0.
+           - For the 0.1.x notes (profile move, `Alt+1..9` shortcut,
+             tree-style tabs removal), see the 0.2.0 release.
 
            ### Install
 
