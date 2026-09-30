@@ -257,6 +257,36 @@ var AphSettingsLogic = (function () {
     return { ok: true, prefs, exportedAt: typeof root.exportedAt === "string" ? root.exportedAt : "" };
   }
 
+  // user.js write-through line surgery: replace (or append) one
+  // user_pref line so a Settings toggle survives Firefox re-applying
+  // profile/user.js over prefs.js on every startup. Pure (node-tested);
+  // the DOM controller reaches it via L().patchUserJsLine. A trailing
+  // comment on a replaced line is dropped with it — toggle lines carry
+  // none (their docs live in GROUPS desc + user-overrides.js).
+  function patchUserJsLine(text, pref, value) {
+    try {
+      const src = typeof text === "string" ? text : "";
+      const esc = String(pref).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const lit =
+        typeof value === "number" && Number.isFinite(value)
+          ? String(Math.floor(value))
+          : value
+            ? "true"
+            : "false";
+      const line = `user_pref("${pref}", ${lit});`;
+      const re = new RegExp(`^[ \\t]*user_pref\\("${esc}",.*?\\);[ \\t]*\\r?$`, "m");
+      if (re.test(src)) {
+        return src.replace(re, line);
+      }
+      if (!src) {
+        return line + "\n";
+      }
+      return src.replace(/\n?$/, "\n") + line + "\n";
+    } catch (e) {
+      return typeof text === "string" ? text : "";
+    }
+  }
+
   // One-line summary for the import confirm dialog.
   function summarizeBackup(prefs) {
     const bits = [];
@@ -313,6 +343,7 @@ var AphSettingsLogic = (function () {
     buildBackup,
     parseBackup,
     summarizeBackup,
+    patchUserJsLine,
   };
 })();
 
@@ -379,10 +410,94 @@ var AphSettingsLogic = (function () {
       const p = prefs();
       if (p && typeof p.setBoolPref === "function") {
         p.setBoolPref(pref, !!v);
+        persistToggleBestEffort(pref, !!v);
         return true;
       }
     } catch (e) {}
     return false;
+  }
+
+  // Best-effort user.js write-through from DOM scope: the Logic helper
+  // owns the IO; here we just route through L() (null in tests) and
+  // swallow everything — a missed file patch only costs persistence,
+  // never the session toggle.
+  function persistToggleBestEffort(pref, v) {
+    try {
+      const l = L();
+      const fn = l && l.persistToggleToUserJs;
+      if (typeof fn === "function") {
+        const r = fn(pref, v);
+        if (r && typeof r.catch === "function") {
+          r.catch(() => {});
+        }
+      }
+    } catch (e) {}
+  }
+
+  // DOM-scope delegate to the node-tested patchUserJsLine on
+  // AphSettingsLogic (first IIFE): one implementation, reached via L().
+  // Falls back to a no-op passthrough when Logic is unavailable.
+  function patchUserJsLineDom(text, pref, value) {
+    try {
+      const l = L();
+      if (l && typeof l.patchUserJsLine === "function") {
+        return l.patchUserJsLine(text, pref, value);
+      }
+    } catch (e) {}
+    return typeof text === "string" ? text : "";
+  }
+
+  // Best-effort async patch of <profile>/user.js. Resolves true when the
+  // file now carries the value (or already did), false whenever the
+  // chrome IO surface is unavailable — callers treat false as
+  // session-only, never as an error.
+  async function persistToggleToUserJs(pref, value) {
+    try {
+      if (typeof pref !== "string" || !pref) {
+        return false;
+      }
+      const io = typeof IOUtils !== "undefined" ? IOUtils : null;
+      if (!io || typeof io.readUTF8 !== "function" || typeof io.writeUTF8 !== "function") {
+        return false;
+      }
+      let ci = null;
+      try {
+        ci = typeof Components !== "undefined" ? Components.interfaces : null;
+      } catch (e) {}
+      if (!ci) {
+        try {
+          ci = typeof Ci !== "undefined" ? Ci : null;
+        } catch (e) {}
+      }
+      const svc = prefs();
+      if (!svc || !svc.dirsvc || !ci || !ci.nsIFile) {
+        return false;
+      }
+      let profD = null;
+      try {
+        profD = svc.dirsvc.get("ProfD", ci.nsIFile);
+      } catch (e) {
+        return false;
+      }
+      if (!profD || typeof profD.path !== "string" || !profD.path) {
+        return false;
+      }
+      const file = profD.path.replace(/\/$/, "") + "/user.js";
+      let text = "";
+      try {
+        text = await io.readUTF8(file);
+      } catch (e) {
+        text = ""; // no user.js yet: the patch seeds the line
+      }
+      const next = patchUserJsLineDom(text, pref, value);
+      if (next === text) {
+        return true;
+      }
+      await io.writeUTF8(file, next);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   function readStale() {
@@ -416,6 +531,9 @@ var AphSettingsLogic = (function () {
       const p = prefs();
       if (p && typeof p.setIntPref === "function") {
         p.setIntPref(l ? l.STALE_PREF : "aph.archive.autoStaleMin", clamped);
+        // Same user.js write-through as writeBool: the seeded staleness
+        // line would otherwise stomp this on next startup.
+        persistToggleBestEffort(l ? l.STALE_PREF : "aph.archive.autoStaleMin", clamped);
         return clamped;
       }
       return clamped;

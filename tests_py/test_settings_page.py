@@ -232,3 +232,22 @@ def test_settings_entry_points_wired() -> None:
     assert "Open Aph Settings" in (ROOT / "branding" / "command-palette.js").read_text(
         encoding="utf-8"
     )
+
+
+def test_settings_toggles_persist_to_user_js() -> None:
+    """Toggles must survive restarts: Firefox re-applies profile/user.js
+    over prefs.js on every startup, so a prefs.js-only write reverts
+    whenever the seeded line disagrees (the Sync toggle unchecked itself
+    on restart). The page therefore patches the user_pref line through
+    profile IO, reached via L() from the DOM controller."""
+    js = PAGE_JS.read_text(encoding="utf-8")
+    for token in (
+        "patchUserJsLine",
+        "persistToggleToUserJs",
+        "persistToggleBestEffort",
+        "ProfD",
+        "readUTF8",
+        "writeUTF8",
+        'user_pref("${pref}"',
+    ):
+        assert token in js, f"user.js write-through missing: {token}"

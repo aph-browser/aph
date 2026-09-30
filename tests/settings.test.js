@@ -50,6 +50,49 @@ describe("bool defaults match user-overrides.js", () => {
   });
 });
 
+describe("user.js write-through line surgery", () => {
+  it("replaces an existing pref line in place", () => {
+    const src =
+      '// comment\nuser_pref("identity.fxaccounts.enabled", false);\nuser_pref("a.b", true);\n';
+    assert.equal(
+      L.patchUserJsLine(src, "identity.fxaccounts.enabled", true),
+      '// comment\nuser_pref("identity.fxaccounts.enabled", true);\nuser_pref("a.b", true);\n'
+    );
+  });
+
+  it("appends a missing pref, with or without trailing newline", () => {
+    assert.equal(
+      L.patchUserJsLine('user_pref("a.b", true);\n', "c.d", false),
+      'user_pref("a.b", true);\nuser_pref("c.d", false);\n'
+    );
+    assert.equal(
+      L.patchUserJsLine('user_pref("a.b", true);', "c.d", true),
+      'user_pref("a.b", true);\nuser_pref("c.d", true);\n'
+    );
+    assert.equal(L.patchUserJsLine("", "c.d", true), 'user_pref("c.d", true);\n');
+  });
+
+  it("matches the exact pref, never a prefix sibling", () => {
+    const src = 'user_pref("signon.rememberSignons", false);\nuser_pref("signon.rememberSignons.test", true);\n';
+    assert.equal(
+      L.patchUserJsLine(src, "signon.rememberSignons", true),
+      'user_pref("signon.rememberSignons", true);\nuser_pref("signon.rememberSignons.test", true);\n'
+    );
+  });
+
+  it("writes ints for the staleness row", () => {
+    assert.equal(
+      L.patchUserJsLine('user_pref("aph.archive.autoStaleMin", 5);\n', "aph.archive.autoStaleMin", 12),
+      'user_pref("aph.archive.autoStaleMin", 12);\n'
+    );
+  });
+
+  it("never throws on garbage input", () => {
+    assert.equal(L.patchUserJsLine(null, "a.b", true), 'user_pref("a.b", true);\n');
+    assert.equal(L.patchUserJsLine(undefined, "a.b", false), 'user_pref("a.b", false);\n');
+  });
+});
+
 describe("staleMin clamp", () => {
   it("floors fractions, clamps to 0..1440, falls back to 5", () => {
     assert.equal(L.clampStaleMin(5.9), 5);
