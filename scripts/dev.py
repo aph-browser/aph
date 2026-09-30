@@ -116,6 +116,33 @@ def merge_policies(root: Path) -> None:
                 base[k] = v
         return base
 
+    # Generic removal: deep_merge only adds/overwrites, so a top-level
+    # policy key deleted from config would resurrect from the base on
+    # every launch (seen live: DisableFirefoxAccounts survived its own
+    # removal because policies.json.bak had snapshotted old Aph output
+    # as "pristine"). The snapshot records the last applied Aph policy
+    # set; keys in the snapshot but absent from the current config are
+    # pruned from the base before merging, making config authoritative
+    # for removals — the generic form of the ExtensionSettings replace
+    # below. NOTE: keys removed before this snapshot existed are NOT
+    # pruned (nothing recorded them); a polluted .bak predating the
+    # snapshot must be deleted once by hand (it only ever contains old
+    # Aph output — upstream tarballs ship no distribution dir).
+    applied_file = dist_dir / ".aph-policies-applied.json"
+    try:
+        applied = json.loads(applied_file.read_text(encoding="utf-8"))
+    except Exception:
+        applied = {}
+    if isinstance(applied, dict):
+        try:
+            current_keys = custom_data.get("policies", {})
+        except AttributeError:
+            current_keys = {}
+        for key in applied.get("policies", {}):
+            if key not in current_keys:
+                with contextlib.suppress(AttributeError):
+                    base_data.get("policies", {}).pop(key, None)
+
     merged_data = deep_merge(base_data, custom_data)
     # ExtensionSettings is REPLACE, not merge: deep_merge only adds, so a
     # removed extension would resurrect from a stale base on every launch
@@ -130,6 +157,13 @@ def merge_policies(root: Path) -> None:
     if isinstance(custom_ext, dict):
         merged_data.setdefault("policies", {})["ExtensionSettings"] = custom_ext
     target_policies_file.write_text(json.dumps(merged_data, indent=2) + "\n", encoding="utf-8")
+    try:
+        applied_file.write_text(
+            json.dumps({"policies": custom_data.get("policies", {})}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"Warning: Failed to write policies snapshot: {e}", file=sys.stderr)
 
 
 def profile_locked(profile: Path) -> bool:

@@ -190,6 +190,44 @@ def test_merge_policies_replaces_extension_settings(tmp_path: Path) -> None:
     assert list(live["policies"]["ExtensionSettings"].keys()) == ["*"]
 
 
+def test_merge_policies_prunes_removed_top_level_keys(tmp_path: Path) -> None:
+    """Deleting a top-level policy from config/policies.json must remove it
+    from the live policy. Regression: deep_merge only added, so a removed
+    key resurrected from the base on every launch (DisableFirefoxAccounts
+    survived its own removal and kept Sync locked out with "Account
+    settings are unavailable")."""
+    from scripts.dev import merge_policies
+
+    root = tmp_path / "root"
+    (root / "config").mkdir(parents=True)
+    dist = root / "build" / "firefox" / "distribution"
+    dist.mkdir(parents=True)
+    import json
+
+    stale_base = {
+        "policies": {
+            "DisableFirefoxAccounts": True,
+            "DisableTelemetry": True,
+        }
+    }
+    (dist / "policies.json").write_text(json.dumps(stale_base), encoding="utf-8")
+    (dist / "policies.json.bak").write_text(json.dumps(stale_base), encoding="utf-8")
+    # Snapshot records the previously applied set (with the accounts lock).
+    (dist / ".aph-policies-applied.json").write_text(json.dumps(stale_base), encoding="utf-8")
+    _write_policies(
+        root,
+        {
+            "policies": {
+                "DisableTelemetry": True,
+            }
+        },
+    )
+    merge_policies(root)
+    live = json.loads((dist / "policies.json").read_text(encoding="utf-8"))
+    assert "DisableFirefoxAccounts" not in live["policies"]
+    assert live["policies"]["DisableTelemetry"] is True
+
+
 def test_ensure_rebranded_reports_false_without_omni(tmp_path: Path) -> None:
     """ensure_rebranded returns False (no purge needed) when there is no
     omni.ja to patch — callers rely on the bool, not just the side effect."""
