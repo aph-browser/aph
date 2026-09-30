@@ -1,6 +1,7 @@
 """Aph settings page: chrome-system files ship via the rebrand and the
-page covers every aph.* behavior pref (toggles live, JSON prefs
-read-only), reachable from the Aph menu and the palette.
+page covers every behavior toggle (aph.* prefs plus the two stock
+accounts/passwords prefs) and every read-only JSON pref, reachable
+from the Aph menu and the palette.
 """
 
 import re
@@ -21,6 +22,8 @@ EXPECTED_PREFS = {
     "aph.pins.ctrlWUnloads",
     "aph.stars.ctrlWUnloads",
     "aph.sidebar.hideFooter",
+    "identity.fxaccounts.enabled",
+    "signon.rememberSignons",
 }
 
 READONLY_PREFS = {
@@ -145,7 +148,8 @@ def test_settings_page_covers_every_pref() -> None:
     js = PAGE_JS.read_text(encoding="utf-8")
     for pref in EXPECTED_PREFS | READONLY_PREFS:
         assert pref in js, f"settings page ignores {pref}"
-    # Defaults match config/user-overrides.js seed-once values.
+    # Defaults match config/user-overrides.js seed-once values (the last
+    # two are stock prefs Aph seeds off, not aph.* prefs).
     for pref, val in (
         ('"aph.workspaces.unloadOnSwitch": false', "unloadOnSwitch"),
         ('"aph.archive.autoEnabled": false', "autoEnabled"),
@@ -153,6 +157,8 @@ def test_settings_page_covers_every_pref() -> None:
         ('"aph.pins.ctrlWUnloads": true', "pins"),
         ('"aph.stars.ctrlWUnloads": true', "stars"),
         ('"aph.sidebar.hideFooter": true', "hideFooter"),
+        ('"identity.fxaccounts.enabled": false', "fxaccounts"),
+        ('"signon.rememberSignons": false', "rememberSignons"),
     ):
         assert pref in js, f"wrong default for {val}"
     assert "STALE_DEFAULT = 5" in js

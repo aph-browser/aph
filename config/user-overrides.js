@@ -101,6 +101,13 @@ user_pref("aph.stars.ctrlWUnloads", true);
 // Customize Sidebar stays reachable via the Aph menu either way.
 user_pref("aph.sidebar.hideFooter", true);
 
+// 18. Accounts & passwords: both OFF by default (privacy-first seed).
+// Toggled live in Aph Settings ("Accounts & Passwords", backed by
+// BOOL_DEFAULTS there — keep the defaults in sync). The Sync toggle
+// needs a restart to fully apply. Neither is policy-locked (see
+// config/policies.json), so user choice sticks.
+user_pref("identity.fxaccounts.enabled", false);
+user_pref("signon.rememberSignons", false);
 // 13. New Tab look: Aph's own desk, no forced wallpaper.
 // branding/userContent.css paints the designed gradient on html with body
 // forced transparent, so Activity Stream's wallpaper (body

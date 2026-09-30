@@ -24,7 +24,7 @@ function assertJsonEqual(actual, expected) {
 }
 
 describe("bool defaults match user-overrides.js", () => {
-  it("has the six behavior toggles with seed-once defaults", () => {
+  it("has the eight behavior toggles with seed-once defaults", () => {
     assertJsonEqual(L.BOOL_DEFAULTS, {
       "aph.workspaces.unloadOnSwitch": false,
       "aph.archive.autoEnabled": false,
@@ -32,6 +32,8 @@ describe("bool defaults match user-overrides.js", () => {
       "aph.pins.ctrlWUnloads": true,
       "aph.stars.ctrlWUnloads": true,
       "aph.sidebar.hideFooter": true,
+      "identity.fxaccounts.enabled": false,
+      "signon.rememberSignons": false,
     });
   });
 
@@ -88,6 +90,8 @@ describe("backup round-trip", () => {
         "aph.pins.ctrlWUnloads": true,
         "aph.stars.ctrlWUnloads": false,
         "aph.sidebar.hideFooter": true,
+        "identity.fxaccounts.enabled": true,
+        "signon.rememberSignons": false,
       };
       return k in fixed ? fixed[k] : d;
     },

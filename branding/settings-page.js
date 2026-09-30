@@ -17,6 +17,11 @@ var AphSettingsLogic = (function () {
     "aph.pins.ctrlWUnloads": true,
     "aph.stars.ctrlWUnloads": true,
     "aph.sidebar.hideFooter": true,
+    // Stock prefs (not aph.*): Sync/accounts and the password manager
+    // ship OFF — the Settings toggles below are the on-ramp. Defaults
+    // here must match config/user-overrides.js seed-once values.
+    "identity.fxaccounts.enabled": false,
+    "signon.rememberSignons": false,
   };
 
   const STALE_PREF = "aph.archive.autoStaleMin";
@@ -95,6 +100,23 @@ var AphSettingsLogic = (function () {
           pref: "aph.sidebar.hideFooter",
           title: "Hide sidebar footer",
           desc: "Hide the sidebar settings gear to reclaim the strip. Customize Sidebar stays reachable via the Aph menu either way.",
+        },
+      ],
+    },
+    {
+      name: "Accounts & Passwords",
+      rows: [
+        {
+          kind: "bool",
+          pref: "identity.fxaccounts.enabled",
+          title: "Firefox Sync and Mozilla account",
+          desc: "Show the account UI and allow signing in to Sync (bookmarks, history, passwords, tabs — end-to-end encrypted). Off by default; takes effect after a restart.",
+        },
+        {
+          kind: "bool",
+          pref: "signon.rememberSignons",
+          title: "Save and fill passwords",
+          desc: "Offer to save logins and fill them on sites. Off by default; already-saved logins stay stored until you delete them in Firefox Settings.",
         },
       ],
     },
