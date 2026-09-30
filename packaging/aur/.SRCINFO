@@ -16,7 +16,7 @@ pkgbase = aph-bin
 	optdepends = libpulse: audio playback
 	source = aph-x86_64.AppImage::https://github.com/aph-browser/aph/releases/download/v0.3.0/aph-x86_64.AppImage
 	source = aph.sh
-	sha256sums = 7e15108160332eca5d048df6c0caea13e8213f9645f24eb5e87a5b3e37650427
+	sha256sums = 1c90d11c338c7d18bde8917dfdd67046a404f8fae68dc2708056dd9a706b536d
 	sha256sums = SKIP
 
 pkgname = aph-bin
