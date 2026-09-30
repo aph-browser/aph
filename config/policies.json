@@ -8,8 +8,6 @@
     "OverridePostUpdatePage": "",
     "DontCheckDefaultBrowser": true,
     "DisableDefaultBrowserAgent": true,
-    "DisableFirefoxAccounts": true,
-    "PasswordManagerEnabled": false,
     "DisableRemoteImprovements": true,
     "AppUpdateURL": "https://localhost",
     "WebsiteFilter": {
