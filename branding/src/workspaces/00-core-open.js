@@ -35,10 +35,13 @@
  * Workspace names ("2" -> "💼 Work", pref aph.workspaces.names): badge
  * pill, palette titles and tooltip; rename via badge click, Ctrl+Alt+R,
  * or the palette rename command.
- * Tab unloading (memory): eligible hidden-workspace tabs are discarded via
- * gBrowser.discardBrowser (V1: manual palette command + optional
- * unload-on-switch behind aph.workspaces.unloadOnSwitch, default off).
- * Never unloads selected/pinned/audible/sharing/pending/about:/offline tabs.
+  * Tab unloading (memory): eligible tabs are discarded via
+  * gBrowser.discardBrowser (manual palette command + automatic staleness
+  * sweeps behind aph.unload.autoEnabled with
+  * aph.unload.staleMin, default 30 min, and a low-memory hook behind
+  * aph.unload.onLowMemory, default on). Manual scopes unload every
+  * eligible tab; automatic sweeps spare recently-viewed and starred tabs.
+  * Never unloads selected/pinned/audible/sharing/pending/about:/offline tabs.
  * Addon first-run silencer: managed extensions that open welcome/help tabs
  * on install (no 3rdparty policy support — e.g. SponsorBlock help page)
  * are closed pre-paint (pref aph.addons.silenceFirstRun, default on).

@@ -155,6 +155,11 @@
     // Closing window's temp tabs never fire TabClose per tab — sweep
     // tracked ids against the surviving windows so they don't leak.
     try {
+      if (typeof cleanupUnloadLowMemory === "function") {
+        cleanupUnloadLowMemory();
+      }
+    } catch (e) {}
+    try {
       if (typeof sweepTempContainers === "function") {
         sweepTempContainers(window);
       }
@@ -328,7 +333,20 @@
         syncAllTabChrome,
         canUnloadTab,
         unloadEligibleTabs,
-        getUnloadOnSwitch,
+        getUnloadAutoEnabled:
+          typeof getUnloadAutoEnabled === "function" ? getUnloadAutoEnabled : () => false,
+        getUnloadStaleMs:
+          typeof getUnloadStaleMs === "function" ? getUnloadStaleMs : () => 30 * 60000,
+        isAutoUnloadEligible:
+          typeof isAutoUnloadEligible === "function" ? isAutoUnloadEligible : () => false,
+        scheduleUnloadSweep:
+          typeof scheduleUnloadSweep === "function" ? scheduleUnloadSweep : () => false,
+        unloadSingleTab:
+          typeof unloadSingleTab === "function" ? unloadSingleTab : () => ({ ok: false }),
+        unloadCandidates:
+          typeof unloadCandidates === "function"
+            ? unloadCandidates
+            : () => ({ total: 0, list: [] }),
         renderDock,
         closeWorkspaceTabs,
         applySidebarFooter:
@@ -496,6 +514,19 @@
     }
     try {
       initRouteListener();
+    } catch (e) {}
+    // Automatic unloading: periodic staleness sweeper + low-memory hook.
+    // Both no-op unless their prefs are on (all off/default-safe except
+    // onLowMemory, whose guard set makes a sweep safe anywhere).
+    try {
+      if (typeof startUnloadSweeper === "function") {
+        startUnloadSweeper();
+      }
+    } catch (e) {}
+    try {
+      if (typeof initUnloadLowMemory === "function") {
+        initUnloadLowMemory();
+      }
     } catch (e) {}
     scheduleStartupRestore();
     // First-run tour (show-once per profile; no-ops everywhere else).

@@ -7,6 +7,7 @@ const { run, makeTab } = require("./helpers");
 
 const tabVals = new WeakMap();
 const prefStore = {
+  "aph.unload.autoEnabled": true,
   "aph.workspaces.domainRoutes": JSON.stringify({
     "github.com": "2",
     "amazon.com": "1",
@@ -90,6 +91,20 @@ const sb = {
     prefs: {
       getStringPref: (k, d) => (k in prefStore ? prefStore[k] : d),
       setStringPref: (k, v) => { prefStore[k] = v; },
+      // Stock shape: single-arg throws when the pref is absent, two-arg
+      // falls back to the default (new unload prefs exercise both).
+      getBoolPref: (k, d) => {
+        if (k in prefStore && typeof prefStore[k] === "boolean") return prefStore[k];
+        if (d !== undefined) return d;
+        throw new Error(`no bool pref ${k}`);
+      },
+      setBoolPref: (k, v) => { prefStore[k] = !!v; },
+      getIntPref: (k, d) => {
+        if (k in prefStore && typeof prefStore[k] === "number") return prefStore[k];
+        if (d !== undefined) return d;
+        throw new Error(`no int pref ${k}`);
+      },
+      setIntPref: (k, v) => { prefStore[k] = Math.floor(Number(v)); },
       addObserver() {},
     },
     console: { logStringMessage() {} },
@@ -97,7 +112,11 @@ const sb = {
       getMostRecentWindow: () => null,
       getEnumerator: () => ({ hasMoreElements: () => false }),
     },
-    obs: { addObserver() {}, removeObserver() {} },
+    obs: {
+      seen: [],
+      addObserver(o, t) { sb.Services.obs.seen.push([o, t]); },
+      removeObserver() {},
+    },
   },
   ChromeUtils: {
     generateQI: () => () => {},
@@ -620,10 +639,6 @@ describe("newtab pruning", () => {
 });
 
 describe("tab unloading", () => {
-  it("is opt-in off when the pref backend is absent", () => {
-    assert.equal(api.getUnloadOnSwitch(), false);
-  });
-
   it("blocks every never-unload guard", () => {
     const prev = sb.gBrowser.selectedTab;
     const cases = [
@@ -733,6 +748,267 @@ describe("tab unloading", () => {
       assert.equal(r.reason, "no-api");
     } finally {
       sb.gBrowser.discardBrowser = d;
+    }
+  });
+
+  it("auto scope unloads stale tabs in any workspace, spares fresh ones", () => {
+    if (api.getCurrent() !== "2") api.switchTo("2");
+    const now = Date.now();
+    const stale = makeTab(tabVals, {
+      label: "u-auto-stale", ws: "1", spec: "https://example.com/stale",
+    });
+    const freshSameWs = makeTab(tabVals, {
+      label: "u-auto-fresh", ws: "1", spec: "https://example.com/fresh",
+    });
+    const staleCurrent = makeTab(tabVals, {
+      label: "u-auto-cur", ws: "2", spec: "https://example.com/cur",
+    });
+    tabVals.get(stale).aphLastViewed = String(now - 40 * 60000);
+    tabVals.get(freshSameWs).aphLastViewed = String(now);
+    tabVals.get(staleCurrent).aphLastViewed = String(now - 60 * 60000);
+    sb.gBrowser.tabs.push(stale, freshSameWs, staleCurrent);
+    try {
+      assert.equal(api.isAutoUnloadEligible(stale, now, 30 * 60000), true);
+      assert.equal(api.isAutoUnloadEligible(freshSameWs, now, 30 * 60000), false);
+      discarded.length = 0;
+      const r = api.unloadEligibleTabs({ scope: "auto", nowMs: now, staleMs: 30 * 60000 });
+      assert.ok(discarded.includes("u-auto-stale"), "stale hidden tab discarded");
+      assert.ok(discarded.includes("u-auto-cur"), "stale current-WS tab discarded");
+      assert.ok(!discarded.includes("u-auto-fresh"), "fresh tab spared");
+      // Earlier suites leave untracked tabs behind (no aphLastViewed reads
+      // as stale by design), so the sweep may cover more than ours.
+      assert.ok(r.unloaded >= 2);
+    } finally {
+      for (const t of [stale, freshSameWs, staleCurrent]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+    }
+  });
+
+  it("auto scope exempts starred tabs and untracked tabs count as stale", () => {
+    if (api.getCurrent() !== "2") api.switchTo("2");
+    const now = Date.now();
+    const star = makeTab(tabVals, {
+      label: "u-auto-star", ws: "1", spec: "https://example.com/star",
+    });
+    const untracked = makeTab(tabVals, {
+      label: "u-auto-untrk", ws: "1", spec: "https://example.com/untrk",
+    });
+    tabVals.get(star).aphLastViewed = String(now - 90 * 60000);
+    tabVals.get(star).aphStarred = "1";
+    sb.gBrowser.tabs.push(star, untracked);
+    try {
+      assert.equal(api.isAutoUnloadEligible(star, now, 30 * 60000), false);
+      assert.equal(api.isAutoUnloadEligible(untracked, now, 30 * 60000), true);
+      discarded.length = 0;
+      const r = api.unloadEligibleTabs({ scope: "auto", nowMs: now, staleMs: 30 * 60000 });
+      assert.ok(!discarded.includes("u-auto-star"), "starred tab spared");
+      assert.ok(discarded.includes("u-auto-untrk"), "untracked tab counts as stale");
+      assert.equal(star.hasAttribute("pending"), false);
+    } finally {
+      for (const t of [star, untracked]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+    }
+  });
+
+  it("unload pref getters default safe and read live", () => {
+    assert.equal(api.getUnloadAutoEnabled(), true);
+    assert.equal(api.getUnloadStaleMs(), 30 * 60000);
+    prefStore["aph.unload.autoEnabled"] = false;
+    prefStore["aph.unload.staleMin"] = 7;
+    try {
+      assert.equal(api.getUnloadAutoEnabled(), false);
+      assert.equal(api.getUnloadStaleMs(), 7 * 60000);
+    } finally {
+      prefStore["aph.unload.autoEnabled"] = true;
+      delete prefStore["aph.unload.staleMin"];
+    }
+  });
+
+  it("scheduleUnloadSweep arms only when a trigger is on", () => {
+    assert.equal(api.scheduleUnloadSweep(), true);
+    prefStore["aph.unload.autoEnabled"] = false;
+    try {
+      assert.equal(api.scheduleUnloadSweep(), false);
+    } finally {
+      prefStore["aph.unload.autoEnabled"] = true;
+    }
+  });
+
+  it("memory-pressure observer sweeps stale tabs once", () => {
+    const entry = sb.Services.obs.seen.find(([, t]) => t === "memory-pressure");
+    assert.ok(entry, "low-memory observer registered at init");
+    if (api.getCurrent() !== "2") api.switchTo("2");
+    const stale = makeTab(tabVals, {
+      label: "u-mem-stale", ws: "1", spec: "https://example.com/mem",
+    });
+    tabVals.get(stale).aphLastViewed = String(Date.now() - 40 * 60000);
+    sb.gBrowser.tabs.push(stale);
+    try {
+      discarded.length = 0;
+      entry[0].observe(null, "memory-pressure");
+      assert.ok(discarded.includes("u-mem-stale"), "stale tab swept on memory pressure");
+      // Unrelated topics never sweep.
+      const fresh = makeTab(tabVals, {
+        label: "u-mem-fresh", ws: "1", spec: "https://example.com/memfresh",
+      });
+      tabVals.get(fresh).aphLastViewed = String(Date.now() - 40 * 60000);
+      sb.gBrowser.tabs.push(fresh);
+      try {
+        discarded.length = 0;
+        entry[0].observe(null, "some-other-topic");
+        assert.ok(!discarded.includes("u-mem-fresh"), "other topics ignored");
+        // Opt-out kills the sweep too.
+        prefStore["aph.unload.onLowMemory"] = false;
+        try {
+          entry[0].observe(null, "memory-pressure");
+          assert.ok(!discarded.includes("u-mem-fresh"), "opt-out disables low-memory sweep");
+        } finally {
+          delete prefStore["aph.unload.onLowMemory"];
+        }
+      } finally {
+        const i = sb.gBrowser.tabs.indexOf(fresh);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(stale);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    }
+  });
+
+  it("auto sweep is oldest-first and capped; backlog drains over sweeps", () => {
+    if (api.getCurrent() !== "2") api.switchTo("2");
+    const now = Date.now();
+    const made = [];
+    try {
+      // Neutralize leftovers from earlier suites: untracked tabs count as
+      // stale by design, so stamp them fresh and only the 30 new tabs are
+      // eligible — that makes the cap/oldest-first assertions exact.
+      for (const t of sb.gBrowser.tabs) {
+        try {
+          tabVals.get(t).aphLastViewed = String(now);
+        } catch (_e) {}
+      }
+      for (let i = 0; i < 30; i++) {
+        const t = makeTab(tabVals, {
+          label: `u-cap-${String(i).padStart(2, "0")}`, ws: "1",
+          spec: `https://cap.example/${i}`,
+        });
+        // Aged descending, all past the 30m staleness bar: cap-00 oldest
+        // (60m), cap-29 freshest (31m) — all eligible, ordering exact.
+        tabVals.get(t).aphLastViewed = String(now - (60 - i) * 60000);
+        sb.gBrowser.tabs.push(t);
+        made.push(t);
+      }
+      discarded.length = 0;
+      const r1 = api.unloadEligibleTabs({ scope: "auto", nowMs: now, staleMs: 30 * 60000, cap: 5 });
+      assert.equal(r1.unloaded, 5);
+      assert.equal(r1.deferred, 25);
+      assert.equal(r1.due, 30);
+      assert.deepEqual(
+        discarded.slice(0, 5),
+        ["u-cap-00", "u-cap-01", "u-cap-02", "u-cap-03", "u-cap-04"],
+        "oldest-viewed unloads first"
+      );
+      // The uncapped default is 25: the remaining 25 drain in one sweep.
+      discarded.length = 0;
+      const r2 = api.unloadEligibleTabs({ scope: "auto", nowMs: now, staleMs: 30 * 60000 });
+      assert.equal(r2.unloaded, 25);
+      assert.equal(r2.deferred, 0);
+    } finally {
+      for (const t of made) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+    }
+  });
+
+  it("unloadCandidates previews the next sweep without discarding", () => {
+    if (api.getCurrent() !== "2") api.switchTo("2");
+    const now = Date.now();
+    const a = makeTab(tabVals, { label: "u-cand-a", ws: "1", spec: "https://a.example/" });
+    const b = makeTab(tabVals, { label: "u-cand-b", ws: "2", spec: "https://b.example/" });
+    tabVals.get(a).aphLastViewed = String(now - 60 * 60000);
+    tabVals.get(b).aphLastViewed = String(now - 30 * 60000);
+    sb.gBrowser.tabs.push(a, b);
+    try {
+      // Same leftover-neutralizing trick as the cap test: untracked tabs
+      // from earlier suites would otherwise sort older than a.example.
+      for (const t of sb.gBrowser.tabs) {
+        if (t !== a && t !== b) {
+          try {
+            tabVals.get(t).aphLastViewed = String(now);
+          } catch (_e) {}
+        }
+      }
+      const c = api.unloadCandidates(10);
+      assert.ok(c.total >= 2);
+      assert.equal(c.list[0].host, "a.example", "oldest view first");
+      assert.equal(a.hasAttribute("pending"), false, "diagnostic never discards");
+      discarded.length = 0;
+      assert.equal(discarded.length, 0);
+    } finally {
+      for (const t of [a, b]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+    }
+  });
+
+  it("unloadSingleTab moves selection to a neighbor and discards", () => {
+    if (api.getCurrent() !== "2") api.switchTo("2");
+    const t = makeTab(tabVals, { label: "u-single", ws: "2", spec: "https://s.example/" });
+    sb.gBrowser.tabs.push(t);
+    try {
+      sb.gBrowser.selectedTab = t;
+      t.selected = true;
+      const r = api.unloadSingleTab(t);
+      assert.equal(r.ok, true);
+      assert.ok(discarded.includes("u-single"));
+      assert.notEqual(sb.gBrowser.selectedTab, t, "selection moved off before discard");
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(t);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      sb.gBrowser.selectedTab = home;
+    }
+  });
+
+  it("unloadSingleTab refuses guarded tabs with a reason", () => {
+    const pin = makeTab(tabVals, {
+      label: "u-single-pin", ws: "2", pinned: true, spec: "https://p.example/",
+    });
+    sb.gBrowser.tabs.push(pin);
+    try {
+      const r = api.unloadSingleTab(pin);
+      assert.equal(r.ok, false);
+      assert.equal(r.reason, "pinned");
+      assert.ok(!discarded.includes("u-single-pin"));
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(pin);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    }
+  });
+
+  it("auto dry-run counts without discarding", () => {
+    if (api.getCurrent() !== "2") api.switchTo("2");
+    const stale = makeTab(tabVals, {
+      label: "u-auto-dry", ws: "1", spec: "https://example.com/autodry",
+    });
+    tabVals.get(stale).aphLastViewed = String(Date.now() - 45 * 60000);
+    sb.gBrowser.tabs.push(stale);
+    try {
+      discarded.length = 0;
+      const r = api.unloadEligibleTabs({
+        scope: "auto", dryRun: true, nowMs: Date.now(), staleMs: 30 * 60000,
+      });
+      assert.ok(r.unloaded >= 1);
+      assert.ok(!discarded.includes("u-auto-dry"), "dry run discards nothing");
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(stale);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
     }
   });
 });

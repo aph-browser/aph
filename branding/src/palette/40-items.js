@@ -352,7 +352,12 @@
         sub: "Discards the tab to save memory · click reloads",
         run: () => {
           try {
-            if (gBrowser.discardBrowser) {
+            const wapi = typeof ws === "function" ? ws() : null;
+            if (wapi && typeof wapi.unloadSingleTab === "function") {
+              // Stock refuses the selected tab, so the helper moves
+              // selection to a visible neighbor first (same as parking).
+              wapi.unloadSingleTab(tab);
+            } else if (gBrowser.discardBrowser) {
               gBrowser.discardBrowser(tab);
             }
           } catch (e) {}
@@ -583,6 +588,74 @@
     return true;
   }
 
+  // Unload palette subtitle with a live dry-run count: "Discards N
+  // hidden-workspace tabs…". Dry-run discards nothing; any failure reads
+  // as the plain subtitle (fail-silent house style).
+  function unloadInactiveSub(api) {
+    const base = "Discards hidden-workspace tabs to save memory · click reloads";
+    try {
+      if (api && typeof api.unloadEligibleTabs === "function") {
+        const r = api.unloadEligibleTabs({ scope: "foreign", dryRun: true });
+        if (r && typeof r.unloaded === "number" && r.unloaded > 0) {
+          return `Discards ${r.unloaded} hidden-workspace tab${r.unloaded === 1 ? "" : "s"} to save memory · click reloads`;
+        }
+      }
+    } catch (e) {}
+    return base;
+  }
+
+
+  // about:unloads-lite subtitle: "N tabs due · oldest: host". Read-only
+  // (unloadCandidates never discards); failures read as the plain base.
+  function unloadCandidatesSub(api) {
+    const base = "Previews what the next auto-unload sweep would discard";
+    try {
+      if (api && typeof api.unloadCandidates === "function") {
+        const c = api.unloadCandidates(5);
+        if (c && typeof c.total === "number" && c.total > 0) {
+          const oldest =
+            c.list && c.list.length && c.list[0].host ? ` · oldest: ${c.list[0].host}` : "";
+          return `${c.total} tab${c.total === 1 ? "" : "s"} due for auto-unload${oldest}`;
+        }
+        return "Nothing due for auto-unload right now";
+      }
+    } catch (e) {}
+    return base;
+  }
+
+  function logUnloadCandidates(api) {
+    try {
+      const c =
+        api && typeof api.unloadCandidates === "function"
+          ? api.unloadCandidates(25)
+          : { total: 0, list: [] };
+      const lines = [`[AphUnload] ${c.total} tab(s) due for auto-unload:`];
+      for (const e of c.list || []) {
+        let age = "?";
+        try {
+          const mins = Math.max(0, Math.round((Date.now() - (e.lastViewed || 0)) / 60000));
+          age = e.lastViewed ? `${mins}m ago` : "never tracked";
+        } catch (_e) {}
+        lines.push(`  ws=${e.ws || "?"} ${e.host || "(no host)"} — ${e.title || "(no title)"} [${age}]`);
+      }
+      if (c.total > (c.list || []).length) {
+        lines.push(`  …and ${c.total - c.list.length} more`);
+      }
+      const msg = lines.join("\n");
+      try {
+        if (typeof Services !== "undefined" && Services && Services.console) {
+          Services.console.logStringMessage(msg);
+          return;
+        }
+      } catch (e) {}
+      try {
+        if (typeof console !== "undefined" && console.log) {
+          console.log(msg);
+        }
+      } catch (e) {}
+    } catch (e) {}
+  }
+
   function commands() {
     const api = ws();
     const cmds = [];
@@ -718,12 +791,22 @@
       {
         title: "Unload Inactive Tabs",
         hint: "",
-        sub: "Discards hidden-workspace tabs to save memory · click reloads",
+        sub: unloadInactiveSub(api),
         run: () => {
           try {
             if (api && api.unloadEligibleTabs) {
               api.unloadEligibleTabs({ scope: "foreign" });
             }
+          } catch (e) {}
+        },
+      },
+      {
+        title: "Show Unload Candidates",
+        hint: "",
+        sub: unloadCandidatesSub(api),
+        run: () => {
+          try {
+            logUnloadCandidates(api);
           } catch (e) {}
         },
       },

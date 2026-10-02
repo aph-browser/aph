@@ -290,6 +290,61 @@
           });
         }
       } catch (err) {}
+      // Unload variant (Firefox 140 parity): discard the clicked tab via
+      // unloadSingleTab (selected tabs move selection to a neighbor first —
+      // stock refuses selected-tab discard). Guarded tabs render disabled
+      // rather than vanishing, so the row is a stable landmark. The probe
+      // discounts "selected" (the unload path moves selection first) but
+      // never discounts pinned — app anchors always read disabled.
+      try {
+        if (typeof unloadSingleTab === "function") {
+          let unloadable = false;
+          try {
+            if (typeof canUnloadTab === "function") {
+              const c = canUnloadTab(clicked);
+              if (c.ok) {
+                unloadable = true;
+              } else if (
+                c.reason === "selected" &&
+                !clicked.pinned &&
+                typeof findParkNeighbor === "function" &&
+                !!findParkNeighbor(clicked)
+              ) {
+                unloadable = true;
+              }
+            }
+          } catch (err) {
+            unloadable = false;
+          }
+          const uitem = makeMoveMenuNode(
+            "menuitem",
+            "aph-unload-tab",
+            n > 1 ? `Unload ${n} Tabs` : "Unload Tab",
+            !unloadable
+          );
+          if (uitem) {
+            if (typeof uitem.addEventListener === "function") {
+              const unl = targets.slice();
+              uitem.addEventListener("command", () => {
+                try {
+                  for (const t of unl) {
+                    try {
+                      unloadSingleTab(t);
+                    } catch (_e) {}
+                  }
+                  if (typeof renderDock === "function") {
+                    renderDock();
+                  }
+                } catch (err) {}
+              });
+            }
+            try {
+              menu.appendChild(uitem);
+              moveMenuItems.push(uitem);
+            } catch (err) {}
+          }
+        }
+      } catch (err) {}
       // Window variant: explicit cross-window move (window-scoped model —
       // the only path that touches another window). Arrivals join the
       // destination's current workspace.

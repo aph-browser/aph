@@ -505,15 +505,14 @@
         syncAllTabChrome();
       }
     } catch (e) {}
-    // Deferred so the switch stays snappy; guards re-check at fire time.
+    // Deferred settle sweep so the switch stays snappy: each switch
+    // (re-)arms a 15 s timer there (same shape as auto-archive below), so
+    // the sweep fires only once you've sat still. Guards re-check at fire
+    // time. Scope "auto" (staleness covers hidden and idle-current tabs);
+    // no other auto path exists: every automatic unload in this bundle
+    // flows through scheduleUnloadSweep.
     try {
-      if (getUnloadOnSwitch()) {
-        setTimeout(() => {
-          try {
-            unloadEligibleTabs({ scope: "foreign" });
-          } catch (e) {}
-        }, 0);
-      }
+      scheduleUnloadSweep();
     } catch (e) {}
     // Auto-archive (opt-in pref, default off — archive.js owns the pref
     // read, eligibility and timing): each switch (re-)arms a 15 s settle
