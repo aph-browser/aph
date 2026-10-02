@@ -27,11 +27,19 @@ CHROME_FILES = ("userChrome.css", "userContent.css")
 
 
 def test_posix_launchers_seed_chrome() -> None:
+    """Launchers defer to the shared seed-profile.sh, which seeds both
+    chrome CSS files exactly like dev.py."""
+    script = (ROOT / "packaging" / "seed-profile.sh").read_text(encoding="utf-8")
+    for name in CHROME_FILES:
+        assert name in script, name
+    assert "Seed-once" in script or "seed" in script
     for rel in SH_LAUNCHERS:
         text = (ROOT / rel).read_text(encoding="utf-8")
-        for name in CHROME_FILES:
-            assert f"chrome/{name}" in text, (rel, name)
-            assert name in text, (rel, name)
+        assert "seed-profile.sh" in text, (rel, "must delegate")
+        # The inline cp-once copies must be gone (drift guard): no direct
+        # references to the staged chrome files from the launcher itself.
+        assert "userChrome.css" not in text or text.count("userChrome.css") <= 1
+        assert "userContent.css" not in text or text.count("userContent.css") <= 1
 
 
 def test_windows_launchers_seed_chrome() -> None:

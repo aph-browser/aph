@@ -1,17 +1,12 @@
 #!/bin/sh
-# Aph launcher — mirrors packaging/AppRun: seed first-run prefs,
-# then run Firefox with the Aph profile.
+# Aph launcher — seed first-run prefs, then run Firefox with the Aph
+# profile. Seeding lives in packaging/seed-profile.sh (single POSIX source
+# of truth; aph.bat mirrors it, dev.py is the Python equivalent). The
+# AppImage payload ships it at /usr/share/aph/seed-profile.sh (PKGBUILD
+# extracts the AppDir into /usr/share), so /usr/bin/aph just delegates.
 set -eu
 APH_PROFILE="${APH_PROFILE:-$HOME/.config/aph/profile}"
-# One-time move off the legacy path (never use ~/.aph/profile).
-if [ ! -e "$APH_PROFILE" ] && [ -e "$HOME/.aph/profile" ]; then mkdir -p "$(dirname "$APH_PROFILE")"; mv "$HOME/.aph/profile" "$APH_PROFILE"; fi
 mkdir -p "$APH_PROFILE"
-# Seed-once defaults: never overwrite an existing user.js (user edits persist).
-if [ ! -f "$APH_PROFILE/user.js" ]; then cp -f /usr/share/aph/user.js "$APH_PROFILE/user.js"; fi
-# Seed-once menu accents: never overwrite user edits.
-mkdir -p "$APH_PROFILE/chrome"
-if [ ! -f "$APH_PROFILE/chrome/userChrome.css" ]; then cp -f /usr/share/aph/userChrome.css "$APH_PROFILE/chrome/userChrome.css"; fi
-# Seed-once new-tab backdrop: never overwrite user edits.
-if [ ! -f "$APH_PROFILE/chrome/userContent.css" ]; then cp -f /usr/share/aph/userContent.css "$APH_PROFILE/chrome/userContent.css"; fi
+/usr/share/aph/seed-profile.sh /usr/share/aph "$APH_PROFILE"
 # No --no-remote so external links reuse the running instance.
 exec /opt/aph/firefox --profile "$APH_PROFILE" "$@"

@@ -66,6 +66,8 @@ modules:
       # (dev.py parity).
       - install -Dm644 stage/userChrome.css /app/share/aph/userChrome.css
       - install -Dm644 stage/userContent.css /app/share/aph/userContent.css
+      # Shared seed-once script the /app/bin/aph wrapper at line above calls.
+      - install -Dm755 stage/seed-profile.sh /app/share/aph/seed-profile.sh
       # Launcher + desktop integration (filenames already match the app-id).
       - install -Dm755 stage/aph /app/bin/aph
       - install -Dm644 stage/io.github.aph_browser.Aph.desktop -t /app/share/applications/
