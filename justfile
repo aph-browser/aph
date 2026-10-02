@@ -51,6 +51,14 @@ render-logo:
 check-assets:
     uv run python scripts/build_assets.py --check
 
+# Derived version strings must match pyproject.toml (the source of truth)
+check-version:
+    uv run python scripts/sync_version.py --check
+
+# Re-sync every derived version string from pyproject.toml
+sync-version:
+    uv run python scripts/sync_version.py
+
 # Python lint + format check
 lint:
     uv tool run ruff check scripts/ tests_py/
@@ -61,7 +69,7 @@ test-py:
     uv run --group dev pytest tests_py/ -q
 
 # All static gates: lint + asset freshness + python + node harness tests
-check: lint check-assets test-py test
+check: lint check-assets check-version test-py test
 
 # Download latest Betterfox and merge with Aph overrides into config/user.js
 # (seed-once: only affects fresh profiles until `just sync-prefs`)

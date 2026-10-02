@@ -35,6 +35,9 @@ jobs:
       - name: Generated bundles are fresh
         run: python scripts/build_assets.py --check
 
+      - name: Version strings in sync
+        run: python scripts/sync_version.py --check
+
       - name: Python unit tests
         run: python -m pytest tests_py/ -q
 
@@ -82,6 +85,8 @@ jobs:
           cp config/user.js build/AppDir/usr/share/aph/user.js
           cp branding/userChrome.css build/AppDir/usr/share/aph/userChrome.css
           cp branding/userContent.css build/AppDir/usr/share/aph/userContent.css
+          cp packaging/seed-profile.sh build/AppDir/usr/share/aph/seed-profile.sh
+          chmod +x build/AppDir/usr/share/aph/seed-profile.sh
           cp branding/aph.png build/AppDir/aph.png
           cp branding/aph.png build/AppDir/usr/share/icons/hicolor/128x128/apps/aph.png
           python -c "from PIL import Image; im=Image.open('branding/aph.png').convert('RGBA'); import os; [(os.makedirs(f'build/AppDir/usr/share/icons/hicolor/{s}x{s}/apps', exist_ok=True), im.resize((s,s), Image.LANCZOS).save(f'build/AppDir/usr/share/icons/hicolor/{s}x{s}/apps/aph.png')) for s in (16,32,48,64,256)]"
@@ -146,6 +151,7 @@ jobs:
           cp config/user.js build/flatpak-stage/user.js
           cp branding/userChrome.css build/flatpak-stage/userChrome.css
           cp branding/userContent.css build/flatpak-stage/userContent.css
+          cp packaging/seed-profile.sh build/flatpak-stage/seed-profile.sh
           cp packaging/flatpak/aph build/flatpak-stage/aph
           cp "packaging/flatpak/io.github.aph_browser.Aph.desktop" build/flatpak-stage/
           cp "packaging/flatpak/io.github.aph_browser.Aph.metainfo.xml" build/flatpak-stage/

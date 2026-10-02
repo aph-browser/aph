@@ -91,6 +91,8 @@ jobs:
           cp config/user.js build/AppDir/usr/share/aph/user.js
           cp branding/userChrome.css build/AppDir/usr/share/aph/userChrome.css
           cp branding/userContent.css build/AppDir/usr/share/aph/userContent.css
+          cp packaging/seed-profile.sh build/AppDir/usr/share/aph/seed-profile.sh
+          chmod +x build/AppDir/usr/share/aph/seed-profile.sh
           cp branding/aph.png build/AppDir/aph.png
           cp branding/aph.png build/AppDir/usr/share/icons/hicolor/128x128/apps/aph.png
           python -c "from PIL import Image; im=Image.open('branding/aph.png').convert('RGBA'); import os; [(os.makedirs(f'build/AppDir/usr/share/icons/hicolor/{s}x{s}/apps', exist_ok=True), im.resize((s,s), Image.LANCZOS).save(f'build/AppDir/usr/share/icons/hicolor/{s}x{s}/apps/aph.png')) for s in (16,32,48,64,256)]"
@@ -162,6 +164,7 @@ jobs:
           cp config/user.js build/flatpak-stage/user.js
           cp branding/userChrome.css build/flatpak-stage/userChrome.css
           cp branding/userContent.css build/flatpak-stage/userContent.css
+          cp packaging/seed-profile.sh build/flatpak-stage/seed-profile.sh
           cp packaging/flatpak/aph build/flatpak-stage/aph
           cp "packaging/flatpak/io.github.aph_browser.Aph.desktop" build/flatpak-stage/
           cp "packaging/flatpak/io.github.aph_browser.Aph.metainfo.xml" build/flatpak-stage/
@@ -287,6 +290,11 @@ jobs:
           set -eu
           TAG="${GITHUB_REF#refs/tags/}"
           VER="${TAG#v}"
+          PKGVER="$(python -c "from scripts.version import get_version; print(get_version())")"
+          if [ "$VER" != "$PKGVER" ]; then
+            echo "Tag $TAG does not match pyproject.toml version $PKGVER" >&2
+            exit 1
+          fi
           FXVER="$(cat dist/rel-meta/firefox-version.txt)"
           cat > notes.md <<'EOF'
            ## Aph __VER__
@@ -299,7 +307,7 @@ jobs:
            - Profiles: Linux `~/.config/aph/profile` (daily install) ·
               Windows `%APPDATA%\Aph\profile` (seed-once user.js + userChrome.css + userContent.css)
 
-           ### What's new in 0.3.0
+           ### What's new in __VER__
 
            Command palette (`Ctrl+K`)
            - Bold Raycast-style restyle with no open-flash-reopen
