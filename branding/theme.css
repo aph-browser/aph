@@ -518,6 +518,35 @@ tab[usercontextid]:not([data-aph-bound-match="1"]):not([selected]) .tab-context-
 }
 
 /* ==========================================================================
+   7c. Container stroke placement (vertical tab strip): stock Nova paints
+   the identity stroke as a full-width bar along the tab's bottom edge
+   (margin-block-start + border-block in tabs.css), which reads as a
+   divider under the tab rather than a property of the tab. Move it to the
+   tab's left edge in vertical orientation: a small centered 2px × 10px
+   tick, not a full-height bar. Horizontal mode keeps the native bottom bar.
+   Absolute + explicit reset of the stock in-flow geometry (height:0 /
+   border-block / margin-inline-start) so the two don't fight. §7 (hide on
+   bound match) and §7b (half-strength on unselected) keep overriding the
+   color — they win on specificity / cascade order regardless of position.
+   ========================================================================== */
+
+#tabbrowser-tabs[orient="vertical"] .tabbrowser-tab[usercontextid] > .tab-stack > .tab-background {
+  position: relative;
+}
+
+#tabbrowser-tabs[orient="vertical"] .tabbrowser-tab[usercontextid] > .tab-stack > .tab-background > .tab-context-line {
+  position: absolute !important;
+  inset-inline-start: 0;
+  inset-block-start: calc(50% - 5px);
+  width: 2px !important;
+  height: 10px !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: var(--border-radius-xsmall);
+  background-color: var(--identity-stroke-color, var(--identity-icon-color)) !important;
+}
+
+/* ==========================================================================
    8. Unloaded (discarded) tabs: parked rows must read parked at a glance.
    Loaded is the default state, so only pending tabs are styled. Stock
    Firefox sets `pending` on discard and grays the icon; icon-only proved
