@@ -24,9 +24,11 @@ function assertJsonEqual(actual, expected) {
 }
 
 describe("bool defaults match user-overrides.js", () => {
-  it("has the eight behavior toggles with seed-once defaults", () => {
+  it("has the ten toggles with seed-once defaults", () => {
     assertJsonEqual(L.BOOL_DEFAULTS, {
-      "aph.workspaces.unloadOnSwitch": false,
+      "aph.unload.autoEnabled": true,
+      "aph.unload.onLowMemory": true,
+      "browser.tabs.unloadOnLowMemory": true,
       "aph.archive.autoEnabled": false,
       "aph.addons.silenceFirstRun": true,
       "aph.pins.ctrlWUnloads": true,
@@ -102,6 +104,11 @@ describe("staleMin clamp", () => {
     assert.equal(L.clampStaleMin(undefined), L.STALE_DEFAULT);
     assert.equal(L.STALE_DEFAULT, 5);
   });
+
+  it("exposes the separate unload staleness pref (default 30)", () => {
+    assert.equal(L.UNLOAD_STALE_PREF, "aph.unload.staleMin");
+    assert.equal(L.UNLOAD_STALE_DEFAULT, 30);
+  });
 });
 
 describe("JSON guards", () => {
@@ -127,7 +134,9 @@ describe("backup round-trip", () => {
   const reader = {
     bool: (k, d) => {
       const fixed = {
-        "aph.workspaces.unloadOnSwitch": true,
+        "aph.unload.autoEnabled": true,
+        "aph.unload.onLowMemory": false,
+        "browser.tabs.unloadOnLowMemory": false,
         "aph.archive.autoEnabled": false,
         "aph.addons.silenceFirstRun": true,
         "aph.pins.ctrlWUnloads": true,
@@ -138,7 +147,7 @@ describe("backup round-trip", () => {
       };
       return k in fixed ? fixed[k] : d;
     },
-    int: () => 12,
+    int: (pref) => (pref === L.UNLOAD_STALE_PREF ? 30 : 12),
     json: (k) =>
       k === L.ARCHIVE_PREF
         ? [{ id: "a", url: "https://a.example/", title: "A" }]
@@ -149,9 +158,12 @@ describe("backup round-trip", () => {
     const b = L.buildBackup(reader);
     assert.equal(b.aphBackup, 1);
     assert.equal(typeof b.exportedAt, "string");
-    assert.equal(b.prefs["aph.workspaces.unloadOnSwitch"], true);
+    assert.equal(b.prefs["aph.unload.autoEnabled"], true);
+    assert.equal(b.prefs["aph.unload.onLowMemory"], false);
+    assert.equal(b.prefs["browser.tabs.unloadOnLowMemory"], false);
     assert.equal(b.prefs["aph.stars.ctrlWUnloads"], false);
     assert.equal(b.prefs["aph.archive.autoStaleMin"], 12);
+    assert.equal(b.prefs[L.UNLOAD_STALE_PREF], 30);
     assertJsonEqual(b.prefs[L.ARCHIVE_PREF], [
       { id: "a", url: "https://a.example/", title: "A" },
     ]);
@@ -178,6 +190,10 @@ describe("backup round-trip", () => {
     );
     assert.equal(
       L.parseBackup('{"aphBackup":1,"prefs":{"aph.archive.autoStaleMin":"soon"}}').ok,
+      false
+    );
+    assert.equal(
+      L.parseBackup('{"aphBackup":1,"prefs":{"aph.unload.staleMin":"soon"}}').ok,
       false
     );
     assert.equal(
@@ -216,11 +232,12 @@ describe("backup round-trip", () => {
       "aph.archive.tabs": [{}, {}],
       "aph.pins.ctrlWUnloads": true,
       "aph.archive.autoStaleMin": 5,
+      "aph.unload.staleMin": 30,
     });
     assert.ok(s.includes("2 workspace names"), s);
     assert.ok(s.includes("1 route"), s);
     assert.ok(s.includes("2 archived tabs"), s);
-    assert.ok(s.includes("2 settings"), s);
+    assert.ok(s.includes("3 settings"), s);
     assert.equal(L.summarizeBackup({}), "no Aph prefs");
   });
 });

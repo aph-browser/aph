@@ -104,12 +104,6 @@ html, body {
   #aph-settings {
     max-width: 1080px;
   }
-  #aph-settings-list.has-search {
-    display: grid;
-    grid-template-columns: 220px 1fr;
-    gap: 24px;
-    align-items: start;
-  }
 }
 
 #aph-settings-head {
@@ -472,6 +466,21 @@ html, body {
 }
 .aph-settings-rowbtn.danger {
   color: var(--set-danger);
+}
+.aph-settings-rowbtn.is-active {
+  background: var(--set-raised);
+  color: var(--set-text);
+  border-color: color-mix(in srgb, var(--set-accent) 65%, transparent);
+}
+
+/* Staleness tier buttons (unload presets): wrap under the row on narrow
+ * widths. Flex + gap only — no physical direction props (RTL-clean). */
+.aph-settings-presets {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 /* Modal (replaces native confirm for import/reset). */

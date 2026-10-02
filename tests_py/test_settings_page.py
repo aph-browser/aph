@@ -15,7 +15,10 @@ CSS = ROOT / "branding" / "settings.css"
 PAGE_JS = ROOT / "branding" / "settings-page.js"
 
 EXPECTED_PREFS = {
-    "aph.workspaces.unloadOnSwitch",
+    "aph.unload.autoEnabled",
+    "aph.unload.staleMin",
+    "aph.unload.onLowMemory",
+    "browser.tabs.unloadOnLowMemory",
     "aph.archive.autoEnabled",
     "aph.archive.autoStaleMin",
     "aph.addons.silenceFirstRun",
@@ -151,7 +154,9 @@ def test_settings_page_covers_every_pref() -> None:
     # Defaults match config/user-overrides.js seed-once values (the last
     # two are stock prefs Aph seeds off, not aph.* prefs).
     for pref, val in (
-        ('"aph.workspaces.unloadOnSwitch": false', "unloadOnSwitch"),
+        ('"aph.unload.autoEnabled": true', "unloadAuto"),
+        ('"aph.unload.onLowMemory": true', "unloadLowMem"),
+        ('"browser.tabs.unloadOnLowMemory": true', "nativeUnloadLowMem"),
         ('"aph.archive.autoEnabled": false', "autoEnabled"),
         ('"aph.addons.silenceFirstRun": true', "silenceFirstRun"),
         ('"aph.pins.ctrlWUnloads": true', "pins"),
@@ -162,6 +167,19 @@ def test_settings_page_covers_every_pref() -> None:
     ):
         assert pref in js, f"wrong default for {val}"
     assert "STALE_DEFAULT = 5" in js
+    assert "UNLOAD_STALE_DEFAULT = 30" in js
+    assert '"aph.unload.staleMin", 30' in js or '"aph.unload.staleMin"' in js
+
+
+def test_native_unload_pref_in_both_configs() -> None:
+    """The stock safety net ships seeded-on in BOTH config files (last-line
+    merge would drop it from fresh profiles if either missed it)."""
+    overrides = (ROOT / "config" / "user-overrides.js").read_text(encoding="utf-8")
+    user_js = (ROOT / "config" / "user.js").read_text(encoding="utf-8")
+    for name, text in (("user-overrides.js", overrides), ("user.js", user_js)):
+        assert 'user_pref("browser.tabs.unloadOnLowMemory", true);' in text, (
+            f"config/{name} must seed the native unloader on (parity with stock)"
+        )
 
 
 def test_settings_page_uses_services_directly() -> None:

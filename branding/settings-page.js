@@ -11,7 +11,13 @@
  */
 var AphSettingsLogic = (function () {
   const BOOL_DEFAULTS = {
-    "aph.workspaces.unloadOnSwitch": false,
+    "aph.unload.autoEnabled": true,
+    "aph.unload.onLowMemory": true,
+    // Stock Firefox safety net (not Aph's): the native LRU + memory-weight
+    // unloader under real memory pressure. Seeded on like stock; the row
+    // below keeps it user-togglable so about:config flips survive restarts
+    // via the usual user.js write-through.
+    "browser.tabs.unloadOnLowMemory": true,
     "aph.archive.autoEnabled": false,
     "aph.addons.silenceFirstRun": true,
     "aph.pins.ctrlWUnloads": true,
@@ -29,6 +35,23 @@ var AphSettingsLogic = (function () {
   const STALE_MIN = 0;
   const STALE_MAX = 1440;
 
+  // Automatic unloading staleness: separate pref from the archive one on
+  // purpose — unloading is cheap and reversible (click reloads) while
+  // archiving closes the tab. Pair them as unload < archive so tabs
+  // discard before they close. Same 0..1440 clamp as STALE_* above.
+  const UNLOAD_STALE_PREF = "aph.unload.staleMin";
+  const UNLOAD_STALE_DEFAULT = 30;
+
+  // Staleness presets (Edge/Chrome tier shape, one pref underneath):
+  // Relaxed keeps the work session, Balanced is today's default,
+  // Aggressive stays above the 5-minute sweeper interval (no per-sweep
+  // churn). The int row stays editable for exact values.
+  const UNLOAD_STALE_PRESETS = [
+    { label: "Relaxed", value: 60 },
+    { label: "Balanced", value: 30 },
+    { label: "Aggressive", value: 10 },
+  ];
+
   const FRECENCY_PREF = "aph.palette.frecency";
   const NAMES_PREF = "aph.workspaces.names";
   const BINDINGS_PREF = "aph.workspaces.containerBindings";
@@ -41,9 +64,33 @@ var AphSettingsLogic = (function () {
       rows: [
         {
           kind: "bool",
-          pref: "aph.workspaces.unloadOnSwitch",
-          title: "Unload hidden workspaces on switch",
-          desc: "Discard eligible hidden-workspace tabs after each switch to save memory. Off by default — use the palette's “Unload Inactive Tabs” for manual sweeps.",
+          pref: "aph.unload.autoEnabled",
+          title: "Auto-unload stale tabs",
+          desc: "Every 5 minutes (and 15 s after you stop switching), discard tabs not viewed within the staleness below — hidden workspaces and idle current-workspace tabs alike. Starred, pinned, audible, loading and unsaved-form tabs never unload; click an unloaded tab to reload it.",
+        },
+        {
+          kind: "int",
+          pref: "aph.unload.staleMin",
+          title: "Auto-unload staleness",
+          desc: "Tabs viewed within this many minutes are spared when the sweep fires. Tabs with no recorded view time count as stale. Keep this below the auto-archive staleness so tabs discard before they close.",
+        },
+        {
+          kind: "presets",
+          pref: "aph.unload.staleMin",
+          title: "Staleness presets",
+          desc: "One-click tiers writing the staleness above. Aggressive stays above the 5-minute sweeper interval, so sweeps never churn.",
+        },
+        {
+          kind: "bool",
+          pref: "aph.unload.onLowMemory",
+          title: "Unload on low memory",
+          desc: "When Firefox reports memory pressure, immediately discard stale tabs (same guards as auto-unload). On by default — the guard set makes an extra sweep safe anywhere.",
+        },
+        {
+          kind: "bool",
+          pref: "browser.tabs.unloadOnLowMemory",
+          title: "Firefox native low-memory unloading",
+          desc: "Stock safety net: Firefox itself unloads least-recently-used tabs when system memory runs low. Workspace-blind (it can take starred tabs too) but click-to-reload. On matches stock; off leaves memory to Aph's sweeps alone.",
         },
       ],
     },
@@ -176,6 +223,7 @@ var AphSettingsLogic = (function () {
         out[k] = !!read.bool(k, BOOL_DEFAULTS[k]);
       }
       out[STALE_PREF] = clampStaleMin(read.int(STALE_PREF, STALE_DEFAULT));
+      out[UNLOAD_STALE_PREF] = clampStaleMin(read.int(UNLOAD_STALE_PREF, UNLOAD_STALE_DEFAULT));
       for (const k of BACKUP_JSON_PREFS) {
         out[k] = read.json(k);
       }
@@ -221,6 +269,15 @@ var AphSettingsLogic = (function () {
         return { ok: false, error: `${STALE_PREF} must be a number.` };
       }
       prefs[STALE_PREF] = clampStaleMin(root.prefs[STALE_PREF]);
+    }
+    if (UNLOAD_STALE_PREF in root.prefs) {
+      if (
+        typeof root.prefs[UNLOAD_STALE_PREF] !== "number" ||
+        !Number.isFinite(root.prefs[UNLOAD_STALE_PREF])
+      ) {
+        return { ok: false, error: `${UNLOAD_STALE_PREF} must be a number.` };
+      }
+      prefs[UNLOAD_STALE_PREF] = clampStaleMin(root.prefs[UNLOAD_STALE_PREF]);
     }
     // JSON prefs validate in BACKUP_JSON_PREFS order so an export →
     // import round-trip keeps stable key order (diffable files).
@@ -315,6 +372,9 @@ var AphSettingsLogic = (function () {
       if (STALE_PREF in prefs) {
         toggles++;
       }
+      if (UNLOAD_STALE_PREF in prefs) {
+        toggles++;
+      }
       if (toggles) {
         bits.push(`${toggles} setting${toggles === 1 ? "" : "s"}`);
       }
@@ -328,6 +388,9 @@ var AphSettingsLogic = (function () {
     STALE_DEFAULT,
     STALE_MIN,
     STALE_MAX,
+    UNLOAD_STALE_PREF,
+    UNLOAD_STALE_DEFAULT,
+    UNLOAD_STALE_PRESETS,
     FRECENCY_PREF,
     NAMES_PREF,
     BINDINGS_PREF,
@@ -500,25 +563,68 @@ var AphSettingsLogic = (function () {
     }
   }
 
-  function readStale() {
+  // Generic int-pref IO shared by both staleness rows (archive +
+  // unload). readStale/writeStale stay as archive-pref wrappers so
+  // existing callers keep working.
+  function staleDefaultFor(pref) {
     try {
       const l = L();
-      const d = (l && l.STALE_DEFAULT) || 5;
+      if (l && pref === l.UNLOAD_STALE_PREF) {
+        return l.UNLOAD_STALE_DEFAULT || 30;
+      }
+      if (l && typeof l.STALE_DEFAULT === "number") {
+        return l.STALE_DEFAULT;
+      }
+    } catch (e) {}
+    return pref === "aph.unload.staleMin" ? 30 : 5;
+  }
+
+  function readIntPref(pref) {
+    const d = staleDefaultFor(pref);
+    try {
+      const l = L();
       const p = prefs();
       if (!p || typeof p.getIntPref !== "function") {
         return d;
       }
       let v = d;
       try {
-        v = p.getIntPref(l ? l.STALE_PREF : "aph.archive.autoStaleMin", d);
+        v = p.getIntPref(pref, d);
       } catch (e) {
         try {
-          v = p.getIntPref(l ? l.STALE_PREF : "aph.archive.autoStaleMin");
+          v = p.getIntPref(pref);
         } catch (_e) {
           v = d;
         }
       }
       return l ? l.clampStaleMin(v) : v;
+    } catch (e) {
+      return d;
+    }
+  }
+
+  function writeIntPref(pref, v) {
+    try {
+      const l = L();
+      const clamped = l ? l.clampStaleMin(v) : Math.floor(Number(v));
+      const p = prefs();
+      if (p && typeof p.setIntPref === "function") {
+        p.setIntPref(pref, clamped);
+        // Same user.js write-through as writeBool: the seeded staleness
+        // line would otherwise stomp this on next startup.
+        persistToggleBestEffort(pref, clamped);
+        return clamped;
+      }
+      return clamped;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function readStale() {
+    try {
+      const l = L();
+      return readIntPref((l && l.STALE_PREF) || "aph.archive.autoStaleMin");
     } catch (e) {
       return 5;
     }
@@ -527,16 +633,7 @@ var AphSettingsLogic = (function () {
   function writeStale(v) {
     try {
       const l = L();
-      const clamped = l ? l.clampStaleMin(v) : Math.floor(Number(v));
-      const p = prefs();
-      if (p && typeof p.setIntPref === "function") {
-        p.setIntPref(l ? l.STALE_PREF : "aph.archive.autoStaleMin", clamped);
-        // Same user.js write-through as writeBool: the seeded staleness
-        // line would otherwise stomp this on next startup.
-        persistToggleBestEffort(l ? l.STALE_PREF : "aph.archive.autoStaleMin", clamped);
-        return clamped;
-      }
-      return clamped;
+      return writeIntPref((l && l.STALE_PREF) || "aph.archive.autoStaleMin", v);
     } catch (e) {
       return null;
     }
@@ -828,10 +925,10 @@ var AphSettingsLogic = (function () {
       input.min = String((l && l.STALE_MIN) || 0);
       input.max = String((l && l.STALE_MAX) || 1440);
     } catch (e) {}
-    input.value = String(readStale());
+    input.value = String(readIntPref(row.pref));
     input.setAttribute("aria-label", row.pref);
     input.addEventListener("change", () => {
-      const v = writeStale(input.value);
+      const v = writeIntPref(row.pref, input.value);
       if (v !== null && v !== undefined) {
         input.value = String(v);
         toast("Saved");
@@ -840,6 +937,66 @@ var AphSettingsLogic = (function () {
       }
     });
     wrap.appendChild(input);
+    return wrap;
+  }
+
+  // Tier buttons writing the same int pref as the row above (Chrome
+  // Moderate/Balanced/Maximum shape, one source of truth). Active tier is
+  // the exact match; custom values highlight nothing. Re-renders after a
+  // pick so the int input and the active state stay in sync.
+  function makePresetRow(row) {
+    const wrap = document.createElement("div");
+    wrap.className = "aph-settings-row";
+
+    const main = document.createElement("div");
+    main.className = "aph-settings-main";
+    const label = document.createElement("div");
+    label.className = "aph-settings-label";
+    label.textContent = row.title;
+    main.appendChild(label);
+    if (row.desc) {
+      const desc = document.createElement("div");
+      desc.className = "aph-settings-desc";
+      desc.textContent = row.desc;
+      main.appendChild(desc);
+    }
+    const pref = document.createElement("div");
+    pref.className = "aph-settings-pref";
+    pref.textContent = row.pref;
+    main.appendChild(pref);
+    wrap.appendChild(main);
+
+    const group = document.createElement("div");
+    group.className = "aph-settings-presets";
+    let options = [];
+    try {
+      const l = L();
+      options = (l && l.UNLOAD_STALE_PRESETS) || [];
+    } catch (e) {}
+    let cur = null;
+    try {
+      cur = readIntPref(row.pref);
+    } catch (e) {}
+    for (const o of options) {
+      const b = document.createElement("button");
+      b.type = "button";
+      const active = cur === o.value;
+      b.className = "aph-settings-rowbtn" + (active ? " is-active" : "");
+      b.textContent = `${o.label} (${o.value}m)`;
+      b.setAttribute("aria-pressed", active ? "true" : "false");
+      b.setAttribute("aria-label", `${o.label}: ${o.value} minutes`);
+      b.addEventListener("click", () => {
+        const v = writeIntPref(row.pref, o.value);
+        if (v !== null && v !== undefined) {
+          toast("Saved");
+          refreshTables();
+        } else {
+          toast("Write failed");
+        }
+      });
+      group.appendChild(b);
+    }
+    wrap.appendChild(group);
     return wrap;
   }
 
@@ -1181,7 +1338,13 @@ var AphSettingsLogic = (function () {
         section.appendChild(h);
         for (const row of rows) {
           try {
-            section.appendChild(row.kind === "int" ? makeIntRow(row) : makeBoolRow(row));
+            section.appendChild(
+              row.kind === "int"
+                ? makeIntRow(row)
+                : row.kind === "presets"
+                  ? makePresetRow(row)
+                  : makeBoolRow(row)
+            );
           } catch (_e) {}
         }
         list.appendChild(section);
@@ -1209,9 +1372,6 @@ var AphSettingsLogic = (function () {
         }
         list.appendChild(s);
       }
-      try {
-        list.classList.toggle("has-search", window.innerWidth >= 1100);
-      } catch (e) {}
     } catch (e) {}
   }
 
@@ -1266,11 +1426,25 @@ var AphSettingsLogic = (function () {
           n++;
         }
       }
-      const sp = (l && l.STALE_PREF) || "aph.archive.autoStaleMin";
-      if (p && sp in p) {
-        const v = writeStale(p[sp]);
-        if (v !== null && v !== undefined) {
-          n++;
+      const stalePrefs = [];
+      try {
+        if (l && l.STALE_PREF) {
+          stalePrefs.push(l.STALE_PREF);
+        } else {
+          stalePrefs.push("aph.archive.autoStaleMin");
+        }
+        if (l && l.UNLOAD_STALE_PREF) {
+          stalePrefs.push(l.UNLOAD_STALE_PREF);
+        } else {
+          stalePrefs.push("aph.unload.staleMin");
+        }
+      } catch (e) {}
+      for (const sp of stalePrefs) {
+        if (p && sp in p) {
+          const v = writeIntPref(sp, p[sp]);
+          if (v !== null && v !== undefined) {
+            n++;
+          }
         }
       }
       for (const k of (l && l.BACKUP_JSON_PREFS) || []) {
@@ -1291,7 +1465,7 @@ var AphSettingsLogic = (function () {
       }
       const data = l.buildBackup({
         bool: (k) => readBool(k),
-        int: () => readStale(),
+        int: (pref, d) => readIntPref(pref || (l && l.STALE_PREF) || "aph.archive.autoStaleMin"),
         json: (k) => (k === l.ARCHIVE_PREF ? readJsonArray(k) : readJsonObject(k)),
       });
       const text = JSON.stringify(data, null, 2);

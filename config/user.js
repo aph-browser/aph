@@ -284,18 +284,44 @@ user_pref("browser.nova.enabled", true);
 // prefers-color-scheme and the OS, exactly as before. Removing the theme
 // must not decide the room.
 
-// 12. Workspace tab unloading: manual via palette ("Unload Inactive Tabs").
-// Set true to also discard eligible hidden-workspace tabs after each switch.
-user_pref("aph.workspaces.unloadOnSwitch", false);
+// 11c. Firefox native low-memory unloading (stock safety net, NOT Aph's):
+// under real memory pressure Firefox itself unloads least-recently-used
+// tabs (LRU + memory weight, about:unloads shows the ranking). It is
+// workspace-blind — it can take starred or fresh tabs too — but everything
+// reloads on click with workspace tags intact. On matches stock; off leaves
+// memory management to Aph's sweeps alone. Togglable live in Aph Settings.
+user_pref("browser.tabs.unloadOnLowMemory", true);
 
-// 12b. Automatic tab archiving: set true to archive (close + store in the
+// 12. Workspace tab unloading: manual via palette ("Unload Inactive Tabs"
+// sweeps hidden workspaces, "Unload Current Tab" / tab right-click unloads
+// one tab).
+
+// 12a. Automatic tab unloading (on by default): discards every stale tab —
+// hidden workspaces and idle current-workspace tabs alike — every 5 min
+// and 15 s after you stop switching. Starred, pinned, audible, loading
+// and unsaved-form tabs never unload; click an unloaded tab to reload it.
+user_pref("aph.unload.autoEnabled", true);
+
+// 12b. Auto-unload staleness: tabs viewed within this many minutes are
+// spared when the sweep fires (default 30). Read live — about:config flips
+// apply to the next sweep. Tabs with no recorded view time count as stale.
+// Keep this below aph.archive.autoStaleMin so tabs discard before they close.
+user_pref("aph.unload.staleMin", 30);
+
+// 12c. Unload on low memory: when Firefox reports memory pressure,
+// immediately discard stale tabs (same guards as auto-unload, oldest first,
+// max 25 per sweep). On by default — the guard set makes an extra sweep
+// safe anywhere.
+user_pref("aph.unload.onLowMemory", true);
+
+// 12d. Automatic tab archiving: set true to archive (close + store in the
 // tab archive) every eligible hidden-workspace tab — 15 s after you stop
 // switching (each switch re-arms the settle timer; sitting still fires it).
 // Selected, pinned, starred, audible, loading and unsaved-form tabs never
 // auto-close.
 user_pref("aph.archive.autoEnabled", false);
 
-// 12c. Auto-archive staleness: tabs viewed within this many minutes are
+// 12e. Auto-archive staleness: tabs viewed within this many minutes are
 // spared when the sweep fires (default 5). Read live — about:config flips
 // apply to the next sweep. Tabs with no recorded view time count as stale.
 user_pref("aph.archive.autoStaleMin", 5);
