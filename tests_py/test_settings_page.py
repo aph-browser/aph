@@ -65,16 +65,17 @@ def test_settings_css_is_sane() -> None:
     css = CSS.read_text(encoding="utf-8")
     assert css.count("{") == css.count("}"), "unbalanced braces"
     assert css.count("/*") == css.count("*/"), "unbalanced comments"
+    # The local --set-* scale is gone; the page reads the shared tokens.
     for live in (
-        "--set-bg",
-        "--set-surface",
-        "--set-raised",
-        "--set-text",
-        "--set-muted",
-        "--set-radius-md",
-        "--set-radius-xl",
+        "var(--aph-base)",
+        "var(--aph-surface)",
+        "var(--aph-field)",
+        "var(--aph-ink)",
+        "var(--aph-ink-dim)",
+        "var(--aph-radius-lg)",
+        "var(--aph-radius-xl)",
     ):
-        assert live in css, f"missing chrome-system token: {live}"
+        assert live in css, f"missing shared token read: {live}"
     assert css.count("@font-face {") == 4
     assert "aph-fonts/inter-" in css
     assert "prefers-reduced-motion" in css
@@ -114,15 +115,16 @@ def test_settings_backup_logic_present() -> None:
 
 
 def test_settings_voice_parity() -> None:
-    """Separate document (no theme.css cascade), so the workspace hue
-    table is duplicated by design — and pinned equal to theme.css §21."""
+    """The page used to duplicate the nine workspace hues under --set-ws-N
+    with this test holding the copies equal. It now reads the tokens.css
+    table outright, so parity is structural: the page spends the shared
+    hues and carries no local copy."""
+    css = CSS.read_text()
     theme_hues = dict(re.findall(r"--aph-ws-([1-9]):\s*(#[0-9a-fA-F]{6})", _theme_css()))
-    set_hues = dict(re.findall(r"--set-ws-([1-9]):\s*(#[0-9a-fA-F]{6})", CSS.read_text()))
-    assert len(theme_hues) == 9 and len(set_hues) == 9
+    assert len(theme_hues) == 9
+    assert "--set-ws-" not in css
     for n in "123456789":
-        assert set_hues[n].lower() == theme_hues[n].lower(), (
-            f"ws{n} diverged: settings {set_hues[n]} vs chrome {theme_hues[n]}"
-        )
+        assert f"var(--aph-ws-{n})" in css, n
 
 
 def test_settings_identity_rows_carry_workspace() -> None:
@@ -130,7 +132,7 @@ def test_settings_identity_rows_carry_workspace() -> None:
     assert 'setAttribute("data-ws"' in js
     css = CSS.read_text(encoding="utf-8")
     assert ".aph-settings-table tr[data-ws]" in css
-    assert "--set-ws-accent" in css
+    assert "--aph-ws-now" in css
 
 
 def test_settings_stays_rtl_clean() -> None:

@@ -3,11 +3,21 @@
    surfaces (#17181f desk / #202028 elevated / #2a2c3a raised), ink +
    muted text. The tour is global surface throughout — no workspace
    identity rows, so no workspace hues here by design (unlike archive
-   and settings, which stamp data-ws and pin their tables to
-   theme.css §21). */
+   and settings, which stamp data-ws onto rows/pills). Every surface,
+   radius, shadow and motion value comes from aph-tokens.css (the shared
+   scale) — this file declares no local copies.
+   House rules for this file (enforced by tests_py/test_guest_css_tokens.py):
+   - no local per-page token scale (the old --set- / --arch- / --wel-
+     families are gone): every surface, radius, shadow, motion and hue
+     reads --aph-* from aph-tokens.css;
+   - no hardcoded radius/shadow/focus-ring literals (one-off cases carry a
+     "deliberate literal" comment instead);
+   - every transition/animation names a --aph-motion-* token;
+   - padding and margins sit on the 4px grid (1px/2px hairline and optical
+     offsets excepted).
+ */
 
-/* Shared tokens (shipped as chrome://browser/content/aph-tokens.css).
-   Local --wel-* mirrors below stay as fallback. */
+/* Shared tokens (shipped as chrome://browser/content/aph-tokens.css). */
 @import url("chrome://browser/content/aph-tokens.css");
 
 @font-face {
@@ -39,42 +49,12 @@
   font-display: swap;
 }
 
-:root {
-  color-scheme: dark light;
-  --wel-font: "Inter", system-ui, "Segoe UI", Roboto, "Noto Sans",
-    Ubuntu, Cantarell, sans-serif;
-  --wel-bg: #17181f;
-  --wel-surface: #202028;
-  --wel-raised: #22232f;
-  --wel-text: #e8e8ec;
-  --wel-muted: #a3a8ba;
-  --wel-faint: #626880;
-  --wel-line: rgba(255, 255, 255, 0.09);
-  --wel-accent: #0090ff;
-  --wel-radius-md: 6px;
-  --wel-radius-lg: 8px;
-  --wel-radius-xl: 10px;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-    --wel-bg: #e8e0c9;
-    --wel-surface: #f5efe0;
-    --wel-raised: #faf6ea;
-    --wel-text: #26262b;
-    --wel-muted: #585c64;
-    --wel-faint: #6b6f78;
-    --wel-line: rgba(38, 38, 43, 0.12);
-  }
-}
-
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--wel-bg);
-  color: var(--wel-text);
-  font: 14px/1.45 var(--wel-font);
+  background: var(--aph-base);
+  color: var(--aph-ink);
+  font: 14px/1.45 var(--aph-font-chrome);
   letter-spacing: 0.015em;
 }
 
@@ -87,10 +67,10 @@ html, body {
 #aph-welcome-head {
   position: sticky;
   top: 0;
-  background: color-mix(in srgb, var(--wel-bg) 88%, transparent);
+  background: color-mix(in srgb, var(--aph-base) 88%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(1.1);
   backdrop-filter: blur(12px) saturate(1.1);
-  border-bottom: 1px solid var(--wel-line);
+  border-bottom: 1px solid var(--aph-line);
   padding: 8px 0 16px;
   margin: 0 -24px;
   padding-inline: 24px;
@@ -100,17 +80,17 @@ html, body {
 #aph-welcome-title {
   font-size: 22px;
   font-weight: 600;
-  color: var(--wel-text);
+  color: var(--aph-ink);
   margin-bottom: 4px;
 }
 
 #aph-welcome-sub {
   font-size: 13px;
-  color: var(--wel-faint);
+  color: var(--aph-ink-faint);
 }
 
 .aph-welcome-group {
-  margin-top: 22px;
+  margin-top: 24px;
 }
 
 .aph-welcome-group > h2 {
@@ -118,27 +98,27 @@ html, body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--wel-faint);
+  color: var(--aph-ink-faint);
   margin: 0 0 8px 2px;
 }
 
 .aph-welcome-card {
-  padding: 10px 12px;
-  border-radius: var(--wel-radius-xl);
+  padding: 8px 12px;
+  border-radius: var(--aph-radius-xl);
 }
 
 .aph-welcome-card:hover {
-  background: var(--wel-surface);
+  background: var(--aph-surface);
 }
 
 .aph-welcome-label {
-  color: var(--wel-text);
+  color: var(--aph-ink);
   font-weight: 500;
 }
 
 .aph-welcome-desc {
   font-size: 12px;
-  color: var(--wel-faint);
+  color: var(--aph-ink-faint);
   margin-top: 2px;
 }
 
@@ -149,10 +129,10 @@ html, body {
 kbd {
   font-family: inherit;
   font-size: 12px;
-  background: var(--wel-surface);
-  border: 1px solid var(--wel-line);
+  background: var(--aph-surface);
+  border: 1px solid var(--aph-line);
   border-bottom-width: 2px;
-  border-radius: var(--wel-radius-md);
+  border-radius: var(--aph-radius-md);
   padding: 1px 6px;
   white-space: nowrap;
 }
@@ -160,7 +140,7 @@ kbd {
 #aph-welcome-foot {
   margin-top: 28px;
   padding-top: 16px;
-  border-top: 1px solid var(--wel-line);
+  border-top: 1px solid var(--aph-line);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -173,13 +153,13 @@ kbd {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: var(--wel-muted);
+  color: var(--aph-ink-dim);
 }
 
 #aph-welcome-skip {
   width: 16px;
   height: 16px;
-  accent-color: var(--wel-accent);
+  accent-color: var(--aph-ws-6);
 }
 
 #aph-welcome-actions {
@@ -195,9 +175,9 @@ kbd {
   grid-template-columns: 1fr 1fr;
   gap: 20px;
   align-items: center;
-  background: var(--wel-surface);
-  border: 1px solid var(--wel-line);
-  border-radius: var(--wel-radius-xl);
+  background: var(--aph-surface);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-xl);
   padding: 20px;
 }
 
@@ -211,39 +191,45 @@ kbd {
 .aph-hero-pill {
   min-width: 28px;
   height: 28px;
-  padding: 0 10px;
+  padding: 0 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--wel-radius-md);
-  background: color-mix(in srgb, var(--wel-text) 10%, transparent);
-  color: var(--wel-text);
+  border-radius: var(--aph-radius-md);
+  background: color-mix(in srgb, var(--aph-ink) 10%, transparent);
+  color: var(--aph-ink);
   font-size: 13px;
   font-weight: 600;
 }
 
 .aph-hero-pill-on {
-  background: color-mix(in srgb, var(--wel-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--aph-ws-6) 45%, transparent);
 }
 
 #aph-hero-bar {
   width: 100%;
   box-sizing: border-box;
-  background: var(--wel-raised);
-  border: 1px solid var(--wel-line);
-  border-radius: var(--wel-radius-lg);
-  padding: 10px 14px;
+  background: var(--aph-field);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-lg);
+  padding: 12px;
   font-size: 14px;
-  color: var(--wel-text);
+  color: var(--aph-ink);
   display: flex;
   gap: 8px;
   align-items: center;
+  /* Deliberate literal: the hero card's soft far-field lift is unique
+     to the tour (wider + flatter than --aph-shadow-l2's palette drop),
+     so it stays one-off rather than growing the elevation scale. */
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 
 #aph-hero-caret {
-  color: var(--wel-accent);
+  color: var(--aph-ws-6);
   font-weight: 700;
+  /* Deliberate literal: a caret blink is a semantic signal, not a UI
+     transition — it must stay out of the motion scale (and out of the
+     reduced-motion kill list). */
   animation: aph-hero-blink 1.1s steps(2) infinite;
 }
 
@@ -261,8 +247,8 @@ kbd {
 #aph-welcome-hero-copy p {
   font-size: 14px;
   line-height: 1.6;
-  color: var(--wel-muted);
-  margin: 10px 0 0;
+  color: var(--aph-ink-dim);
+  margin: 8px 0 0;
 }
 
 #aph-welcome-hero-steps {
@@ -274,17 +260,17 @@ kbd {
 .aph-hero-step {
   font-size: 12px;
   font-weight: 600;
-  color: var(--wel-faint);
+  color: var(--aph-ink-faint);
   background: transparent;
-  border: 1px solid var(--wel-line);
-  border-radius: 999px;
-  padding: 3px 10px;
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-pill);
+  padding: 4px 12px;
 }
 
 .aph-hero-step.on {
-  color: var(--wel-text);
-  border-color: color-mix(in srgb, var(--wel-accent) 55%, transparent);
-  background: color-mix(in srgb, var(--wel-accent) 18%, transparent);
+  color: var(--aph-ink);
+  border-color: color-mix(in srgb, var(--aph-ws-6) 55%, transparent);
+  background: color-mix(in srgb, var(--aph-ws-6) 18%, transparent);
 }
 
 .aph-welcome-demo {
@@ -296,22 +282,22 @@ kbd {
 
 .aph-welcome-demobtn {
   background: transparent;
-  color: var(--wel-muted);
-  border: 1px solid var(--wel-line);
-  border-radius: var(--wel-radius-lg);
-  padding: 5px 12px;
+  color: var(--aph-ink-dim);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-lg);
+  padding: 4px 12px;
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
 }
 
 .aph-welcome-demobtn:hover {
-  background: var(--wel-surface);
-  color: var(--wel-text);
+  background: var(--aph-surface);
+  color: var(--aph-ink);
 }
 
 .aph-welcome-demobtn:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--wel-accent) 65%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--aph-ws-6) 65%, transparent);
   outline-offset: 2px;
 }
 
@@ -322,10 +308,10 @@ kbd {
 }
 
 #aph-welcome-dismiss {
-  background: color-mix(in srgb, var(--wel-accent) 55%, transparent);
-  color: var(--wel-text);
+  background: color-mix(in srgb, var(--aph-ws-6) 55%, transparent);
+  color: var(--aph-ink);
   border: 1px solid transparent;
-  border-radius: var(--wel-radius-lg);
+  border-radius: var(--aph-radius-lg);
   padding: 8px 20px;
   font-size: 14px;
   font-weight: 500;
@@ -334,28 +320,28 @@ kbd {
 }
 
 #aph-welcome-dismiss:hover {
-  background: color-mix(in srgb, var(--wel-accent) 70%, transparent);
+  background: color-mix(in srgb, var(--aph-ws-6) 70%, transparent);
 }
 
 #aph-welcome-links {
   font-size: 13px;
-  color: var(--wel-faint);
+  color: var(--aph-ink-faint);
 }
 
 #aph-welcome-links a {
-  color: var(--wel-muted);
+  color: var(--aph-ink-dim);
 }
 
 /* Motion language (§24 in theme.css, same dialect): hovers ease instead
    of snapping. Reduced-motion kills every transition + the hero caret. */
 .aph-welcome-card {
-  transition: background-color 0.12s ease-out;
+  transition: background-color var(--aph-motion-hover);
 }
 #aph-welcome-dismiss {
-  transition: background-color 0.12s ease-out;
+  transition: background-color var(--aph-motion-hover);
 }
 .aph-welcome-demobtn {
-  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+  transition: background-color var(--aph-motion-hover), color var(--aph-motion-hover);
 }
 @media (prefers-reduced-motion: reduce) {
   .aph-welcome-card,

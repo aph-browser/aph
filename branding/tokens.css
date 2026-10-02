@@ -16,6 +16,10 @@
  */
 
 :root {
+  /* Both rooms are first-class: native controls (inputs, selects,
+     scrollbars) must follow the OS theme, and the document must not
+     flash the wrong canvas before the CSS applies. */
+  color-scheme: dark light;
   /* Type */
   --aph-font-chrome: "Inter", system-ui, "Segoe UI", Roboto, "Noto Sans",
     Ubuntu, Cantarell, sans-serif;
@@ -27,6 +31,7 @@
   --aph-radius-lg: 8px;
   --aph-radius-xl: 10px;
   --aph-radius-card: 14px;
+  --aph-radius-xs: 3px;   /* tags, chips, focus-adjacent micro marks */
   --aph-radius-pill: 999px;
 
   /* Canvas — dark room (default) */
@@ -38,6 +43,17 @@
   --aph-ink-dim: #a3a8ba;
   --aph-ink-faint: #626880;
   --aph-line: rgba(255, 255, 255, 0.09);
+  /* Danger family: the only red in the system, functional by contract
+     (delete/reset signals). Lives here so guest pages stopped carrying
+     their own #ff5d73 copies; the warn pair is the archive row's
+     destructive-hover state. */
+  --aph-danger: #ff5d73;
+  --aph-warn-bg: #3a2430;
+  --aph-warn-ink: #ff9aae;
+  /* Per-element workspace hue: the neutral slate until the owning page
+     stamps it from a [data-ws] row/pill. Mirrors theme.css §21's
+     --aph-ws-accent default (no workspace = no identity color). */
+  --aph-ws-now: var(--aph-ws-9);
 
   /* Voice + selection + hairline */
   --aph-ws-6: #0090ff;
@@ -69,6 +85,22 @@
 
   /* Elevation — L1 toast/rename, L2 dropdown, L3 palette/modal */
   --aph-shadow-l1: 0 2px 8px rgba(0, 0, 0, 0.25);
+  /* Palette slab: ring + top highlight + contact + far diffuse. One
+     surface, one depth recipe — was four literals in command-palette.css. */
+  --aph-shadow-palette:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 2px 12px rgba(0, 0, 0, 0.4),
+    0 32px 96px rgba(0, 0, 0, 0.65);
+  --aph-scrim: rgba(0, 0, 0, 0.5);
+  /* Command palette slab: always-dark Spotlight (never the paper room),
+     a whisper of voice over near-black. Lived in command-palette.css as
+     locals; the page now only reads them. */
+  --aph-palette-bg: color-mix(in srgb, var(--aph-voice, #0090ff) 7%, #161722);
+  --aph-palette-fg: #e8e8ec;
+  /* Focus ring: the guest pages' keyboard affordance (2px accent wash).
+     Chrome keeps its own stock outline language. */
+  --aph-focus-ring: 0 0 0 2px color-mix(in srgb, var(--aph-ws-6) 25%, transparent);
   --aph-shadow-l2: 0 2px 12px rgba(0, 0, 0, 0.35), 0 24px 80px rgba(0, 0, 0, 0.6);
   --aph-shadow-card:
     0 1px 2px rgba(0, 0, 0, 0.18),
@@ -82,6 +114,11 @@
   --aph-motion-hover: 0.12s ease-out;
   --aph-motion-glide: 0.15s ease-out;
   --aph-motion-pop: 0.18s ease-out;
+  /* Micro (palette item hover) and the overlay's own in/out fade — both
+     were page-local literals; the overlay token covers in AND out so the
+     scrim speaks one timing (was 140ms/150ms). */
+  --aph-motion-micro: 90ms ease-out;
+  --aph-motion-overlay: 140ms ease-out;
 
   /* Palette geometry (bold Raycast) */
   --aph-palette-width: 680px;

@@ -61,32 +61,32 @@ def test_archive_drops_tokyo_night() -> None:
         "#ff2d55",
     ):
         assert dead not in css, f"guest-skin surface still present: {dead}"
+    # The local --arch-* scale is gone: the page reads the shared tokens.
     for live in (
-        "--arch-bg",
-        "--arch-surface",
-        "--arch-raised",
-        "--arch-text",
-        "--arch-muted",
-        "--arch-radius-md",
-        "--arch-radius-xl",
+        "var(--aph-base)",
+        "var(--aph-surface)",
+        "var(--aph-field)",
+        "var(--aph-ink)",
+        "var(--aph-ink-dim)",
+        "var(--aph-radius-md)",
+        "var(--aph-radius-xl)",
     ):
-        assert live in css, f"missing chrome-system token: {live}"
+        assert live in css, f"missing shared token read: {live}"
+    assert "--arch-" not in re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     assert css.count("@font-face {") == 4
     assert "aph-fonts/inter-" in css
-    assert "--arch-danger" in css
+    assert "var(--aph-danger)" in css
 
 
 def test_archive_voice_parity() -> None:
-    """The archive is a separate document (no theme.css cascade), so its
-    workspace hue table is duplicated by design — and pinned equal to
-    theme.css §21. A hue change must land in both files together."""
-    theme_hues = dict(re.findall(r"--aph-ws-([1-9]):\s*(#[0-9a-fA-F]{6})", _theme_css()))
-    arch_hues = dict(re.findall(r"--arch-ws-([1-9]):\s*(#[0-9a-fA-F]{6})", _css()))
-    assert len(theme_hues) == 9 and len(arch_hues) == 9
+    """The archive used to duplicate the nine workspace hues under its own
+    --arch-ws-N names with this test holding the copies equal. It now reads
+    the tokens.css table outright, so parity is structural — assert the
+    page spends the shared hues and carries no local copy."""
+    css = _css()
     for n in "123456789":
-        assert arch_hues[n].lower() == theme_hues[n].lower(), (
-            f"ws{n} diverged: archive {arch_hues[n]} vs chrome {theme_hues[n]}"
-        )
+        assert f"var(--aph-ws-{n})" in css, n
+    assert "--arch-ws-" not in css
 
 
 def test_archive_pills_carry_workspace() -> None:
@@ -98,7 +98,7 @@ def test_archive_pills_carry_workspace() -> None:
     css = _css()
     assert ".aph-archive-pill[data-ws]" in css
     assert ".aph-archive-pill[data-ws].on" in css
-    assert "--arch-ws-accent" in css
+    assert "--aph-ws-now" in css
 
 
 def test_archive_stays_rtl_clean() -> None:

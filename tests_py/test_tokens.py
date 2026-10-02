@@ -59,12 +59,24 @@ def test_every_consumer_imports_tokens_first() -> None:
         css = path.read_text(encoding="utf-8")
         tag = f'@import url("{TOKENS_URL}");'
         assert tag in css, f"{path.name} never imports {TOKENS_URL}"
-        # Import must precede any rule that consumes the tokens: :root
-        # where present, else the first real rule (palette keeps its vars
-        # on #aph-palette-overlay and has no :root at all).
+        # Import must precede any rule that consumes the tokens. Consumers
+        # no longer declare a local :root scale (tokens.css is the only
+        # declaration site), so the first real rule is the anchor.
         first_rule = css.find(":root {")
         if first_rule == -1:
-            first_rule = css.find("#aph-palette-overlay {")
+            first_rule = min(
+                (
+                    i
+                    for i in (
+                        css.find("#aph-palette-overlay {"),
+                        css.find("#aph-settings {"),
+                        css.find("#aph-archive {"),
+                        css.find("#aph-welcome {"),
+                    )
+                    if i != -1
+                ),
+                default=-1,
+            )
         assert first_rule != -1, f"{path.name}: no rule block found"
         assert css.find(tag) < first_rule, f"{path.name}: import after first rule"
         if "@font-face" in css:

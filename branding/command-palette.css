@@ -4,9 +4,13 @@
 /* Shared tokens (shipped as chrome://browser/content/aph-tokens.css). */
 @import url("chrome://browser/content/aph-tokens.css");
 #aph-palette-overlay {
+  /* Always-dark slab: pin the color scheme on the overlay itself (never
+     :root — the chrome window follows the OS theme) so the input and
+     scrollbars inside render dark even on a light OS. */
+  color-scheme: dark;
   position: fixed !important;
   inset: 0 !important;
-  background: rgba(0, 0, 0, 0.5) !important;
+  background: var(--aph-scrim) !important;
   backdrop-filter: blur(12px) saturate(1.2) !important;
   -webkit-backdrop-filter: blur(12px) saturate(1.2) !important;
   z-index: 9999 !important;
@@ -15,7 +19,7 @@
   align-items: flex-start !important;
   padding-top: 10vh !important;
   padding-inline: 16px !important;
-  animation: aph-palette-fade 140ms ease-out !important;
+  animation: aph-palette-fade var(--aph-motion-overlay) !important;
 }
 #aph-palette-overlay[hidden] {
   display: none !important;
@@ -31,11 +35,8 @@
    pure flat grey (which reads muddy/unstyled). Always-dark overlay like
    Spotlight, so text is pinned light for guaranteed contrast; a 7%
    voice kiss ties the slab to the room without going candy, and the
-   voice (selection, marks, urlbar border) shines through. */
-#aph-palette-overlay {
-  --aph-palette-bg: color-mix(in srgb, var(--aph-voice, #0090ff) 7%, #161722);
-  --aph-palette-fg: #e8e8ec;
-}
+   voice (selection, marks, urlbar border) shines through. The slab
+   tokens themselves live in aph-tokens.css now. */
 #aph-palette {
   width: var(--aph-palette-width, 680px) !important;
   max-width: 94vw !important;
@@ -46,23 +47,19 @@
   background: var(--aph-palette-bg) !important;
   color: var(--aph-palette-fg) !important;
   border: 1px solid rgba(255, 255, 255, 0.14) !important;
-  border-radius: 14px !important;
+  border-radius: var(--aph-radius-card) !important;
   /* Card language (L3): ring + top highlight + contact + far diffuse.
      Always-dark slab (§Decision 1 Spotlight model) — never follows the
      paper room. Bolder than before: thicker top light, deeper drop. */
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 2px 12px rgba(0, 0, 0, 0.4),
-    0 32px 96px rgba(0, 0, 0, 0.65) !important;
+  box-shadow: var(--aph-shadow-palette) !important;
   font: inherit !important;
 }
 #aph-palette.aph-palette-anim {
   /* Runs WITH the backdrop fade (140ms), not after it: duration and
      easing come from split tokens (theme.css §23) so the shorthand has
      no second <time> to swallow as a delay. */
-  animation: aph-palette-pop var(--aph-pop-in-duration, 180ms)
-    var(--aph-pop-in-ease, cubic-bezier(0.16, 1, 0.3, 1)) !important;
+  animation: aph-palette-pop var(--aph-pop-in-duration)
+    var(--aph-pop-in-ease) !important;
   transform-origin: top center !important;
 }
 @keyframes aph-palette-pop {
@@ -72,14 +69,14 @@
 /* Animated exit: backdrop fades, panel sinks + shrinks, then JS sets
    hidden (see close() in 60-control.js, ~130ms timer). */
 #aph-palette-overlay.aph-palette-closing {
-  animation: aph-palette-fade-out 150ms ease-out forwards !important;
+  animation: aph-palette-fade-out var(--aph-motion-overlay) forwards !important;
 }
 @keyframes aph-palette-fade-out {
   from { opacity: 1; }
   to { opacity: 0; }
 }
 #aph-palette.aph-palette-closing {
-  animation: aph-palette-pop-out 150ms ease-out forwards !important;
+  animation: aph-palette-pop-out var(--aph-motion-overlay) forwards !important;
   transform-origin: top center !important;
 }
 @keyframes aph-palette-pop-out {
@@ -89,7 +86,7 @@
 #aph-palette-input {
   width: 100% !important;
   box-sizing: border-box !important;
-  padding: 15px 18px 15px 18px !important;
+  padding: 16px 16px 16px 16px !important;
   font-size: 16px !important;
   font-weight: 500 !important;
   letter-spacing: 0.01em !important;
@@ -116,7 +113,7 @@
 .aph-palette-section {
   position: sticky !important;
   top: -8px !important;
-  padding: 10px 12px 4px !important;
+  padding: 8px 12px 4px !important;
   font-size: 11px !important;
   font-weight: 700 !important;
   letter-spacing: 0.08em !important;
@@ -129,12 +126,12 @@
   display: flex !important;
   align-items: center !important;
   gap: 10px !important;
-  padding: 9px 10px !important;
+  padding: 8px 12px !important;
   border-radius: var(--aph-radius-md, 6px) !important;
   cursor: pointer !important;
   line-height: 1.35 !important;
   border: 1px solid transparent !important;
-  transition: background 90ms ease-out, border-color 90ms ease-out, transform 90ms ease-out !important;
+  transition: background var(--aph-motion-micro), border-color var(--aph-motion-micro), transform var(--aph-motion-micro) !important;
 }
 /* DOM-recycled rows toggle `hidden` in place — this must beat the
    !important display rules below or pooled slots never hide. */
@@ -166,7 +163,7 @@
   width: 28px !important;
   height: 28px !important;
   margin-top: 0 !important;
-  border-radius: 8px !important;
+  border-radius: var(--aph-radius-lg) !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -194,6 +191,9 @@
   font-weight: 700 !important;
   font-size: 12px !important;
   color: #fff !important;
+  /* Deliberate literal: the avatar mark sits on the always-dark slab
+     (Spotlight), so this legibility shadow is slab-local, not a
+     room-wide elevation token. */
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
 }
 .aph-palette-body {
@@ -230,7 +230,7 @@
   opacity: 0 !important;
   border: 1px solid color-mix(in srgb, currentColor 25%, transparent) !important;
   border-bottom-width: 2px !important;
-  border-radius: 5px !important;
+  border-radius: var(--aph-radius-sm) !important;
   padding: 2px 6px !important;
   margin-top: 0 !important;
   background: color-mix(in srgb, currentColor 6%, transparent) !important;
@@ -249,7 +249,7 @@
   display: flex !important;
   align-items: center !important;
   gap: 10px !important;
-  padding: 9px 14px !important;
+  padding: 8px 16px !important;
   font-size: 12px !important;
   opacity: 0.75 !important;
   border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
@@ -263,7 +263,7 @@
    Brighter text on top so the mark reads on the dark slab. */
 .aph-palette-mark {
   background: var(--aph-select, rgba(0, 144, 255, 0.45)) !important;
-  border-radius: 3px !important;
+  border-radius: var(--aph-radius-xs) !important;
   padding: 0 1px !important;
   color: #fff !important;
   font-weight: 600 !important;
@@ -272,7 +272,7 @@
    so it doesn't glare against a paper desk behind the backdrop. */
 @media (prefers-color-scheme: light) {
   #aph-palette {
-    border-color: rgba(0, 0, 0, 0.45) !important;
+    border-color: color-mix(in srgb, #000 45%, transparent) !important;
   }
 }
 @media (max-width: 760px) {

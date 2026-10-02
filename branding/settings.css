@@ -6,12 +6,21 @@
    the names/bindings/routes tables) — the page itself is global
    surface, so toggles and inputs stay neutral. Danger red survives
    solely as the reset signal (functional, never decorative).
-   Separate document from the browser window, so the hue table is
-   duplicated here by design — test_settings_voice_parity pins it to
-   theme.css §21. */
+   Every surface, radius, shadow, motion and hue value comes from
+   aph-tokens.css (the shared scale) — this file declares no local
+   copies, so the page cannot drift from the chrome. 
+   House rules for this file (enforced by tests_py/test_guest_css_tokens.py):
+   - no local per-page token scale (the old --set- / --arch- / --wel-
+     families are gone): every surface, radius, shadow, motion and hue
+     reads --aph-* from aph-tokens.css;
+   - no hardcoded radius/shadow/focus-ring literals (one-off cases carry a
+     "deliberate literal" comment instead);
+   - every transition/animation names a --aph-motion-* token;
+   - padding and margins sit on the 4px grid (1px/2px hairline and optical
+     offsets excepted).
+ */
 
-/* Shared tokens (shipped as chrome://browser/content/aph-tokens.css).
-   Local --set-* mirrors below stay as fallback. */
+/* Shared tokens (shipped as chrome://browser/content/aph-tokens.css). */
 @import url("chrome://browser/content/aph-tokens.css");
 
 @font-face {
@@ -43,54 +52,12 @@
   font-display: swap;
 }
 
-:root {
-  color-scheme: dark light;
-  --set-font: "Inter", system-ui, "Segoe UI", Roboto, "Noto Sans",
-    Ubuntu, Cantarell, sans-serif;
-  --set-bg: #17181f;
-  --set-surface: #202028;
-  --set-raised: #22232f;
-  --set-text: #e8e8ec;
-  --set-muted: #a3a8ba;
-  --set-faint: #626880;
-  --set-line: rgba(255, 255, 255, 0.09);
-  --set-danger: #ff5d73;
-  --set-accent: #0090ff;
-  --set-radius-md: 6px;
-  --set-radius-lg: 8px;
-  --set-radius-xl: 10px;
-  --set-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 12px 32px -16px rgba(0, 0, 0, 0.5);
-  /* Workspace hues — mirror of theme.css §21 (parity-tested). */
-  --set-ws-1: #e54666;
-  --set-ws-2: #f76808;
-  --set-ws-3: #f5b301;
-  --set-ws-4: #29a383;
-  --set-ws-5: #00a2c7;
-  --set-ws-6: #0090ff;
-  --set-ws-7: #8e4ec6;
-  --set-ws-8: #d6409f;
-  --set-ws-9: #707885;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-    --set-bg: #e8e0c9;
-    --set-surface: #f5efe0;
-    --set-raised: #faf6ea;
-    --set-text: #26262b;
-    --set-muted: #585c64;
-    --set-faint: #6b6f78;
-    --set-line: rgba(38, 38, 43, 0.12);
-  }
-}
-
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--set-bg);
-  color: var(--set-text);
-  font: 14px/1.45 var(--set-font);
+  background: var(--aph-base);
+  color: var(--aph-ink);
+  font: 14px/1.45 var(--aph-font-chrome);
   letter-spacing: 0.015em;
 }
 
@@ -109,10 +76,10 @@ html, body {
 #aph-settings-head {
   position: sticky;
   top: 0;
-  background: color-mix(in srgb, var(--set-bg) 88%, transparent);
+  background: color-mix(in srgb, var(--aph-base) 88%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(1.1);
   backdrop-filter: blur(12px) saturate(1.1);
-  border-bottom: 1px solid var(--set-line);
+  border-bottom: 1px solid var(--aph-line);
   padding: 8px 0 16px;
   margin: 0 -24px;
   padding-inline: 24px;
@@ -122,40 +89,40 @@ html, body {
 #aph-settings-title {
   font-size: 22px;
   font-weight: 600;
-  color: var(--set-text);
+  color: var(--aph-ink);
   margin-bottom: 4px;
 }
 
 #aph-settings-sub {
   font-size: 13px;
-  color: var(--set-faint);
+  color: var(--aph-ink-faint);
 }
 
 #aph-settings-search {
   width: 100%;
   box-sizing: border-box;
   margin-top: 12px;
-  background: var(--set-surface);
-  color: var(--set-text);
-  border: 1px solid var(--set-line);
-  border-radius: var(--set-radius-lg);
-  padding: 10px 14px;
+  background: var(--aph-surface);
+  color: var(--aph-ink);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-lg);
+  padding: 12px;
   font-size: 14px;
   font-family: inherit;
   outline: none;
 }
 
 #aph-settings-search:focus {
-  border-color: color-mix(in srgb, var(--set-accent) 65%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--set-accent) 25%, transparent);
+  border-color: color-mix(in srgb, var(--aph-ws-6) 65%, transparent);
+  box-shadow: var(--aph-focus-ring);
 }
 
 #aph-settings-search::placeholder {
-  color: var(--set-faint);
+  color: var(--aph-ink-faint);
 }
 
 .aph-settings-group {
-  margin-top: 22px;
+  margin-top: 24px;
 }
 
 .aph-settings-group > h2 {
@@ -163,7 +130,7 @@ html, body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--set-faint);
+  color: var(--aph-ink-faint);
   margin: 0 0 8px 2px;
 }
 
@@ -171,13 +138,13 @@ html, body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
-  border-radius: var(--set-radius-xl);
+  padding: 8px 12px;
+  border-radius: var(--aph-radius-xl);
   cursor: pointer;
 }
 
 .aph-settings-row:hover {
-  background: var(--set-surface);
+  background: var(--aph-surface);
 }
 
 .aph-settings-main {
@@ -186,19 +153,19 @@ html, body {
 }
 
 .aph-settings-label {
-  color: var(--set-text);
+  color: var(--aph-ink);
   font-weight: 500;
 }
 
 .aph-settings-desc {
   font-size: 12px;
-  color: var(--set-faint);
+  color: var(--aph-ink-faint);
   margin-top: 2px;
 }
 
 .aph-settings-pref {
   font-size: 11px;
-  color: var(--set-faint);
+  color: var(--aph-ink-faint);
   font-family: ui-monospace, monospace;
   margin-top: 2px;
 }
@@ -207,9 +174,9 @@ html, body {
   flex: 0 0 auto;
   width: 40px;
   height: 22px;
-  border-radius: 999px;
-  border: 1px solid var(--set-line);
-  background: color-mix(in srgb, var(--set-text) 10%, transparent);
+  border-radius: var(--aph-radius-pill);
+  border: 1px solid var(--aph-line);
+  background: color-mix(in srgb, var(--aph-ink) 10%, transparent);
   position: relative;
   cursor: pointer;
   padding: 0;
@@ -223,34 +190,34 @@ html, body {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--set-muted);
+  background: var(--aph-ink-dim);
 }
 
 .aph-settings-toggle[aria-checked="true"] {
-  background: color-mix(in srgb, var(--set-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--aph-ws-6) 55%, transparent);
   border-color: transparent;
 }
 
 .aph-settings-toggle[aria-checked="true"]::after {
   left: 20px;
-  background: var(--set-text);
+  background: var(--aph-ink);
 }
 
 .aph-settings-number {
   flex: 0 0 auto;
   width: 72px;
-  background: var(--set-surface);
-  color: var(--set-text);
-  border: 1px solid var(--set-line);
-  border-radius: var(--set-radius-lg);
-  padding: 6px 10px;
+  background: var(--aph-surface);
+  color: var(--aph-ink);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-lg);
+  padding: 6px 12px;
   font-size: 14px;
   font-family: inherit;
   outline: none;
 }
 
 .aph-settings-number:focus {
-  border-color: color-mix(in srgb, var(--set-text) 45%, transparent);
+  border-color: color-mix(in srgb, var(--aph-ink) 45%, transparent);
 }
 
 .aph-settings-table {
@@ -263,59 +230,59 @@ html, body {
   text-align: start;
   font-size: 12px;
   font-weight: 600;
-  color: var(--set-faint);
+  color: var(--aph-ink-faint);
   padding: 6px 12px;
 }
 
 .aph-settings-table td {
   padding: 6px 12px;
-  border-top: 1px solid var(--set-line);
-  color: var(--set-muted);
+  border-top: 1px solid var(--aph-line);
+  color: var(--aph-ink-dim);
 }
 
 .aph-settings-table tr[data-ws] td:first-child {
   font-weight: 600;
-  color: var(--set-text);
+  color: var(--aph-ink);
 }
 
 /* Workspace identity rows wear their own hue as a left chip
    (dock parity) — stamped data-ws at render, same as archive pills. */
-.aph-settings-table tr[data-ws="1"] { --set-ws-accent: var(--set-ws-1); }
-.aph-settings-table tr[data-ws="2"] { --set-ws-accent: var(--set-ws-2); }
-.aph-settings-table tr[data-ws="3"] { --set-ws-accent: var(--set-ws-3); }
-.aph-settings-table tr[data-ws="4"] { --set-ws-accent: var(--set-ws-4); }
-.aph-settings-table tr[data-ws="5"] { --set-ws-accent: var(--set-ws-5); }
-.aph-settings-table tr[data-ws="6"] { --set-ws-accent: var(--set-ws-6); }
-.aph-settings-table tr[data-ws="7"] { --set-ws-accent: var(--set-ws-7); }
-.aph-settings-table tr[data-ws="8"] { --set-ws-accent: var(--set-ws-8); }
-.aph-settings-table tr[data-ws="9"] { --set-ws-accent: var(--set-ws-9); }
+.aph-settings-table tr[data-ws="1"] { --aph-ws-now: var(--aph-ws-1); }
+.aph-settings-table tr[data-ws="2"] { --aph-ws-now: var(--aph-ws-2); }
+.aph-settings-table tr[data-ws="3"] { --aph-ws-now: var(--aph-ws-3); }
+.aph-settings-table tr[data-ws="4"] { --aph-ws-now: var(--aph-ws-4); }
+.aph-settings-table tr[data-ws="5"] { --aph-ws-now: var(--aph-ws-5); }
+.aph-settings-table tr[data-ws="6"] { --aph-ws-now: var(--aph-ws-6); }
+.aph-settings-table tr[data-ws="7"] { --aph-ws-now: var(--aph-ws-7); }
+.aph-settings-table tr[data-ws="8"] { --aph-ws-now: var(--aph-ws-8); }
+.aph-settings-table tr[data-ws="9"] { --aph-ws-now: var(--aph-ws-9); }
 .aph-settings-table tr[data-ws] td:first-child::before {
   content: "";
   display: inline-block;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--set-ws-accent);
+  background: var(--aph-ws-now);
   margin-inline-end: 8px;
   vertical-align: baseline;
 }
 
 .aph-settings-empty {
   padding: 8px 12px;
-  color: var(--set-faint);
+  color: var(--aph-ink-faint);
   font-size: 13px;
 }
 
 .aph-settings-hint {
   padding: 8px 12px;
-  color: var(--set-faint);
+  color: var(--aph-ink-faint);
   font-size: 12px;
 }
 
 #aph-settings-foot {
   margin-top: 28px;
   padding-top: 16px;
-  border-top: 1px solid var(--set-line);
+  border-top: 1px solid var(--aph-line);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -332,10 +299,10 @@ html, body {
 #aph-settings-export,
 #aph-settings-import {
   background: transparent;
-  color: var(--set-muted);
-  border: 1px solid var(--set-line);
-  border-radius: var(--set-radius-lg);
-  padding: 6px 14px;
+  color: var(--aph-ink-dim);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-lg);
+  padding: 6px 16px;
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
@@ -343,8 +310,8 @@ html, body {
 
 #aph-settings-export:hover,
 #aph-settings-import:hover {
-  background: var(--set-surface);
-  color: var(--set-text);
+  background: var(--aph-surface);
+  color: var(--aph-ink);
 }
 
 #aph-settings-import-file {
@@ -353,26 +320,26 @@ html, body {
 
 #aph-settings-reset-frecency {
   background: transparent;
-  color: var(--set-danger);
-  border: 1px solid var(--set-line);
-  border-radius: var(--set-radius-lg);
-  padding: 6px 14px;
+  color: var(--aph-danger);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-lg);
+  padding: 6px 16px;
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
 }
 
 #aph-settings-reset-frecency:hover {
-  background: var(--set-surface);
+  background: var(--aph-surface);
 }
 
 #aph-settings-links {
   font-size: 13px;
-  color: var(--set-faint);
+  color: var(--aph-ink-faint);
 }
 
 #aph-settings-links a {
-  color: var(--set-muted);
+  color: var(--aph-ink-dim);
 }
 
 #aph-settings-toast {
@@ -380,15 +347,15 @@ html, body {
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%) translateY(8px);
-  background: var(--set-surface);
-  color: var(--set-text);
-  border: 1px solid var(--set-line);
-  border-radius: var(--set-radius-lg);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-  padding: 8px 18px;
+  background: var(--aph-surface);
+  color: var(--aph-ink);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-lg);
+  box-shadow: var(--aph-shadow-l1);
+  padding: 8px 20px;
   font-size: 13px;
   opacity: 0;
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity var(--aph-motion-glide), transform var(--aph-motion-glide);
   pointer-events: none;
 }
 
@@ -401,24 +368,24 @@ html, body {
    of snapping; the toggle knob glides. Reduced-motion kills every
    transition including the toast's. */
 .aph-settings-row {
-  transition: background-color 0.12s ease-out;
+  transition: background-color var(--aph-motion-hover);
 }
 .aph-settings-toggle {
-  transition: background-color 0.12s ease-out, border-color 0.12s ease-out;
+  transition: background-color var(--aph-motion-hover), border-color var(--aph-motion-hover);
 }
 .aph-settings-toggle::after {
-  transition: left 0.12s ease-out, background-color 0.12s ease-out;
+  transition: left var(--aph-motion-hover), background-color var(--aph-motion-hover);
 }
 
 /* Cards: groups read as elevated sections, not bare rows. */
 .aph-settings-group {
-  background: color-mix(in srgb, var(--set-surface) 55%, transparent);
-  border: 1px solid var(--set-line);
-  border-radius: var(--set-radius-xl);
-  padding: 6px 6px 10px;
+  background: color-mix(in srgb, var(--aph-surface) 55%, transparent);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-xl);
+  padding: 6px 6px 12px;
 }
 .aph-settings-group > h2 {
-  padding: 8px 10px 4px;
+  padding: 8px 12px 4px;
 }
 .aph-settings-row:focus-visible,
 .aph-settings-toggle:focus-visible,
@@ -426,7 +393,7 @@ html, body {
 #aph-settings-export:focus-visible,
 #aph-settings-import:focus-visible,
 #aph-settings-reset-frecency:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--set-accent) 70%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--aph-ws-6) 70%, transparent);
   outline-offset: 2px;
 }
 
@@ -435,42 +402,42 @@ html, body {
   flex: 0 0 auto;
   min-width: 0;
   max-width: 220px;
-  background: var(--set-raised);
-  color: var(--set-text);
-  border: 1px solid var(--set-line);
-  border-radius: var(--set-radius-lg);
-  padding: 6px 10px;
+  background: var(--aph-field);
+  color: var(--aph-ink);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-lg);
+  padding: 6px 12px;
   font-size: 13px;
   font-family: inherit;
   outline: none;
 }
 .aph-settings-edit:focus {
-  border-color: color-mix(in srgb, var(--set-accent) 65%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--set-accent) 25%, transparent);
+  border-color: color-mix(in srgb, var(--aph-ws-6) 65%, transparent);
+  box-shadow: var(--aph-focus-ring);
 }
 .aph-settings-rowbtn {
   flex: 0 0 auto;
   background: transparent;
-  color: var(--set-muted);
-  border: 1px solid var(--set-line);
-  border-radius: var(--set-radius-lg);
-  padding: 5px 10px;
+  color: var(--aph-ink-dim);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-lg);
+  padding: 6px 12px;
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
 }
 .aph-settings-rowbtn:hover {
-  background: var(--set-raised);
-  color: var(--set-text);
+  background: var(--aph-field);
+  color: var(--aph-ink);
 }
 .aph-settings-rowbtn.danger {
-  color: var(--set-danger);
+  color: var(--aph-danger);
 }
 .aph-settings-rowbtn.is-active {
-  background: var(--set-raised);
-  color: var(--set-text);
-  border-color: color-mix(in srgb, var(--set-accent) 65%, transparent);
+  background: var(--aph-field);
+  color: var(--aph-ink);
+  border-color: color-mix(in srgb, var(--aph-ws-6) 65%, transparent);
 }
 
 /* Staleness tier buttons (unload presets): wrap under the row on narrow
@@ -495,16 +462,16 @@ html, body {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--aph-scrim);
   backdrop-filter: blur(6px);
 }
 #aph-settings-modal-card {
   width: min(440px, 94vw);
-  background: var(--set-surface);
-  color: var(--set-text);
-  border: 1px solid var(--set-line);
-  border-radius: var(--set-radius-xl);
-  box-shadow: var(--set-shadow);
+  background: var(--aph-surface);
+  color: var(--aph-ink);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-xl);
+  box-shadow: var(--aph-shadow-l2);
   padding: 20px;
 }
 #aph-settings-modal-title {
@@ -514,7 +481,7 @@ html, body {
 }
 #aph-settings-modal-desc {
   font-size: 13px;
-  color: var(--set-muted);
+  color: var(--aph-ink-dim);
   line-height: 1.5;
 }
 #aph-settings-modal-actions {
@@ -525,29 +492,29 @@ html, body {
 }
 #aph-settings-modal-cancel,
 #aph-settings-modal-ok {
-  border-radius: var(--set-radius-lg);
-  padding: 7px 16px;
+  border-radius: var(--aph-radius-lg);
+  padding: 8px 16px;
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
-  border: 1px solid var(--set-line);
+  border: 1px solid var(--aph-line);
 }
 #aph-settings-modal-cancel {
   background: transparent;
-  color: var(--set-muted);
+  color: var(--aph-ink-dim);
 }
 #aph-settings-modal-cancel:hover {
-  background: var(--set-raised);
-  color: var(--set-text);
+  background: var(--aph-field);
+  color: var(--aph-ink);
 }
 #aph-settings-modal-ok {
-  background: color-mix(in srgb, var(--set-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--aph-ws-6) 55%, transparent);
   border-color: transparent;
-  color: var(--set-text);
+  color: var(--aph-ink);
   font-weight: 500;
 }
 #aph-settings-modal-ok.danger {
-  background: color-mix(in srgb, var(--set-danger) 70%, transparent);
+  background: color-mix(in srgb, var(--aph-danger) 70%, transparent);
 }
 #aph-settings-modal-ok:hover {
   filter: brightness(1.1);

@@ -44,16 +44,17 @@ def test_welcome_css_is_sane() -> None:
     css = CSS.read_text(encoding="utf-8")
     assert css.count("{") == css.count("}"), "unbalanced braces"
     assert css.count("/*") == css.count("*/"), "unbalanced comments"
+    # The local --wel-* scale is gone; the page reads the shared tokens.
     for live in (
-        "--wel-bg",
-        "--wel-surface",
-        "--wel-raised",
-        "--wel-text",
-        "--wel-muted",
-        "--wel-radius-md",
-        "--wel-radius-xl",
+        "var(--aph-base)",
+        "var(--aph-surface)",
+        "var(--aph-field)",
+        "var(--aph-ink)",
+        "var(--aph-ink-dim)",
+        "var(--aph-radius-lg)",
+        "var(--aph-radius-xl)",
     ):
-        assert live in css, f"missing chrome-system token: {live}"
+        assert live in css, f"missing shared token read: {live}"
     assert css.count("@font-face {") == 4
     assert "aph-fonts/inter-" in css
     assert "prefers-reduced-motion" in css

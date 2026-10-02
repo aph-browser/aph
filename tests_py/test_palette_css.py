@@ -34,15 +34,16 @@ def test_palette_input_shares_urlbar_accent() -> None:
 
 
 def test_palette_slab_belongs_to_room() -> None:
-    """The always-dark slab carries a 7% voice kiss so the overlay
-    belongs to the workspace without going candy; selection speaks the
-    full voice."""
+    """The always-dark slab carries a 7% voice kiss so the overlay belongs
+    to the workspace without going candy; selection speaks the full voice.
+    The slab tokens live in tokens.css now (the page only reads them)."""
+    tokens = (ROOT / "branding" / "tokens.css").read_text(encoding="utf-8")
+    head = tokens.find("--aph-palette-bg")
+    assert head != -1, "slab color must be declared in tokens.css"
+    block = tokens[head : tokens.find(";", head)]
+    assert "--aph-voice" in block and "7%" in block
     css = _css()
-    head = css.find("--aph-palette-bg")
-    assert head != -1
-    overlay = css[max(0, head - 400) : head + 200]
-    assert "--aph-voice" in overlay
-    assert "7%" in overlay
+    assert "var(--aph-palette-bg)" in css and "--aph-palette-bg:" not in css
     sel = css[css.find(".aph-palette-item.selected {") :]
     sel = sel[: sel.find("}") + 1]
     assert "--aph-voice" in sel

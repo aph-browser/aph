@@ -5,12 +5,22 @@
    carry a workspace identity (data-ws, stamped by aph-archive-page.js
    renderPills) — the page itself is global surface, so search focus
    and rows stay neutral. Danger red survives solely as the delete
-   signal (functional, never decorative). Separate document from the
-   browser window, so the hue table is duplicated here by design —
-   test_archive_voice_parity pins it to theme.css §21. */
+   signal (functional, never decorative). Every surface, radius, shadow,
+   motion and hue value comes from aph-tokens.css (the shared scale) —
+   this file declares no local copies, so the page cannot drift from
+   the chrome. 
+   House rules for this file (enforced by tests_py/test_guest_css_tokens.py):
+   - no local per-page token scale (the old --set- / --arch- / --wel-
+     families are gone): every surface, radius, shadow, motion and hue
+     reads --aph-* from aph-tokens.css;
+   - no hardcoded radius/shadow/focus-ring literals (one-off cases carry a
+     "deliberate literal" comment instead);
+   - every transition/animation names a --aph-motion-* token;
+   - padding and margins sit on the 4px grid (1px/2px hairline and optical
+     offsets excepted).
+ */
 
-/* Shared tokens (shipped as chrome://browser/content/aph-tokens.css).
-   Local --arch-* mirrors below stay as fallback. */
+/* Shared tokens (shipped as chrome://browser/content/aph-tokens.css). */
 @import url("chrome://browser/content/aph-tokens.css");
 
 @font-face {
@@ -42,61 +52,12 @@
   font-display: swap;
 }
 
-:root {
-  color-scheme: dark light;
-  --arch-font: "Inter", system-ui, "Segoe UI", Roboto, "Noto Sans",
-    Ubuntu, Cantarell, sans-serif;
-  /* One room (Decision 2): theme tokens win. bg/surface/text mirror
-     --aph-base/surface/ink; raised/muted mirror --aph-field/ink-dim —
-     never alien grays. */
-  --arch-bg: #17181f;
-  --arch-surface: #202028;
-  --arch-raised: #22232f;
-  --arch-text: #e8e8ec;
-  --arch-muted: #a3a8ba;
-  --arch-faint: #626880;
-  --arch-line: rgba(255, 255, 255, 0.09);
-  --arch-danger: #ff5d73;
-  --arch-warn-bg: #3a2430;
-  --arch-warn-text: #ff9aae;
-  --arch-radius-md: 6px;
-  --arch-radius-lg: 8px;
-  --arch-radius-xl: 10px;
-  /* Workspace hues — mirror of theme.css §21 (parity-tested). WS3 is
-     the muted Amber stop (presence-gate mute, see theme.css). */
-  --arch-ws-1: #e54666;
-  --arch-ws-2: #f76808;
-  --arch-ws-3: #f5b301;
-  --arch-ws-4: #29a383;
-  --arch-ws-5: #00a2c7;
-  --arch-ws-6: #0090ff;
-  --arch-ws-7: #8e4ec6;
-  --arch-ws-8: #d6409f;
-  --arch-ws-9: #707885;
-}
-
-/* Light face: theme paper room (theme.css light). Same contracts —
-   raised/surface/bg track --aph-field/surface/base, text/muted track
-   --aph-ink/ink-dim. */
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-    --arch-bg: #e8e0c9;
-    --arch-surface: #f5efe0;
-    --arch-raised: #faf6ea;
-    --arch-text: #26262b;
-    --arch-muted: #585c64;
-    --arch-faint: #6b6f78;
-    --arch-line: rgba(38, 38, 43, 0.12);
-  }
-}
-
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--arch-bg);
-  color: var(--arch-text);
-  font: 14px/1.45 var(--arch-font);
+  background: var(--aph-base);
+  color: var(--aph-ink);
+  font: 14px/1.45 var(--aph-font-chrome);
   letter-spacing: 0.015em;
 }
 
@@ -109,10 +70,10 @@ html, body {
 #aph-archive-head {
   position: sticky;
   top: 0;
-  background: color-mix(in srgb, var(--arch-bg) 88%, transparent);
+  background: color-mix(in srgb, var(--aph-base) 88%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(1.1);
   backdrop-filter: blur(12px) saturate(1.1);
-  border-bottom: 1px solid var(--arch-line);
+  border-bottom: 1px solid var(--aph-line);
   padding: 8px 0 16px;
   margin: 0 -24px;
   padding-inline: 24px;
@@ -122,37 +83,37 @@ html, body {
 #aph-archive-title {
   font-size: 22px;
   font-weight: 600;
-  color: var(--arch-text);
+  color: var(--aph-ink);
   margin-bottom: 12px;
 }
 
 #aph-archive-count {
   font-size: 13px;
   font-weight: 400;
-  color: var(--arch-faint);
+  color: var(--aph-ink-faint);
   margin-inline-start: 8px;
 }
 
 #aph-archive-search {
   width: 100%;
   box-sizing: border-box;
-  background: var(--arch-surface);
-  color: var(--arch-text);
-  border: 1px solid var(--arch-line);
-  border-radius: var(--arch-radius-lg);
-  padding: 10px 14px;
+  background: var(--aph-surface);
+  color: var(--aph-ink);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-lg);
+  padding: 12px;
   font-size: 15px;
   font-family: inherit;
   outline: none;
 }
 
 #aph-archive-search:focus {
-  border-color: color-mix(in srgb, var(--arch-text) 45%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--arch-text) 12%, transparent);
+  border-color: color-mix(in srgb, var(--aph-ink) 45%, transparent);
+  box-shadow: var(--aph-focus-ring);
 }
 
 #aph-archive-search::placeholder {
-  color: var(--arch-faint);
+  color: var(--aph-ink-faint);
 }
 
 #aph-archive-tools {
@@ -163,17 +124,17 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 8px;
   font-size: 12px;
-  color: var(--arch-faint);
+  color: var(--aph-ink-faint);
   flex-wrap: wrap;
 }
 
 #aph-archive-sort {
-  background: var(--arch-surface);
-  color: var(--arch-text);
-  border: 1px solid var(--arch-line);
-  border-radius: var(--arch-radius-md);
+  background: var(--aph-surface);
+  color: var(--aph-ink);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-md);
   padding: 4px 8px;
   font-size: 12px;
   font-family: inherit;
@@ -181,15 +142,15 @@ html, body {
 }
 
 #aph-archive-sort:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--arch-text) 45%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--aph-ink) 45%, transparent);
   outline-offset: 1px;
 }
 
 #aph-archive-keep {
   margin-inline-start: auto;
-  background: var(--arch-surface);
-  border: 1px solid var(--arch-line);
-  border-radius: var(--arch-radius-md);
+  background: var(--aph-surface);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-md);
   padding: 2px 8px;
   white-space: nowrap;
 }
@@ -198,11 +159,11 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 8px;
   padding: 8px 12px;
-  background: var(--arch-surface);
-  border: 1px solid var(--arch-line);
-  border-radius: var(--arch-radius-lg);
+  background: var(--aph-surface);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-lg);
   font-size: 13px;
 }
 
@@ -211,7 +172,7 @@ html, body {
 }
 
 #aph-archive-bulkcount {
-  color: var(--arch-text);
+  color: var(--aph-ink);
   font-weight: 600;
   margin-inline-end: auto;
 }
@@ -219,9 +180,9 @@ html, body {
 #aph-archive-bulk-restore,
 #aph-archive-bulk-clear {
   background: transparent;
-  color: var(--arch-muted);
-  border: 1px solid var(--arch-line);
-  border-radius: var(--arch-radius-md);
+  color: var(--aph-ink-dim);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-md);
   padding: 4px 12px;
   font-size: 12px;
   font-family: inherit;
@@ -230,15 +191,15 @@ html, body {
 
 #aph-archive-bulk-restore:hover,
 #aph-archive-bulk-clear:hover {
-  background: var(--arch-raised);
-  color: var(--arch-text);
+  background: var(--aph-field);
+  color: var(--aph-ink);
 }
 
 #aph-archive-bulk-delete {
   background: transparent;
-  color: var(--arch-danger);
-  border: 1px solid var(--arch-line);
-  border-radius: var(--arch-radius-md);
+  color: var(--aph-danger);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-md);
   padding: 4px 12px;
   font-size: 12px;
   font-family: inherit;
@@ -246,7 +207,7 @@ html, body {
 }
 
 #aph-archive-bulk-delete:hover {
-  background: var(--arch-raised);
+  background: var(--aph-field);
 }
 
 #aph-archive-pills {
@@ -257,11 +218,11 @@ html, body {
 }
 
 .aph-archive-pill {
-  background: color-mix(in srgb, var(--arch-text) 10%, transparent);
-  color: var(--arch-muted);
+  background: color-mix(in srgb, var(--aph-ink) 10%, transparent);
+  color: var(--aph-ink-dim);
   border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 4px 14px;
+  border-radius: var(--aph-radius-pill);
+  padding: 4px 16px;
   font-size: 13px;
   font-weight: 500;
   font-family: inherit;
@@ -269,36 +230,36 @@ html, body {
 }
 
 .aph-archive-pill:hover {
-  color: var(--arch-text);
-  border-color: var(--arch-line);
+  color: var(--aph-ink);
+  border-color: var(--aph-line);
 }
 
 .aph-archive-pill.on {
-  color: var(--arch-text);
-  background: var(--arch-raised);
-  border-color: var(--arch-line);
+  color: var(--aph-ink);
+  background: var(--aph-field);
+  border-color: var(--aph-line);
 }
 
 /* Workspace filter pills: each wears its own hue when active (dock
    parity) — identity-correct with no protocol, since the page stamps
    data-ws itself at render. Rest pills stay neutral furniture. */
-.aph-archive-pill[data-ws="1"] { --arch-ws-accent: var(--arch-ws-1); }
-.aph-archive-pill[data-ws="2"] { --arch-ws-accent: var(--arch-ws-2); }
-.aph-archive-pill[data-ws="3"] { --arch-ws-accent: var(--arch-ws-3); }
-.aph-archive-pill[data-ws="4"] { --arch-ws-accent: var(--arch-ws-4); }
-.aph-archive-pill[data-ws="5"] { --arch-ws-accent: var(--arch-ws-5); }
-.aph-archive-pill[data-ws="6"] { --arch-ws-accent: var(--arch-ws-6); }
-.aph-archive-pill[data-ws="7"] { --arch-ws-accent: var(--arch-ws-7); }
-.aph-archive-pill[data-ws="8"] { --arch-ws-accent: var(--arch-ws-8); }
-.aph-archive-pill[data-ws="9"] { --arch-ws-accent: var(--arch-ws-9); }
+.aph-archive-pill[data-ws="1"] { --aph-ws-now: var(--aph-ws-1); }
+.aph-archive-pill[data-ws="2"] { --aph-ws-now: var(--aph-ws-2); }
+.aph-archive-pill[data-ws="3"] { --aph-ws-now: var(--aph-ws-3); }
+.aph-archive-pill[data-ws="4"] { --aph-ws-now: var(--aph-ws-4); }
+.aph-archive-pill[data-ws="5"] { --aph-ws-now: var(--aph-ws-5); }
+.aph-archive-pill[data-ws="6"] { --aph-ws-now: var(--aph-ws-6); }
+.aph-archive-pill[data-ws="7"] { --aph-ws-now: var(--aph-ws-7); }
+.aph-archive-pill[data-ws="8"] { --aph-ws-now: var(--aph-ws-8); }
+.aph-archive-pill[data-ws="9"] { --aph-ws-now: var(--aph-ws-9); }
 .aph-archive-pill[data-ws].on {
-  background: color-mix(in srgb, var(--arch-ws-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--aph-ws-now) 45%, transparent);
   border-color: transparent;
-  color: var(--arch-text);
+  color: var(--aph-ink);
 }
 
 .aph-archive-group {
-  margin-top: 22px;
+  margin-top: 24px;
 }
 
 .aph-archive-group > h2 {
@@ -309,10 +270,10 @@ html, body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--arch-faint);
+  color: var(--aph-ink-faint);
   margin: 0 0 8px 2px;
   padding: 6px 2px;
-  background: color-mix(in srgb, var(--arch-bg) 88%, transparent);
+  background: color-mix(in srgb, var(--aph-base) 88%, transparent);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
@@ -321,33 +282,33 @@ html, body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
-  border-radius: var(--arch-radius-xl);
+  padding: 8px 12px;
+  border-radius: var(--aph-radius-xl);
   cursor: pointer;
   border: 1px solid transparent;
 }
 
 .aph-archive-row:hover {
-  background: var(--arch-surface);
+  background: var(--aph-surface);
 }
 
 .aph-archive-row:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--arch-text) 45%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--aph-ink) 45%, transparent);
   outline-offset: -2px;
 }
 
 .aph-archive-row.selected {
-  background: var(--arch-surface);
-  border-color: var(--arch-line);
+  background: var(--aph-surface);
+  border-color: var(--aph-line);
 }
 
 .aph-archive-fav {
   flex: 0 0 28px;
   width: 28px;
   height: 28px;
-  border-radius: var(--arch-radius-md);
-  background: var(--arch-raised);
-  color: var(--arch-text);
+  border-radius: var(--aph-radius-md);
+  background: var(--aph-field);
+  color: var(--aph-ink);
   font-size: 15px;
   font-weight: 600;
   display: flex;
@@ -373,7 +334,7 @@ html, body {
 }
 
 .aph-archive-title {
-  color: var(--arch-text);
+  color: var(--aph-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -381,7 +342,7 @@ html, body {
 
 .aph-archive-domain {
   font-size: 12px;
-  color: var(--arch-faint);
+  color: var(--aph-ink-faint);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -392,31 +353,31 @@ html, body {
   display: flex;
   gap: 6px;
   font-size: 12px;
-  color: var(--arch-muted);
+  color: var(--aph-ink-dim);
 }
 
 .aph-archive-tag {
-  background: var(--arch-surface);
-  border-radius: var(--arch-radius-md);
+  background: var(--aph-surface);
+  border-radius: var(--aph-radius-md);
   padding: 2px 8px;
   white-space: nowrap;
 }
 
 .aph-archive-row:hover .aph-archive-tag {
-  background: var(--arch-raised);
+  background: var(--aph-field);
 }
 
 .aph-archive-check {
   flex: 0 0 auto;
   width: 18px;
   height: 18px;
-  accent-color: var(--arch-text);
+  accent-color: var(--aph-ink);
   cursor: pointer;
 }
 
 .aph-archive-mark {
-  background: color-mix(in srgb, var(--arch-text) 22%, transparent);
-  border-radius: 3px;
+  background: color-mix(in srgb, var(--aph-ink) 22%, transparent);
+  border-radius: var(--aph-radius-xs);
   padding: 0 1px;
   color: inherit;
   font-weight: 600;
@@ -426,11 +387,11 @@ html, body {
   flex: 0 0 auto;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--arch-faint);
+  color: var(--aph-ink-faint);
   font-size: 15px;
   line-height: 1;
-  border-radius: var(--arch-radius-md);
-  padding: 6px 10px;
+  border-radius: var(--aph-radius-md);
+  padding: 6px 12px;
   cursor: pointer;
   min-width: 36px;
   min-height: 32px;
@@ -443,13 +404,13 @@ html, body {
 }
 
 .aph-archive-del:hover {
-  color: var(--arch-danger);
-  background: var(--arch-raised);
-  border-color: var(--arch-line);
+  color: var(--aph-danger);
+  background: var(--aph-field);
+  border-color: var(--aph-line);
 }
 
 .aph-archive-del:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--arch-danger) 60%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--aph-danger) 60%, transparent);
   outline-offset: 1px;
   opacity: 1;
 }
@@ -464,19 +425,19 @@ html, body {
   margin: 56px auto 0;
   max-width: 46ch;
   text-align: center;
-  color: var(--arch-muted);
+  color: var(--aph-ink-dim);
   font-size: 14px;
   line-height: 1.6;
 }
 
 #aph-archive-nobridge {
   margin-top: 12px;
-  padding: 12px 14px;
-  border-radius: var(--arch-radius-lg);
-  background: var(--arch-warn-bg);
-  color: var(--arch-warn-text);
+  padding: 12px 16px;
+  border-radius: var(--aph-radius-lg);
+  background: var(--aph-warn-bg);
+  color: var(--aph-warn-ink);
   font-size: 13px;
-  border: 1px solid color-mix(in srgb, var(--arch-danger) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--aph-danger) 35%, transparent);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -492,7 +453,7 @@ html, body {
   background: transparent;
   color: inherit;
   border: 1px solid currentColor;
-  border-radius: var(--arch-radius-md);
+  border-radius: var(--aph-radius-md);
   padding: 4px 12px;
   font-size: 12px;
   font-family: inherit;
@@ -505,15 +466,15 @@ html, body {
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%) translateY(8px);
-  background: var(--arch-surface);
-  color: var(--arch-text);
-  border: 1px solid var(--arch-line);
-  border-radius: var(--arch-radius-lg);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-  padding: 8px 18px;
+  background: var(--aph-surface);
+  color: var(--aph-ink);
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-lg);
+  box-shadow: var(--aph-shadow-l1);
+  padding: 8px 20px;
   font-size: 13px;
   opacity: 0;
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity var(--aph-motion-glide), transform var(--aph-motion-glide);
   pointer-events: none;
 }
 
@@ -526,18 +487,18 @@ html, body {
    of snapping; the delete reveal fades. Paint-only throughout, and the
    reduced-motion block kills every transition including the toast's. */
 .aph-archive-pill {
-  transition: color 0.12s ease-out, border-color 0.12s ease-out,
-    background-color 0.12s ease-out;
+  transition: color var(--aph-motion-hover), border-color var(--aph-motion-hover),
+    background-color var(--aph-motion-hover);
 }
 .aph-archive-row {
-  transition: background-color 0.12s ease-out;
+  transition: background-color var(--aph-motion-hover);
 }
 .aph-archive-tag {
-  transition: background-color 0.12s ease-out;
+  transition: background-color var(--aph-motion-hover);
 }
 .aph-archive-del {
-  transition: opacity 0.12s ease-out, color 0.12s ease-out,
-    background-color 0.12s ease-out;
+  transition: opacity var(--aph-motion-hover), color var(--aph-motion-hover),
+    background-color var(--aph-motion-hover);
 }
 @media (prefers-reduced-motion: reduce) {
   .aph-archive-pill,
