@@ -101,7 +101,7 @@
   }
 
   // Resolve the right-clicked tab, mirroring stock tab-context-menu.js and
-  // the archive.js pattern: triggerNode may carry the tab directly (.tab)
+  // the stash.js pattern: triggerNode may carry the tab directly (.tab)
   // or contain it; fall back to the selected tab.
   function contextClickedTab(e) {
     try {

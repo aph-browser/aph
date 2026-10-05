@@ -41,7 +41,7 @@ run(
   "command-palette.js",
   sb,
   'window.addEventListener("keydown", onKey, true);',
-  "window.__aphTest = { isLikelyURL, navFallback, allItems, fuzzyScore, iconRows };"
+  "window.__aphTest = { isLikelyURL, navFallback, allItems, fuzzyScore, iconRows, ctrlKBlockedByFocus };"
 );
 const T = sb.window.__aphTest;
 
@@ -430,8 +430,8 @@ describe("bookmarks + history search", () => {
   });
 });
 
-describe("archive search", () => {
-  function archiveSandbox(opts) {
+describe("stash search", () => {
+  function stashSandbox(opts) {
     const o = opts || {};
     const restored = [];
     const sb2 = {
@@ -462,8 +462,8 @@ describe("archive search", () => {
       },
       SessionStore: {},
     };
-    if (o.archive !== undefined) {
-      sb2.window.AphArchive = o.archive;
+    if (o.stash !== undefined) {
+      sb2.window.AphStash = o.stash;
     }
     if (o.private) {
       sb2.window.PrivateBrowsingUtils = { isWindowPrivate: () => true };
@@ -472,41 +472,41 @@ describe("archive search", () => {
       "command-palette.js",
       sb2,
       'window.addEventListener("keydown", onKey, true);',
-      "window.__aphTest = { allItems, aphArchivePoolItems };"
+      "window.__aphTest = { allItems, aphStashPoolItems };"
     );
     return { api: sb2.window.__aphTest, restored };
   }
 
-  function demoArchive(restored) {
+  function demoStash(restored) {
     return {
-      getEntries: () => [
+      getStashEntries: () => [
         { id: "a1", title: "Quarterly Report", url: "https://docs.example.com/q3", ws: "2", cname: "Work" },
         { id: "a2", title: "Dentist booking", url: "https://dentist.example.net/", ws: "1", cname: "" },
       ],
-      restoreEntry: (id, opts) => {
+      restoreStashEntry: (id, opts) => {
         restored.push([id, !!(opts && opts.keep)]);
         return { ok: true };
       },
     };
   }
 
-  it("shows matching archive rows above the search fallback", () => {
+  it("shows matching stash rows above the search fallback", () => {
     const restored = [];
-    const { api } = archiveSandbox({ archive: demoArchive(restored) });
+    const { api } = stashSandbox({ stash: demoStash(restored) });
     const res = api.allItems("quarterly");
-    const row = res.find((r) => r.hint === "Archive");
+    const row = res.find((r) => r.hint === "Stash");
     assert.ok(row, res.map((r) => `${r.title}[${r.hint}]`).join(" | "));
     assert.equal(row.title, "Quarterly Report");
     assert.ok(row.sub.includes("https://docs.example.com/q3"), row.sub);
     assert.ok(row.sub.includes("WS 2") && row.sub.includes("Work"), row.sub);
     const search = res.findIndex((r) => r.title.startsWith("Search DuckDuckGo"));
-    assert.ok(res.indexOf(row) < search, "archive before search fallback");
+    assert.ok(res.indexOf(row) < search, "stash rows before search fallback");
   });
 
   it("restores by id, Alt+Enter restores without consuming", () => {
     const restored = [];
-    const { api } = archiveSandbox({ archive: demoArchive(restored) });
-    const row = api.allItems("quarterly").find((r) => r.hint === "Archive");
+    const { api } = stashSandbox({ stash: demoStash(restored) });
+    const row = api.allItems("quarterly").find((r) => r.hint === "Stash");
     row.run();
     assert.deepEqual(restored[restored.length - 1], ["a1", false]);
     row.runInTemp();
@@ -515,21 +515,21 @@ describe("archive search", () => {
 
   it("stays out of the empty view and needs 2+ chars, skips junk", () => {
     const restored = [];
-    const { api } = archiveSandbox({
-      archive: {
-        getEntries: () => [
+    const { api } = stashSandbox({
+      stash: {
+        getStashEntries: () => [
           { id: "x1", title: "No URL", url: "", ws: "1", cname: "" },
           { id: "", title: "No id", url: "https://noid.example/", ws: "1", cname: "" },
           { id: "x3", title: "About page", url: "about:newtab", ws: "1", cname: "" },
           { id: "x4", title: "Good", url: "https://good.example/", ws: "1", cname: "" },
         ],
-        restoreEntry: () => ({ ok: true }),
+        restoreStashEntry: () => ({ ok: true }),
       },
     });
-    assert.ok(!api.allItems("").some((r) => r.hint === "Archive"));
-    assert.equal(api.aphArchivePoolItems("g").length, 0);
-    assert.equal(api.aphArchivePoolItems("").length, 0);
-    const rows = api.aphArchivePoolItems("go");
+    assert.ok(!api.allItems("").some((r) => r.hint === "Stash"));
+    assert.equal(api.aphStashPoolItems("g").length, 0);
+    assert.equal(api.aphStashPoolItems("").length, 0);
+    const rows = api.aphStashPoolItems("go");
     assert.equal(rows.length, 1);
     assert.equal(rows[0].sub.split(" ")[0], "https://good.example/");
   });
@@ -540,16 +540,16 @@ describe("archive search", () => {
       linkedBrowser: { currentURI: { spec: "https://docs.example.com/q3" } },
     };
     const restored = [];
-    const priv = archiveSandbox({ archive: demoArchive(restored), private: true });
-    assert.equal(priv.api.aphArchivePoolItems("qu").length, 0);
-    assert.ok(!priv.api.allItems("quarterly").some((r) => r.hint === "Archive"));
-    const { api } = archiveSandbox({ archive: demoArchive(restored), tabs: [openTab] });
-    assert.ok(!api.allItems("quarterly").some((r) => r.hint === "Archive"));
+    const priv = stashSandbox({ stash: demoStash(restored), private: true });
+    assert.equal(priv.api.aphStashPoolItems("qu").length, 0);
+    assert.ok(!priv.api.allItems("quarterly").some((r) => r.hint === "Stash"));
+    const { api } = stashSandbox({ stash: demoStash(restored), tabs: [openTab] });
+    assert.ok(!api.allItems("quarterly").some((r) => r.hint === "Stash"));
   });
 
-  it("returns no archive rows without the controller", () => {
-    const { api } = archiveSandbox({});
-    assert.equal(api.aphArchivePoolItems("quarterly").length, 0);
+  it("returns no stash rows without the controller", () => {
+    const { api } = stashSandbox({});
+    assert.equal(api.aphStashPoolItems("quarterly").length, 0);
     assert.ok(api.allItems("new tab").some((r) => r.title === "New Tab"));
   });
 });
@@ -629,6 +629,105 @@ describe("sidebar footer toggle", () => {
     const live = w.api.allItems("exit hover").find((r) => r.title === "Show Sidebar (Exit Hover Mode)");
     assert.doesNotThrow(() => live.run());
     assert.deepEqual(w.writes, [["sidebar.visibility", "always-show"]]);
+  });
+});
+
+describe("focus mode toggle", () => {
+  function focusSandbox(on) {
+    let state = !!on;
+    const sb2 = {
+      window: {
+        addEventListener() {},
+        AphWorkspaces: {
+          getCurrent: () => "1",
+          getWsName: () => "",
+          getWsContainer: () => 0,
+          describeContainer: () => null,
+          getRoutes: () => ({}),
+          setRoute: () => {},
+          deleteRoute: () => {},
+          getWs: () => "1",
+          switchTo: () => {},
+          sendTabTo: () => {},
+          openBoundTab: () => ({}),
+          openTempTab: () => ({}),
+          getFocusMode: () => state,
+          toggleFocusMode: () => {
+            state = !state;
+            return state;
+          },
+        },
+      },
+      document: { readyState: "loading" },
+      gBrowser: {
+        tabs: [],
+        addTrustedTab: () => ({}),
+        get selectedTab() {
+          return { linkedBrowser: { currentURI: { spec: "about:newtab" } } };
+        },
+      },
+      SessionStore: {},
+      Services: {
+        prefs: {
+          getBoolPref: () => false,
+          setBoolPref() {},
+          setCharPref() {},
+        },
+      },
+    };
+    run(
+      "command-palette.js",
+      sb2,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest = { allItems };"
+    );
+    return { api: sb2.window.__aphTest, getState: () => state };
+  }
+
+  it("lists the toggle with live ✓/○ state and Ctrl+Alt+F hint", () => {
+    const off = focusSandbox(false);
+    const showRow = off.api.allItems("focus mode").find((r) => r.title.endsWith("Focus Mode (Off)"));
+    assert.ok(showRow, "focus toggle command exists");
+    assert.equal(showRow.title, "○ Focus Mode (Off)");
+    assert.equal(showRow.hint, "Ctrl+Alt+F");
+    assert.equal(showRow.keepOpen, true);
+
+    const on = focusSandbox(true);
+    const hideRow = on.api.allItems("focus mode").find((r) => r.title.endsWith("Focus Mode (On)"));
+    assert.ok(hideRow, "on-state row exists");
+    assert.equal(hideRow.title, "✓ Focus Mode (On)");
+  });
+
+  it("running flips the window state", () => {
+    const env = focusSandbox(false);
+    const row = env.api.allItems("focus mode").find((r) => r.title.endsWith("Focus Mode (Off)"));
+    assert.doesNotThrow(() => row.run());
+    assert.equal(env.getState(), true);
+  });
+
+  it("stays quiet without the workspaces API", () => {
+    const sb2 = {
+      window: { addEventListener() {} },
+      document: { readyState: "loading" },
+      gBrowser: {
+        tabs: [],
+        addTrustedTab: () => ({}),
+        get selectedTab() {
+          return { linkedBrowser: { currentURI: { spec: "about:newtab" } } };
+        },
+      },
+      SessionStore: {},
+      Services: { prefs: { getBoolPref: () => false } },
+    };
+    run(
+      "command-palette.js",
+      sb2,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest = { allItems };"
+    );
+    const row = sb2.window.__aphTest.allItems("focus mode").find((r) => r.title.endsWith("Focus Mode (Off)"));
+    assert.ok(row, "falls back to Off with no controller");
+    assert.doesNotThrow(() => row.run());
   });
 });
 
@@ -1059,4 +1158,153 @@ describe("workspace icon picker", () => {
     assert.equal(rows[0].iconKey, "house");
   });
 });
+});
+
+describe("duplicate tabs + workspace markdown", () => {
+  function dupTab(label, spec, o) {
+    return {
+      label,
+      closing: false,
+      pinned: !!(o && o.pinned),
+      soundPlaying: !!(o && o.soundPlaying),
+      audible: !!(o && o.audible),
+      _ws: (o && o.ws) || "1",
+      linkedBrowser: { currentURI: { spec } },
+    };
+  }
+
+  function dupSandbox(tabs, selected) {
+    const copied = [];
+    const removed = [];
+    const sb2 = {
+      window: {
+        addEventListener() {},
+        AphWorkspaces: {
+          getCurrent: () => "1",
+          getWsName: () => "",
+          getWs: (t) => (t && t._ws) || "1",
+          getWsContainer: () => 0,
+          describeContainer: () => null,
+        },
+      },
+      document: { readyState: "loading" },
+      gBrowser: {
+        tabs,
+        selectedTab: selected,
+        removeTab(t) {
+          removed.push(t);
+          t.closing = true;
+        },
+      },
+      SessionStore: {},
+      Cc: {
+        "@mozilla.org/widget/clipboardhelper;1": {
+          getService() {
+            return {
+              copyString(s) {
+                copied.push(s);
+              },
+            };
+          },
+        },
+      },
+      Ci: { nsIClipboardHelper: {} },
+    };
+    run(
+      "command-palette.js",
+      sb2,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest2 = { allItems };"
+    );
+    return { T2: sb2.window.__aphTest2, copied, removed };
+  }
+
+  it("closes only the extra exact-URL copies in the workspace", () => {
+    const t1 = dupTab("A", "https://example.com/a");
+    const t2 = dupTab("A copy", "https://example.com/a");
+    const t3 = dupTab("B", "https://example.com/b");
+    const t4 = dupTab("A pinned", "https://example.com/a", { pinned: true });
+    const t5 = dupTab("A elsewhere", "https://example.com/a", { ws: "2" });
+    const t6 = dupTab("A live", "https://example.com/a", { audible: true });
+    const t7 = dupTab("A again", "https://example.com/a");
+    const { T2, removed } = dupSandbox([t1, t2, t3, t4, t5, t6, t7], t3);
+    const rows = T2.allItems("close duplicate");
+    const cmd = rows.find((r) => r.title.startsWith("Close Duplicate Tabs"));
+    assert.ok(cmd, rows.map((r) => r.title).join(" | "));
+    assert.equal(cmd.title, "Close Duplicate Tabs (2)");
+    cmd.run();
+    assert.deepEqual(removed, [t2, t7]);
+  });
+
+  it("copies workspace tabs as one markdown link per line", () => {
+    const t1 = dupTab("A", "https://example.com/a");
+    const t2 = dupTab("A copy", "https://example.com/a");
+    const t3 = dupTab("B", "https://example.com/b");
+    const t4 = dupTab("A pinned", "https://example.com/a", { pinned: true });
+    const t5 = dupTab("A elsewhere", "https://example.com/a", { ws: "2" });
+    const { T2, copied } = dupSandbox([t1, t2, t3, t4, t5], t1);
+    const rows = T2.allItems("markdown");
+    const cmd = rows.find((r) => r.title === "Copy Workspace Tabs as Markdown");
+    assert.ok(cmd, rows.map((r) => r.title).join(" | "));
+    assert.ok(cmd.sub.includes("4 tabs"), cmd.sub);
+    cmd.run();
+    assert.equal(copied.length, 1);
+    assert.equal(
+      copied[0],
+      [
+        "- [A](https://example.com/a)",
+        "- [A copy](https://example.com/a)",
+        "- [B](https://example.com/b)",
+        "- [A pinned](https://example.com/a)",
+      ].join("\n")
+    );
+  });
+
+  it("hides Close Duplicate Tabs when nothing repeats", () => {
+    const t1 = dupTab("A", "https://example.com/a");
+    const t3 = dupTab("B", "https://example.com/b");
+    const { T2 } = dupSandbox([t1, t3], t1);
+    const rows = T2.allItems("close duplicate");
+    assert.ok(
+      !rows.some((r) => r.title.startsWith("Close Duplicate Tabs")),
+      rows.map((r) => r.title).join(" | ")
+    );
+  });
+});
+
+describe("ctrl+k focus gate", () => {
+  it("never surrenders ctrl+k from the urlbar or searchbar", () => {
+    // Fresh tabs focus the urlbar: the stock search-focus binding lives
+    // there, and hijacking it is the toggle's job.
+    sb.document.activeElement = {
+      tagName: "INPUT",
+      isContentEditable: false,
+      closest: (sel) => (String(sel).includes("#urlbar") ? {} : null),
+    };
+    assert.equal(T.ctrlKBlockedByFocus(), false);
+    sb.document.activeElement = {
+      tagName: "INPUT",
+      isContentEditable: false,
+      closest: (sel) => (String(sel).includes("#searchbar") ? {} : null),
+    };
+    assert.equal(T.ctrlKBlockedByFocus(), false);
+    delete sb.document.activeElement;
+  });
+
+  it("still guards page inputs and keeps working unfocused", () => {
+    sb.document.activeElement = {
+      tagName: "TEXTAREA",
+      isContentEditable: false,
+      closest: () => null,
+    };
+    assert.equal(T.ctrlKBlockedByFocus(), true);
+    sb.document.activeElement = {
+      tagName: "BODY",
+      isContentEditable: false,
+      closest: () => null,
+    };
+    assert.equal(T.ctrlKBlockedByFocus(), false);
+    delete sb.document.activeElement;
+    assert.equal(T.ctrlKBlockedByFocus(), false);
+  });
 });

@@ -3,9 +3,9 @@
 from .base import Injector, PatchCounts
 from .brand import BrandStringsInjector
 from .features import (
-    ArchiveInjector,
     PaletteInjector,
     SettingsInjector,
+    StashInjector,
     TabrenameInjector,
     TextpickInjector,
     ThemeInjector,
@@ -18,13 +18,13 @@ from .xhtml import CANONICAL_TAG_ORDER, XhtmlInjector
 
 __all__ = [
     "CANONICAL_TAG_ORDER",
-    "ArchiveInjector",
     "BrandStringsInjector",
     "Injector",
     "LogoInjector",
     "PaletteInjector",
     "PatchCounts",
     "SettingsInjector",
+    "StashInjector",
     "TabrenameInjector",
     "TextpickInjector",
     "ThemeInjector",

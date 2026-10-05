@@ -429,11 +429,29 @@
 
   // Window-level workspace stamp: mirrors the tabContainer claim onto
   // documentElement so theme.css can tint per workspace
-  // (:root[data-aph-ws="N"] -> --aph-ws-accent, §20). try/catch like the
-  // tabContainer stamp — paint must never break a switch.
+  // (:root[data-aph-ws="N"] -> --aph-ws-accent, §20). Per-WS accent
+  // override (32) rides alongside as data-aph-accent="M" (absent =
+  // follow workspace). try/catch like the tabContainer stamp — paint
+  // must never break a switch.
   function stampWindowWs(target) {
     try {
       document.documentElement.setAttribute("data-aph-ws", target);
+    } catch (e) {}
+    try {
+      let hue = "";
+      try {
+        hue = typeof getWsAccent === "function" ? getWsAccent(target) : "";
+      } catch (e) {}
+      if (
+        hue &&
+        (typeof isHueId === "function"
+          ? isHueId(hue)
+          : (typeof isValidId === "function" && isValidId(hue)))
+      ) {
+        document.documentElement.setAttribute("data-aph-accent", hue);
+      } else if (document.documentElement.removeAttribute) {
+        document.documentElement.removeAttribute("data-aph-accent");
+      }
     } catch (e) {}
   }
 
@@ -444,6 +462,14 @@
     if (!isValidId(target) || target === current) {
       return;
     }
+    // Splits are session-scoped: dissolve first so a tab hidden by the
+    // switch below can never keep painting inside the content card.
+    // Both tabs stay open, each tagged to its own workspace.
+    try {
+      if (typeof dissolveSplitsForSwitch === "function") {
+        dissolveSplitsForSwitch();
+      }
+    } catch (e) {}
     let tabs = [];
     try {
       tabs = Array.from(gBrowser.tabs);
@@ -506,7 +532,7 @@
       }
     } catch (e) {}
     // Deferred settle sweep so the switch stays snappy: each switch
-    // (re-)arms a 15 s timer there (same shape as auto-archive below), so
+    // (re-)arms a 15 s timer there (same shape as auto-stash below), so
     // the sweep fires only once you've sat still. Guards re-check at fire
     // time. Scope "auto" (staleness covers hidden and idle-current tabs);
     // no other auto path exists: every automatic unload in this bundle
@@ -514,14 +540,14 @@
     try {
       scheduleUnloadSweep();
     } catch (e) {}
-    // Auto-archive (opt-in pref, default off — archive.js owns the pref
+    // Auto-stash (opt-in pref, default off — stash.js owns the pref
     // read, eligibility and timing): each switch (re-)arms a 15 s settle
     // timer there, so the sweep fires only once you've sat still; V1 has
     // no staleness threshold and every eligible hidden-workspace tab goes.
     try {
-      const arc = window.AphArchive;
-      if (arc && typeof arc.scheduleAutoSweep === "function") {
-        arc.scheduleAutoSweep();
+      const arc = window.AphStash;
+      if (arc && typeof arc.scheduleAutoStashSweep === "function") {
+        arc.scheduleAutoStashSweep();
       }
     } catch (e) {}
   }
@@ -711,6 +737,19 @@
           if (t.closing || t.pinned) {
             continue;
           }
+          // Restoring or not-yet-tagged tabs belong to no workspace yet
+          // (getWs defaults tagless to "1"): counting them inflates WS1
+          // mid-restore and misroutes cycle/plus/close targets.
+          if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
+            continue;
+          }
+          let tagged = false;
+          try {
+            tagged = typeof rawWs === "function" && !!rawWs(t);
+          } catch (e) {}
+          if (!tagged) {
+            continue;
+          }
           const w = getWs(t);
           if (isValidId(w)) {
             seen.add(w);
@@ -727,6 +766,11 @@
   function cycleWorkspace(dir) {
     const ids = getActiveIds();
     if (ids.length < 2) {
+      // Nowhere to go — pulse instead of dying silent (every other
+      // Aph no-op signals; a dead gesture reads as broken input).
+      try {
+        pulseWorkspaceIndicator();
+      } catch (e) {}
       return;
     }
     const i = ids.indexOf(isValidId(current) ? current : "1");
@@ -858,6 +902,14 @@
       return false;
     }
     const list = Array.from(moving);
+    // A split pair must not straddle workspaces: separate any split
+    // touching the move set before retagging (both tabs stay open —
+    // the sent tab hides on reconcile below).
+    try {
+      if (typeof separateSplitsOf === "function") {
+        separateSplitsOf(list);
+      }
+    } catch (e) {}
     let preserved = null;
     try {
       preserved = preservedSendGroups(list);

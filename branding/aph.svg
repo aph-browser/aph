@@ -1,14 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 456 456">
   <!-- Aph mark: geometric spaces-grid (dock language) on the canvas base.
-       2x2 grid, top-left filled, rest outline — workspace 1 is home.
+       2x2 grid, home oversized + accent-filled (workspace 1 is home, alive
+       in ws-6 blue), rest ink outlines — the one ownable anomaly.
        CANONICAL SOURCE: branding/aph.png, branding/aph-small.png and
        docs/aph.png are Pillow renders of this exact geometry
        (scripts/render_logo.py — keep GEOMETRY in sync; tests enforce it).
        Redrawn from the raster autotrace; keep the grid geometry if the
        brand evolves (dock mark in 65-dock.js is the same form). -->
   <rect width="456" height="456" rx="100" fill="#17181f"/>
-  <rect x="84" y="84" width="120" height="120" rx="28" fill="#e8e8ec"/>
-  <rect x="252" y="84" width="120" height="120" rx="28" fill="none" stroke="#e8e8ec" stroke-width="20"/>
-  <rect x="84" y="252" width="120" height="120" rx="28" fill="none" stroke="#e8e8ec" stroke-width="20"/>
-  <rect x="252" y="252" width="120" height="120" rx="28" fill="none" stroke="#e8e8ec" stroke-width="20"/>
+  <rect x="78" y="78" width="132" height="132" rx="30" fill="#4682b4"/>
+  <rect x="252" y="84" width="120" height="120" rx="28" fill="none" stroke="#e8e8ec" stroke-width="24"/>
+  <rect x="84" y="252" width="120" height="120" rx="28" fill="none" stroke="#e8e8ec" stroke-width="24"/>
+  <rect x="252" y="252" width="120" height="120" rx="28" fill="none" stroke="#e8e8ec" stroke-width="24"/>
 </svg>

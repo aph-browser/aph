@@ -42,8 +42,9 @@ def test_stock_nova_gradient_border_is_killed() -> None:
     drew over our hairline. It is gated on `:root[theme-in-app]`, so it came and
     went with theme state and read as a random, mostly-orange border.
 
-    The selected-tab rule must therefore clear background-image, and the busy
-    sweep must re-set it afterwards so loading tabs keep their sheen."""
+    The selected-tab rule must therefore clear background-image. Load
+    feedback stays stock: no Aph rule may re-add a busy-tab sweep after
+    the clearing rule, so loading tabs keep only their native visuals."""
     css = _css()
     sel = ".tabbrowser-tab[selected] > .tab-stack > .tab-background"
     head = css.find(sel)
@@ -56,12 +57,12 @@ def test_stock_nova_gradient_border_is_killed() -> None:
     assert "border-color: transparent" in body, (
         "active tab must not keep a themed border color under the hairline"
     )
-    # The §13 busy sweep repaints background-image; it has to come AFTER the
-    # clearing rule or it would be wiped along with the gradient.
+    # Stock load feedback is on hold at the theme layer: nothing may paint a
+    # busy-tab background sweep after this clearing rule.
     busy = css.find("[selected][busy] > .tab-stack > .tab-background")
-    assert busy != -1, "busy sweep rule missing"
-    assert busy > head, "busy sweep must follow the background-image reset"
-    assert "background-image: linear-gradient" in css[busy : css.find("}", busy)]
+    assert busy == -1, "themed busy-tab sweep must stay removed"
+    assert "@keyframes aph-busy-sweep" not in css
+    assert ".tab-loading-burst {" not in css
 
 
 def test_hairline_is_one_shared_token() -> None:
@@ -171,8 +172,8 @@ def test_content_separators_are_aph_owned() -> None:
 def test_workspace_accent_has_a_root_default() -> None:
     """`--aph-ws-accent` is only defined per-workspace, and both stamp paths
     guard on `isValidId`. Unstamped, every `var(--aph-ws-accent, ...)` consumer
-    fell back to a hardcoded rgb(125,190,255) — a blue outside the nine
-    workspace stops. The root default must resolve to an in-palette stop so the
+    fell back to a hardcoded rgb(125,190,255) — a blue outside the hue
+    stops. The root default must resolve to an in-palette stop so the
     off-palette blue is unreachable."""
     css = _css()
     m = re.search(r":root\s*\{[^}]*--aph-ws-accent\s*:\s*([^;]+);", css, re.S)
@@ -210,7 +211,9 @@ def test_carve_out_uses_visibility_not_display() -> None:
 
 def test_workspace_dock_selectors_present() -> None:
     """The sidebar dock (65-dock.js) needs its container, pills, drop
-    highlight and collapsed-dots rules."""
+    highlight, collapsed-dots rules, and the Aph key's own paint +
+    keyboard focus (the key is the dock's only guaranteed keyboard
+    stop — WCAG 2.4.7)."""
     css = _css()
     for sel in (
         "#aph-ws-dock",
@@ -219,6 +222,7 @@ def test_workspace_dock_selectors_present() -> None:
         ".aph-ws-pill svg",
         "#aph-ws-indicator svg",
         ".aph-dock-aph svg",
+        ".aph-dock-aph:focus-visible",
         "sidebar-main:not([expanded])",
     ):
         assert sel in css, f"missing dock selector: {sel}"
@@ -306,17 +310,19 @@ def test_rounded_menus_present() -> None:
     """Rounded popups (§20): menupopup corners plus the panel variables
     so stock context menus, the dock's own menus, and arrow panels agree.
     Inner first/last-row radii keep hover backgrounds inside the corners;
-    overflow clipping is banned (long menus keep their scrollbox)."""
+    overflow clipping is banned (long menus keep their scrollbox).
+    Web-content <select> dropdowns (#ContentSelectDropdown / .in-menulist)
+    stay native — every menupopup leg carries the exclusion."""
     css = _css()
     for sel in (
-        "menupopup {",
+        "menupopup:not(",
         "--panel-border-radius",
         "--arrowpanel-border-radius",
-        "menupopup > menuitem:first-child",
-        "menupopup > menuitem:last-child",
+        "menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:first-child",
+        "menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-child",
     ):
         assert sel in css, f"missing rounded-menu selector: {sel}"
-    body = css[css.find("menupopup {") :]
+    body = css[css.find("menupopup:not(") :]
     body = body[: body.find("}") + 1]
     assert "overflow" not in body
 
@@ -336,37 +342,60 @@ def test_tab_dialogs_survive_card_clip() -> None:
 
 
 def test_desk_is_flat_and_shadow_adapts() -> None:
-    """Canvas desk (§19): one flat black shared with the toolbox (§1) and
-    the launcher (§22b) — bar, strip, and gutters read as one color, so
-    no gradient may live on #browser. Depth stays card-borne: the ring
-    plus layered shadow on #tabbrowser-tabbox, with the shadow adapting
-    to desk brightness behind a supports gate so engines without
-    relative colors keep the fixed fallback."""
+    """Canvas desk (§19): flat base fallback shared with the toolbox (§1)
+    and the launcher (§22b). A stamped top-kiss is allowed (accent wash
+    fading by 140px on toolbox + desk + launcher together so no shade-off
+    step), but the #browser fallback itself stays flat. Depth stays
+    card-borne: the ring plus layered shadow on #tabbrowser-tabbox, with
+    the shadow adapting to desk brightness behind a supports gate."""
     css = _css()
     head = css.find("#browser {")
     assert head != -1
     body = css[head : head + 800]
-    assert "linear-gradient" not in body, "desk gradient reads as gutter tint"
+    assert "linear-gradient" not in body, "fallback desk must stay flat"
     assert "var(--aph-base" in body, "desk must paint the shared flat base"
     assert "--aph-desk-sheen" not in re.sub(r"/\*.*?\*/", "", css, flags=re.S), (
         "dead sheen token resurrected"
     )
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    # Stamped kiss only: must be guarded by data-aph-ws, cover all three
+    # room surfaces together, spend <=16%, fade <=200px, HC-exempt.
+    kiss = [
+        m.group(0)
+        for m in re.finditer(r":root\[data-aph-ws\][^{]*\{[^}]*linear-gradient[^}]*\}", code)
+    ]
+    assert kiss, "stamped top-kiss rule missing"
+    for rule in kiss:
+        assert "#navigator-toolbox" in rule and "#browser" in rule and "sidebar-main" in rule, (
+            "kiss must cover toolbox + desk + launcher together"
+        )
+        m = re.search(r"var\(--aph-ws-accent\)\s*([\d.]+)%", rule)
+        assert m and float(m.group(1)) <= 16, "kiss spend must stay subtle"
+        assert "forced-colors" in code, "kiss must stay HC-exempt"
     assert "@supports" in css and "rgb(from" in css
 
 
-def test_workspace_accents_cover_all_nine() -> None:
+def test_workspace_accents_cover_nine_plus_seven() -> None:
     """Per-workspace accents (§21): all nine workspaces define an accent,
-    consumed by the three presence surfaces — selected fill (§13),
-    indicator, dock current — never as text. The desk stays flat neutral
-    on every workspace (bar, strip, and gutters read as one black;
-    identity lives on the pills, tab, and hairline). The selected tab's
+    consumed by the presence surfaces — selected fill (§13), indicator,
+    dock current + faint rest tint — never as text. Hues 10..16 are
+    accent-only extras (no workspace wears them by default): they share
+    the same stops via data-accent / data-aph-accent, never via
+    data-aph-ws / data-ws. Unstamped desk stays
+    flat neutral; stamped adds only the 10% top-kiss plus hairline tint.
+    The selected tab's
     hairline DOES carry the accent (--aph-hairline, §13) — it may tint
     the edge, but never grow past hairline weight, and never replace
     the fill as the signal."""
     css = _css()
-    for n in "123456789":
+    for n in [str(i) for i in range(1, 10)]:
         assert f"--aph-ws-{n}:" in css, f"missing accent var for ws{n}"
         assert f':root[data-aph-ws="{n}"]' in css
+    for n in [str(i) for i in range(10, 17)]:
+        assert f"--aph-ws-{n}:" in css, f"missing accent-only hue {n}"
+        assert f':root[data-aph-ws="{n}"]' not in css, (
+            f"hue {n} is accent-only — no workspace may stamp it"
+        )
     assert "--aph-ws-accent:" in css
     assert ":root[data-aph-ws] #aph-ws-indicator" in css
     assert '.aph-ws-pill[data-ws][data-current="1"]' in css
@@ -397,12 +426,12 @@ def test_chrome_type_is_inter() -> None:
 
 def test_motion_language_glides_hovers_dissolves_and_guards() -> None:
     """Motion language (§24): tab wash + dock ease both ways, the switch
-    rim bloom, accent load feedback (burst tint + busy sweep), and a
-    reduced-motion mirror that also covers the toast."""
+    rim bloom, and a reduced-motion mirror that also covers the toast.
+    Themed load feedback stays out: no burst tint and no busy sweep."""
     css = _css()
     assert "aph-ws-bloom" in css
-    assert "aph-busy-sweep" in css
-    assert "--tab-loading-fill" in css
+    assert "@keyframes aph-busy-sweep" not in css
+    assert ".tab-loading-burst {" not in css
     assert "prefers-reduced-motion" in css
     assert "#aph-toast" in css and "transition: none" in css
 
@@ -464,11 +493,13 @@ def test_urlbar_dropdown_speaks_palette() -> None:
 
 def test_toolbar_rhythm_unified() -> None:
     """Toolbar rhythm (§26 + §6): the indicator pill matches the 28px
-    urlbar height, and nav-bar buttons share the md hover corners."""
+    urlbar height (via --aph-hit-min token), and nav-bar buttons share
+    the md hover corners."""
     css = _css()
     head = css.find("#aph-ws-indicator {")
     assert head != -1
-    assert "height: 28px" in css[head : head + 900]
+    body = css[head : head + 900]
+    assert "--aph-hit-min" in body and "28px" in body
     assert "#nav-bar toolbarbutton:hover" in css
 
 
@@ -512,9 +543,10 @@ _ROLE_SPENDS = {"presence": 0.45, "presence-tab": 0.35, "hover": 0.30}
 
 def _workspace_hues(css: str) -> dict:
     hues = {
-        m.group(1): m.group(2) for m in re.finditer(r"--aph-ws-([1-9]):\s*(#[0-9a-fA-F]{6})", css)
+        m.group(1): m.group(2)
+        for m in re.finditer(r"--aph-ws-([0-9]{1,2}):\s*(#[0-9a-fA-F]{6})", css)
     }
-    assert len(hues) == 9, f"expected 9 workspace hues, found {len(hues)}"
+    assert len(hues) == 16, f"expected 16 hue stops, found {len(hues)}"
     return hues
 
 
@@ -772,15 +804,15 @@ def test_tab_group_radix_remap() -> None:
     block = css[head:]
     solids = {
         "--tab-group-red:": "#e54666",
-        "--tab-group-orange:": "#f76808",
+        "--tab-group-orange:": "#f76b15",
         "--tab-group-yellow:": "#ffc53d",
         "--tab-group-green:": "#29a383",
         "--tab-group-cyan:": "#00a2c7",
         "--tab-group-blue:": "#0090ff",
         "--tab-group-purple:": "#8e4ec6",
         "--tab-group-pink:": "#d6409f",
-        "--tab-group-grey:": "#707885",
-        "--tab-group-gray:": "#707885",
+        "--tab-group-grey:": "#696e77",
+        "--tab-group-gray:": "#696e77",
     }
     lowered = block.lower()
     for token, hexval in solids.items():
@@ -876,7 +908,7 @@ def test_overridden_paint_rules_stay_deleted() -> None:
     assert "tab-group[collapsed] > .tab-group-label-container" not in css, (
         "dead collapsed-label rule resurrected"
     )
-    arch = (ROOT / "branding" / "archive.css").read_text(encoding="utf-8")
+    arch = (ROOT / "branding" / "stash.css").read_text(encoding="utf-8")
     assert "--arch-radius-sm" not in arch, "dead radius token resurrected"
 
 
@@ -894,10 +926,10 @@ def test_no_live_theme_color_reads() -> None:
     code = re.sub(r"/\*.*?\*/", "", theme, flags=re.S)
     assert "--toolbarbutton-color" not in code, "theme ink read resurrected"
     assert "--toolbarbutton-background-color-hover" not in code, "theme hover read resurrected"
-    # The starred tint is hardcoded gold, never a token.
+    # The starred tint is hardcoded amber, never a token.
     head = code.find('[data-aph-starred="1"]:not([selected])')
     assert head != -1
-    assert "rgba(255, 200, 80, 0.28)" in code[head : code.find("}", head)]
+    assert "rgba(245, 179, 1, 0.28)" in code[head : code.find("}", head)]
 
 
 def test_fallbacks_match_root_definitions() -> None:
@@ -918,6 +950,8 @@ def test_fallbacks_match_root_definitions() -> None:
         "#7dbeff",
         "rgb(125, 190, 255)",
         "rgba(125, 190, 255,",
+        "#e8b64c",
+        "rgba(255, 200, 80,",
     ):
         assert stale not in css, f"stale fallback value resurrected: {stale}"
 
@@ -1007,11 +1041,13 @@ def test_icon_to_label_gap() -> None:
     scoping). A fixed px box with margin:0 severed the token: pinned
     gained a gap it shouldn't have, muted crowded its speaker overlay.
     Aph must set no width/height/margin/padding on stack or image —
-    only the 6px token on :root + vertical-expanded (muted keeps 2px,
-    pinned keeps 0), so every state recalculates cleanly."""
+    only the 6px gap token (via --aph-icon-label-gap) on :root +
+    vertical-expanded (muted keeps 2px, pinned keeps 0), so every state
+    recalculates cleanly."""
     css = _css()
     code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-    assert "--tab-icon-end-margin: 6px" in code, "tab gap token missing"
+    assert "--tab-icon-end-margin:" in code, "tab gap token missing"
+    assert "--aph-icon-label-gap" in code and "6px" in code, "icon gap must read the shared token"
     assert '#tabbrowser-tabs[orient="vertical"][expanded]' in code, (
         "vertical-expanded override missing — strip would keep stock 7.5px"
     )
@@ -1080,3 +1116,146 @@ def test_chrome_stays_rtl_clean() -> None:
     for m in re.finditer(r"(?<![a-z-])(left|right)\s*:", code):
         window = code[max(0, m.start() - 24) : m.end() + 8]
         assert "left: 50%" in window, f"physical offset leaked: {window.strip()!r}"
+
+
+def test_aph_menu_glyphs_use_menuitem_icon_var() -> None:
+    """Aph-menu glyphs (§20b): stock 157 paints .menu-icon from
+    --menuitem-icon (content: var) — bare image attributes unhide an
+    empty slot (seen live). Fills are baked per face: context-fill does
+    NOT resolve through content:-generated data-URIs (seen live:
+    stroked outlines invisible, filled knobs black). The dark block
+    carries dark ink, the light media block paper ink, and no
+    context-fill may remain in §20b."""
+    css = _css()
+    rows = (
+        "palette",
+        "rename",
+        "set-icon",
+        "bind",
+        "stash",
+        "open-stash",
+        "customize",
+        "settings",
+        "firefox-settings",
+        "welcome",
+        "about",
+    )
+    for row in rows:
+        sel = f"#aph-aph-menu > #aph-aph-{row}"
+        head = css.find(sel)
+        assert head != -1, f"missing glyph rule: {sel}"
+        body = css[head : css.find("}", head)]
+        assert "--menuitem-icon:" in body, f"{sel} must set --menuitem-icon"
+        assert "data:image/svg+xml" in body, f"{sel} art must be a data URI"
+        assert "%23e8e8ec" in body, f"{sel} dark block must bake dark ink"
+        assert "context-fill" not in body, f"{sel}: context-fill is dead in data-URI content images"
+    light = css.find("@media (prefers-color-scheme: light)", css.find("20b. Aph-menu glyphs"))
+    assert light != -1, "missing paper-face glyph block"
+    light_block = css[light : light + 12000]
+    for row in rows:
+        assert f"#aph-aph-{row}" in light_block, f"paper face missing: {row}"
+    assert "%2323252f" in light_block, "paper face must bake paper ink"
+    assert "#aph-aph-menu .menu-icon" in css, "icon size must be pinned (no stock default)"
+    assert "#aph-aph-menu .menu-icon" in css, "icon size must be pinned (no stock default)"
+
+
+def test_focus_mode_hides_chrome() -> None:
+    """Focus mode (§28): :root[data-aph-focus="1"] hides the top bar,
+    the sidebar strip (tabs + dock ride inside it), side panels, and
+    the dock explicitly — page only. display:none throughout keeps the
+    RTL gate green (no physical props) and gives reduced-motion nothing
+    to mirror."""
+    css = _css()
+    head = css.find("28. Focus mode")
+    assert head != -1, "missing §28 focus-mode block"
+    block = css[head:]
+    for sel in (
+        ':root[data-aph-focus="1"] #navigator-toolbox',
+        ':root[data-aph-focus="1"] sidebar-main',
+        ':root[data-aph-focus="1"] #sidebar-box',
+        ':root[data-aph-focus="1"] #aph-ws-dock',
+    ):
+        assert sel in block, f"missing focus-mode selector: {sel}"
+    body = block[block.find("{") : block.find("}") + 1]
+    assert "display: none" in body
+    assert "display: none !important" in body
+
+
+def test_per_ws_accent_overrides_share_stops() -> None:
+    """Per-WS accent (32): data-accent="M" retunes to hue M with the same
+    sixteen stops — no new hexes. Pill + window + settings + stash layers
+    all resolve via var(--aph-ws-N). Workspaces stay 1..9: only the hue
+    end spans 10..16."""
+    root = Path(__file__).resolve().parent.parent
+    theme = (root / "branding" / "theme.css").read_text(encoding="utf-8")
+    settings = (root / "branding" / "settings.css").read_text(encoding="utf-8")
+    stash = (root / "branding" / "stash.css").read_text(encoding="utf-8")
+    for n in [str(i) for i in range(1, 17)]:
+        assert f'.aph-ws-pill[data-accent="{n}"]' in theme
+        assert f':root[data-aph-accent="{n}"]' in theme
+        assert f'tr[data-accent="{n}"]' in settings
+        assert f'.aph-stash-pill[data-accent="{n}"]' in stash
+    for css in (theme, settings, stash):
+        code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        assert re.search(r"--aph-ws-(?:1[7-9]|[2-9][0-9]|[0-9]{3,}):", code) is None, (
+            "hue stop outside 1..16"
+        )
+
+
+def test_accent_override_plumbing_exists() -> None:
+    """32-ws-accents.js ships in the bundle with allowlisted get/set and
+    both stamp sites (dock pills + window). Writes restamp the room at
+    once (no lag-until-switch), and a pref observer carries
+    Settings-page writes into every window with teardown to match."""
+    root = Path(__file__).resolve().parent.parent
+    src = root / "branding" / "src" / "workspaces" / "32-ws-accents.js"
+    assert src.is_file(), "missing 32-ws-accents.js"
+    bundle_src = (root / "scripts" / "build_assets.py").read_text(encoding="utf-8")
+    assert "32-ws-accents.js" in bundle_src, "bundle list missing accents module"
+    built = (root / "branding" / "workspaces.js").read_text(encoding="utf-8")
+    assert "WS_ACCENTS_PREF" in built and "getWsAccent" in built and "setWsAccent" in built
+    assert "wsAccentObserver" in built, "missing accents pref observer"
+    chrome_init = (root / "branding" / "src" / "workspaces" / "110-chrome-init.js").read_text(
+        encoding="utf-8"
+    )
+    assert "addObserver(WS_ACCENTS_PREF" in chrome_init, "observer never registered"
+    assert "removeObserver(WS_ACCENTS_PREF" in chrome_init, "observer teardown missing"
+    dock = (root / "branding" / "src" / "workspaces" / "65-dock.js").read_text(encoding="utf-8")
+    assert "data-accent" in dock, "dock never stamps data-accent"
+    switch = (root / "branding" / "src" / "workspaces" / "60-indicator-switch.js").read_text(
+        encoding="utf-8"
+    )
+    assert "data-aph-accent" in switch, "window never stamps data-aph-accent"
+
+
+def test_toast_undo_has_keyboard_focus() -> None:
+    """Action-toast Undo is a real button: hover alone leaves keyboard
+    users with no ring. Focus-visible must mirror the pill language."""
+    css = _css()
+    sel = "#aph-toast button:focus-visible"
+    assert sel in css, "toast Undo focus ring missing"
+    body = css[css.find(sel) : css.find(sel) + 400]
+    assert "outline:" in body and "--aph-urlbar-accent" in body
+
+
+def test_icon_hit_empty_tokens_mirrored() -> None:
+    """Chrome owns its own :root, so icon/hit/empty tokens mirror tokens.css
+    with identical values — otherwise an older omni paints literals."""
+    root = Path(__file__).resolve().parent.parent
+    tokens = (root / "branding" / "tokens.css").read_text(encoding="utf-8")
+    theme = (root / "branding" / "theme.css").read_text(encoding="utf-8")
+    for token, value in (
+        ("--aph-icon-sm", "14px"),
+        ("--aph-icon-md", "16px"),
+        ("--aph-icon-label-gap", "6px"),
+        ("--aph-hit-min", "28px"),
+        ("--aph-hit-sm", "22px"),
+        ("--aph-bar-button", "30px"),
+        ("--aph-bar-height", "36px"),
+    ):
+        for css in (tokens, theme):
+            assert (
+                f"{token}: {value}" in css
+                or f"{token}:{value}" in css
+                or f"{token}: {value};" in css
+            ), f"{token} missing {value}"

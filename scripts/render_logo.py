@@ -28,18 +28,23 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parent.parent
 BRANDING_DIR = ROOT / "branding"
 
-# Exact mirror of branding/aph.svg (viewBox 456). CELL_RX stays shared —
-# only the outline weight changes for small sizes.
+# Exact mirror of branding/aph.svg (viewBox 456). Home cell is oversized +
+# accent-filled (the ownable anomaly); ghosts share CELL geometry. Only
+# the outline weight changes for small sizes.
 GEOMETRY = {
     "size": 456,
     "base_rx": 100,
     "base_fill": "#17181f",
     "cell": 120,
     "cell_rx": 28,
-    "cell_xy": (84, 84, 252),  # home-x, home-y, far offset (252 = 84 + 120 + 48)
+    "home_cell": 132,
+    "home_rx": 30,
+    "home_xy": (78, 78),  # oversized 10%, breaks grid upward-left
+    "home_fill": "#4682b4",  # muted steel blue: home is distinct, not loud
+    "ghost_xy": ((252, 84), (84, 252), (252, 252)),
     "ink": "#e8e8ec",
-    "stroke": 20,
-    "small_stroke": 36,
+    "stroke": 24,
+    "small_stroke": 40,
 }
 
 OUTPUTS = (
@@ -63,15 +68,18 @@ def render(size: int, stroke_width: int) -> Image.Image:
     )
     cell, rx = round(g["cell"] * unit), round(g["cell_rx"] * unit)
     w = max(1, round(stroke_width * unit))
-    home_x, home_y, far = (round(v * unit) for v in g["cell_xy"])
-    # Home cell (workspace 1 is home): filled ink.
+    home_cell = round(g["home_cell"] * unit)
+    home_rx = round(g["home_rx"] * unit)
+    home_x, home_y = (round(v * unit) for v in g["home_xy"])
+    # Home cell (workspace 1 is home): oversized, accent-filled.
     draw.rounded_rectangle(
-        [home_x, home_y, home_x + cell, home_y + cell],
-        radius=rx,
-        fill=g["ink"],
+        [home_x, home_y, home_x + home_cell, home_y + home_cell],
+        radius=home_rx,
+        fill=g["home_fill"],
     )
     # Remaining three: ink outlines.
-    for x, y in ((far, home_y), (home_x, far), (far, far)):
+    for x, y in g["ghost_xy"]:
+        x, y = round(x * unit), round(y * unit)
         draw.rounded_rectangle(
             [x, y, x + cell, y + cell],
             radius=rx,

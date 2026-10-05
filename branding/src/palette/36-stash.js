@@ -1,17 +1,17 @@
-  // --- Saved archive search ---------------------------------------------
-  // Archived tabs join non-empty queries as fuzzy-pool items (newest-first,
+  // --- Saved stash search -----------------------------------------------
+  // Stashed tabs join non-empty queries as fuzzy-pool items (newest-first,
   // capped), so they rank alongside commands and open tabs with match
   // highlighting handled by the normal scoring path. Restoring re-opens
-  // with the saved workspace + container (restoreEntry owns the workspace
+  // with the saved workspace + container (restoreStashEntry owns the workspace
   // switch); Alt+Enter restores without consuming the entry (keep).
   // Hidden in private windows (bind parity): entries are non-private
   // pages whose restore retags into normal workspaces.
-  // Test seam: window.AphArchive = { getEntries() → [{id, title, url,
-  // ws, cname}], restoreEntry(id, opts?) } — the real controller shape.
-  var APH_ARCHIVE_MIN_QUERY = 2;
-  var APH_ARCHIVE_POOL_LIMIT = 50;
+  // Test seam: window.AphStash = { getStashEntries() → [{id, title, url,
+  // ws, cname}], restoreStashEntry(id, opts?) } — the real controller shape.
+  var APH_STASH_MIN_QUERY = 2;
+  var APH_STASH_POOL_LIMIT = 50;
 
-  function aphArchiveIsPrivate() {
+  function aphStashIsPrivate() {
     try {
       if (typeof isPrivatePaletteWindow === "function") {
         return !!isPrivatePaletteWindow();
@@ -20,11 +20,11 @@
     return false;
   }
 
-  function aphArchiveEntries() {
+  function aphStashEntries() {
     try {
       const a = typeof arc === "function" ? arc() : null;
-      if (a && typeof a.getEntries === "function") {
-        const r = a.getEntries();
+      if (a && typeof a.getStashEntries === "function") {
+        const r = a.getStashEntries();
         if (Array.isArray(r)) {
           return r;
         }
@@ -33,14 +33,14 @@
     return [];
   }
 
-  function aphArchivePoolItems(raw) {
+  function aphStashPoolItems(raw) {
     const out = [];
     try {
       const q = (raw || "").trim();
-      if (q.length < APH_ARCHIVE_MIN_QUERY) {
+      if (q.length < APH_STASH_MIN_QUERY) {
         return out;
       }
-      if (aphArchiveIsPrivate()) {
+      if (aphStashIsPrivate()) {
         return out;
       }
       let openUrls = null;
@@ -51,8 +51,8 @@
         openUrls = new Set();
       }
       let n = 0;
-      for (const e of aphArchiveEntries()) {
-        if (n >= APH_ARCHIVE_POOL_LIMIT) {
+      for (const e of aphStashEntries()) {
+        if (n >= APH_STASH_POOL_LIMIT) {
           break;
         }
         let url = "";
@@ -81,20 +81,20 @@
         out.push({
           title: String(title),
           sub,
-          hint: "Archive",
+          hint: "Stash",
           run: () => {
             try {
               const a = typeof arc === "function" ? arc() : null;
-              if (a && typeof a.restoreEntry === "function") {
-                a.restoreEntry(id);
+              if (a && typeof a.restoreStashEntry === "function") {
+                a.restoreStashEntry(id);
               }
             } catch (err) {}
           },
           runInTemp: () => {
             try {
               const a = typeof arc === "function" ? arc() : null;
-              if (a && typeof a.restoreEntry === "function") {
-                a.restoreEntry(id, { keep: true });
+              if (a && typeof a.restoreStashEntry === "function") {
+                a.restoreStashEntry(id, { keep: true });
               }
             } catch (err) {}
           },

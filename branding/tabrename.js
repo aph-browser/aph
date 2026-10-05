@@ -480,7 +480,7 @@
         const popup = e.target;
         node = (popup && popup.triggerNode) || document.popupNode || null;
       } catch (err) {}
-      // Same resolution as stock tab-context-menu.js and archive.js.
+      // Same resolution as stock tab-context-menu.js and stash.js.
       let clicked = null;
       try {
         if (node) {

@@ -37,7 +37,9 @@ def test_welcome_html_is_sane() -> None:
     assert 'id="aph-welcome-list"' in text
     assert 'id="aph-welcome-dismiss"' in text
     assert "aph-settings.html" in text, "tour must link Aph Settings"
-    assert "aph-archive.html" in text, "tour must link the Archive"
+    assert "aph-stash.html" in text, "tour must link the Stash"
+    # Show-once by design: no opt-out theater (Get started persists seen).
+    assert "aph-welcome-skip" not in text, "dead checkbox must stay removed"
 
 
 def test_welcome_css_is_sane() -> None:
@@ -60,7 +62,7 @@ def test_welcome_css_is_sane() -> None:
     assert "prefers-reduced-motion" in css
     assert "transition: none" in css
     # The tour carries no workspace identity rows, so no workspace hues:
-    # color lives only where data-ws identity lives (archive, settings).
+    # color lives only where data-ws identity lives (stash, settings).
     assert "--wel-ws-1" not in css
 
 
@@ -71,6 +73,12 @@ def test_welcome_tour_covers_shortcuts() -> None:
     assert '"?"' in js or "'?'" in js, "tour must teach the palette ? modes"
     assert "aph.welcome.seen" in js
     assert "SECTIONS" in js
+    # Demos must reach the real browser window: chrome tabs host no
+    # AphPalette of their own, so window.parent is always a dead end.
+    assert "getMostRecentWindow" in js, "demo must open the live palette"
+    assert "window.parent.AphPalette" not in js, "dead demo path resurrected"
+    assert "Open palette help" not in js, "palette has no help deep-link"
+    assert "aph-welcome-skip" not in js, "dead checkbox resurrected"
 
 
 def test_welcome_trigger_is_show_once() -> None:

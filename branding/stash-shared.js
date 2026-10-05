@@ -1,16 +1,16 @@
-/* Aph tab archive — shared pure logic (no Firefox deps).
+/* Aph tab stash — shared pure logic (no Firefox deps).
  *
- * Used by the window controller (branding/archive.js, classic script via
- * browser.xhtml) and by the archive page (branding/archive-page.js,
- * chrome://browser/content/aph-archive.html). Classic script on purpose:
- * defines a single global `AphArchiveLogic` so both consumers work without
+ * Used by the window controller (branding/stash.js, classic script via
+ * browser.xhtml) and by the stash page (branding/stash-page.js,
+ * chrome://browser/content/aph-stash.html). Classic script on purpose:
+ * defines a single global `AphStashLogic` so both consumers work without
  * a module system — same pattern as textpick-shared.js. Also loaded
- * directly in node:vm by tests/archive.test.js.
+ * directly in node:vm by tests/stash.test.js.
  *
  * Jobs: URL eligibility, entry validation, cap pruning, date grouping and
  * multi-word filtering. All functions are pure and side-effect free.
  */
-var AphArchiveLogic = (function () {
+var AphStashLogic = (function () {
   // Hard cap: the store lives in a single JSON pref (cheap cross-window
   // sync), so history is bounded — oldest entries prune first (FIFO).
   const MAX_ENTRIES = 300;
@@ -289,8 +289,212 @@ var AphArchiveLogic = (function () {
     return list;
   }
 
+  // ---------------------------------------------------------------- snapshots
+  // A "stash" (workspace snapshot) is one captured workspace: a named set of
+  // restorable tabs, newest-first in a capped JSON pref. Same shape as the
+  // per-tab store above, so it reuses isArchivableUrl for eligibility.
+  //
+  // Caps: manual snapshots are the user's own work and are never dropped to
+  // make room for auto captures — auto ones prune first (oldest), then manual
+  // oldest-first once the manual cap is exceeded. Two separate caps (not one)
+  // so an auto capture storm can never evict every manual stash.
+  const SNAP_MAX_MANUAL = 20;
+  const SNAP_MAX_AUTO = 5;
+
+  // Validate + normalize raw snapshot objects. Keeps well-formed entries
+  // only: a real id/name, a 1-9 workspace, http(s) tabs, sane cid/ts/auto.
+  // A snapshot with zero surviving tabs is dropped (nothing to restore).
+  function sanitizeSnapshots(raw) {
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    const out = [];
+    for (const s of raw) {
+      if (!s || typeof s !== "object") {
+        continue;
+      }
+      if (typeof s.id !== "string" || !s.id) {
+        continue;
+      }
+      const tabs = [];
+      const seen = new Set();
+      for (const t of Array.isArray(s.tabs) ? s.tabs : []) {
+        if (!t || typeof t !== "object") {
+          continue;
+        }
+        const url = typeof t.url === "string" ? t.url : "";
+        if (!isArchivableUrl(url) || seen.has(url)) {
+          continue;
+        }
+        seen.add(url);
+        tabs.push({
+          title: typeof t.title === "string" && t.title ? t.title : url,
+          url,
+          cid: Number.isInteger(t.cid) && t.cid > 0 ? t.cid : 0,
+        });
+      }
+      if (!tabs.length) {
+        continue;
+      }
+      out.push({
+        id: s.id,
+        name: typeof s.name === "string" && s.name.trim()
+          ? s.name.trim().slice(0, 80)
+          : "Snapshot",
+        ws: typeof s.ws === "string" && /^[1-9]$/.test(s.ws) ? s.ws : "1",
+        ts: typeof s.ts === "number" && s.ts > 0 ? s.ts : 0,
+        auto: !!s.auto,
+        tabs,
+      });
+    }
+    return out;
+  }
+
+  // Periodic cadence check (pure, so the sweeper is testable without
+  // timers): due when no capture exists yet (lastTs 0/missing) or the
+  // interval has fully elapsed. Clamp faults to the default, never throw.
+  const SNAP_INTERVAL_DEFAULT_MIN = 30;
+  const SNAP_INTERVAL_MIN_MIN = 5;
+  const SNAP_INTERVAL_MAX_MIN = 240;
+
+  function clampSnapIntervalMin(m) {
+    try {
+      const n = Number(m);
+      if (Number.isFinite(n)) {
+        return Math.min(
+          SNAP_INTERVAL_MAX_MIN,
+          Math.max(SNAP_INTERVAL_MIN_MIN, Math.floor(n))
+        );
+      }
+    } catch (e) {}
+    return SNAP_INTERVAL_DEFAULT_MIN;
+  }
+
+  function snapshotDue(lastTs, nowMs, intervalMin) {
+    try {
+      const interval = clampSnapIntervalMin(intervalMin);
+      const now = Number(nowMs);
+      if (!Number.isFinite(now) || now < 0) {
+        return false;
+      }
+      const last = Number(lastTs) || 0;
+      if (!(last > 0)) {
+        return true;
+      }
+      return now - last >= interval * 60000;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Trim to the caps: auto first (oldest auto goes), then manual oldest-first.
+  function pruneSnapshots(list, manualCap, autoCap) {
+    const src = Array.isArray(list) ? list : [];
+    const mCap = Number.isInteger(manualCap) && manualCap > 0
+      ? manualCap
+      : SNAP_MAX_MANUAL;
+    const aCap = Number.isInteger(autoCap) && autoCap > 0 ? autoCap : SNAP_MAX_AUTO;
+    const byAge = (a, b) => (a.ts || 0) - (b.ts || 0);
+    const autos = src.filter((s) => s && s.auto).sort(byAge).slice(-aCap);
+    const manual = src.filter((s) => s && !s.auto).sort(byAge).slice(-mCap);
+    return [...autos, ...manual].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  }
+
+  // Search haystack for one snapshot: name, workspace ("2", "ws 2",
+  // "workspace 2") and every member tab's title, host and URL — so a
+  // snapshot is findable by what it contains, not just what it's called.
+  function stashHay(snap) {
+    try {
+      if (!snap) {
+        return "";
+      }
+      const parts = [
+        snap.name || "",
+        `ws ${snap.ws || ""}`,
+        `workspace ${snap.ws || ""}`,
+        snap.auto ? "auto" : "manual",
+      ];
+      for (const t of Array.isArray(snap.tabs) ? snap.tabs : []) {
+        try {
+          if (!t) {
+            continue;
+          }
+          parts.push(t.title || "", hostOfUrl(t.url || ""), t.url || "");
+        } catch (_e) {}
+      }
+      return parts.join(" ");
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Fuzzy filter over snapshots (same per-token AND + relevance shape as
+  // fuzzyFilter). Returns [{snap, score, indices}] sorted by score desc;
+  // empty query returns every snapshot unscored (score 0).
+  function fuzzyStashFilter(snaps, q) {
+    const needle = String(q == null ? "" : q).trim().toLowerCase();
+    if (!needle) {
+      return (snaps || []).map((snap) => ({ snap, score: 0, indices: [] }));
+    }
+    const parts = needle.split(/\s+/).filter(Boolean);
+    const out = [];
+    for (const snap of snaps || []) {
+      try {
+        if (!snap) {
+          continue;
+        }
+        const hay = stashHay(snap);
+        let score = 0;
+        let indices = [];
+        let ok = true;
+        for (const part of parts) {
+          const m = fuzzyEntry(part, hay);
+          if (!m) {
+            ok = false;
+            break;
+          }
+          score += m.score;
+          indices = indices.concat(m.indices);
+        }
+        if (ok) {
+          out.push({ snap, score, indices });
+        }
+      } catch (err) {}
+    }
+    out.sort((a, b) => b.score - a.score);
+    return out;
+  }
+
+  // Newest-first by default; "oldest" flips; "name" sorts A-Z (the
+  // per-tab "site" mode has no meaning for snapshots, so the stashes
+  // view maps it here — see stash-page.js).
+  function sortStashes(snaps, mode) {
+    const list = (snaps || []).slice();
+    try {
+      if (mode === "oldest") {
+        list.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+      } else if (mode === "name" || mode === "site") {
+        list.sort(
+          (a, b) =>
+            String(a.name || "").localeCompare(String(b.name || "")) ||
+            (b.ts || 0) - (a.ts || 0)
+        );
+      } else {
+        list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      }
+    } catch (e) {}
+    return list;
+  }
+
   return {
     MAX_ENTRIES,
+    SNAP_MAX_MANUAL,
+    SNAP_MAX_AUTO,
+    SNAP_INTERVAL_DEFAULT_MIN,
+    SNAP_INTERVAL_MIN_MIN,
+    SNAP_INTERVAL_MAX_MIN,
+    clampSnapIntervalMin,
+    snapshotDue,
     isArchivableUrl,
     hostOfUrl,
     sanitizeEntries,
@@ -301,5 +505,10 @@ var AphArchiveLogic = (function () {
     fuzzyEntry,
     fuzzyFilter,
     sortEntries,
+    sanitizeSnapshots,
+    pruneSnapshots,
+    stashHay,
+    fuzzyStashFilter,
+    sortStashes,
   };
 })();

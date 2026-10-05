@@ -9,10 +9,10 @@ skipped, so re-running the rebrand over an already-patched file is safe
 from __future__ import annotations
 
 from ..constants import (
-    ARCHIVE_SCRIPT_TAG,
-    ARCHIVE_SHARED_SCRIPT_TAG,
     PALETTE_LINK_TAG,
     PALETTE_SCRIPT_TAG,
+    STASH_SCRIPT_TAG,
+    STASH_SHARED_SCRIPT_TAG,
     TABRENAME_SCRIPT_TAG,
     TEXTPICK_SCRIPT_TAG,
     THEME_LINK_TAG,
@@ -29,8 +29,8 @@ CANONICAL_TAG_ORDER = (
     WORKSPACES_SCRIPT_TAG,
     PALETTE_SCRIPT_TAG,
     TEXTPICK_SCRIPT_TAG,
-    ARCHIVE_SHARED_SCRIPT_TAG,
-    ARCHIVE_SCRIPT_TAG,
+    STASH_SHARED_SCRIPT_TAG,
+    STASH_SCRIPT_TAG,
     TABRENAME_SCRIPT_TAG,
 )
 

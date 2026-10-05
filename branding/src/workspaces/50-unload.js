@@ -44,10 +44,10 @@
 
   // Staleness threshold for the automatic sweeper: minutes (pref
   // aph.unload.staleMin, default 30), read live so about:config flips apply
-  // to the next sweep. Separate from aph.archive.autoStaleMin on purpose:
-  // unloading is cheap and reversible (click reloads) while archiving
+  // to the next sweep. Separate from aph.stash.autoStaleMin on purpose:
+  // unloading is cheap and reversible (click reloads) while stashing
   // closes the tab, so they deserve different thresholds. Pair them as
-  // unload < archive so tabs discard before they close.
+  // unload < stash so tabs discard before they close.
   function getUnloadStaleMs() {
     try {
       if (Services.prefs && typeof Services.prefs.getIntPref === "function") {
@@ -63,7 +63,7 @@
   // Last-viewed read for staleness: SessionStore custom tab value
   // "aphLastViewed" (ms epoch, stamped by the workspaces bundle on
   // TabSelect/TabOpen — key duplicated here by design, same pattern as
-  // "aphStarred" and archive.js). Missing/unreadable/malformed reads as 0
+  // "aphStarred" and stash.js). Missing/unreadable/malformed reads as 0
   // (epoch): untracked tabs count as stale.
   const UNLOAD_LAST_VIEWED_KEY = "aphLastViewed";
 
@@ -105,7 +105,7 @@
 
   // Auto-only eligibility: the manual guards plus the starred exemption
   // and staleness. Starred tabs are user-marked keepers
-  // (archive.js already exempts them); manual scopes stay a force tool and
+  // (stash.js already exempts them); manual scopes stay a force tool and
   // skip both filters.
   // nowMs/staleMs are parameters so tests can drive time deterministically;
   // callers that pass nothing get live values.
@@ -163,6 +163,12 @@
       try {
         if (tab.closing) {
           return { ok: false, reason: "closing" };
+        }
+      } catch (e) {}
+      // SessionStore owns restoring tabs (tags unsettled): never touch.
+      try {
+        if (typeof isRestoringTab === "function" && isRestoringTab(tab)) {
+          return { ok: false, reason: "restoring" };
         }
       } catch (e) {}
       try {
@@ -488,7 +494,7 @@
     }
   }
 
-  // Settle delay (the time-based foundation, same shape as archive.js):
+  // Settle delay (the time-based foundation, same shape as stash.js):
   // the switch hook does not sweep instantly — it arms this, and every
   // further switch re-arms it, so the sweep only fires once you've sat on
   // one workspace for the full delay. Guards + the hidden set re-check at
@@ -635,8 +641,7 @@
   }
 
   // Ctrl/Cmd+W on a selected pinned tab keeps it open (pref
-  // aph.pins.ctrlWUnloads, default on — same default-true shape as
-  // silenceFirstRun): pins are app anchors. A drifted pin first resets to
+  // aph.pins.ctrlWUnloads, default on): pins are app anchors. A drifted pin first resets to
   // its pinned base URL in place (stay selected, no unload — next press,
   // now at base, parks); a pin already at base parks (unloads) instead of
   // closing; a second press (now pending) falls through to stock close, as

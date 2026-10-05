@@ -137,6 +137,18 @@ BROWSER_HOOKS = (
         "content-visibility",
         "theme.css §10 undo target",
     ),
+    (
+        "browser",
+        "chrome/browser/content/browser/browser-commands.js",
+        "addTabSplitView",
+        "78-split.js native picker fallback",
+    ),
+    (
+        "browser",
+        "chrome/browser/content/browser/tabbrowser/tabsplitview.mjs",
+        "unsplitTabs",
+        "78-split.js dissolve guard",
+    ),
 )
 
 TOOLKIT_HOOKS = (

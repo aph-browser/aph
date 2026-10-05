@@ -27,17 +27,14 @@
   </section>
   <main id="aph-welcome-list"></main>
   <footer id="aph-welcome-foot">
-    <span id="aph-welcome-donot">
-      <input id="aph-welcome-skip" type="checkbox" />
-      <label for="aph-welcome-skip">Don't show again</label>
-    </span>
     <span id="aph-welcome-actions">
       <button id="aph-welcome-dismiss" type="button">Get started</button>
     </span>
     <span id="aph-welcome-links">
       <a id="aph-welcome-open-settings" href="chrome://browser/content/aph-settings.html">Aph Settings</a>
       <span aria-hidden="true"> · </span>
-      <a id="aph-welcome-open-archive" href="chrome://browser/content/aph-archive.html">Open Archive</a>
+      <!-- id stays legacy: it is a stable handle, only the label reads "Stash" -->
+      <a id="aph-welcome-open-stash" href="chrome://browser/content/aph-stash.html">Open Stash</a>
     </span>
   </footer>
 </div>

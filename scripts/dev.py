@@ -337,6 +337,10 @@ RETIRED_PREFS = (
     # Betterfox-inherited strict pin; the EnableTrackingProtection policy
     # already enforces standard and locks the category.
     ("browser.contentblocking.category", '"strict"'),
+    # Addon first-run silencer, removed: only uBlock Origin is
+    # force-installed now and it needs none. The dead pref is scrubbed
+    # from profile/user.js + prefs.js on next cold launch.
+    ("aph.addons.silenceFirstRun", "true"),
     # Disk cache is back at stock (enabled).
     ("browser.cache.disk.enable", "false"),
     # Pre-rendered New Tab cache is back at stock (enabled).

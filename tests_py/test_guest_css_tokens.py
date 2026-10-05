@@ -1,6 +1,6 @@
 """Guest pages consume the shared Aph scale; they no longer mirror it.
 
-Regression guard for the drift pattern: settings.css / archive.css /
+Regression guard for the drift pattern: settings.css / stash.css /
 welcome.css each used to re-declare the whole --aph-* scale under a local
 prefix (--set-*, --arch-*, --wel-*) with parity tests keeping the copies
 honest. Now aph-tokens.css is the single source and these files may only
@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 GUEST_PAGES = {
     "settings": ROOT / "branding" / "settings.css",
-    "archive": ROOT / "branding" / "archive.css",
+    "stash": ROOT / "branding" / "stash.css",
     "welcome": ROOT / "branding" / "welcome.css",
     "palette": ROOT / "branding" / "command-palette.css",
 }

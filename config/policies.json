@@ -132,8 +132,6 @@
               "https://raw.githubusercontent.com/DandelionSprout/adfilt/master/LegitimateURLShortener.txt",
 
               "ublock-cookies-easylist",
-              "ublock-cookies-adguard",
-              "adguard-cookies",
               "fanboy-cookiemonster",
               "ublock-annoyances",
 
@@ -143,9 +141,7 @@
               "easylist-notifications",
               "easylist-annoyances",
 
-              "fanboy-social",
-              "adguard-social",
-              "fanboy-thirdparty_social"
+              "fanboy-social"
             ]
           }
         }

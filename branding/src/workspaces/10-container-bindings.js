@@ -347,7 +347,7 @@
 
   // Open `url` tagged into `ws` with an explicit container (0 = default).
   // Unlike openBoundTab (which uses the workspace's bound container), the
-  // container is chosen by the caller — used by the tab archive to restore
+  // container is chosen by the caller — used by the Stash to restore
   // full context (workspace + container). Returns the tab, unselected.
   function openInWorkspace(url, wsArg, userContextId) {
     const target = isValidId(wsArg) ? wsArg : isValidId(current) ? current : "1";

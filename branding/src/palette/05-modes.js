@@ -1,8 +1,9 @@
   // --- Prefix modes (VSCode/Raycast style) -------------------------------
   // ">" commands · "@" tabs · "#" workspaces/routes/binds · "?" help ·
-  // "b:" bookmarks · "h:" history · "a:" archive. Bare text = unified
-  // search across everything. Single-char modes only trigger on the very
-  // first character so normal queries ("apple", "history of…") never break.
+  // "b:" bookmarks · "h:" history · "s:" stash ("a:" is the legacy alias).
+  // Bare text = unified search across everything. Single-char modes only
+  // trigger on the very first character so normal queries ("apple",
+  // "history of…") never break.
   // Returns {mode, q} where q is the de-prefixed query (trimmed).
   function parseMode(raw) {
     const s = (raw || "").trim();
@@ -23,8 +24,8 @@
       if (k === "h") {
         return { mode: "history", q: (m[2] || "").trim() };
       }
-      if (k === "a") {
-        return { mode: "archive", q: (m[2] || "").trim() };
+      if (k === "s" || k === "a") {
+        return { mode: "stash", q: (m[2] || "").trim() };
       }
     }
     return { mode: "all", q: s };
@@ -59,11 +60,11 @@
       ["#", "Workspaces", "Switch / send / routes / binds · e.g. #work, #route"],
       ["b:", "Bookmarks", "Bookmark search only · e.g. b:github"],
       ["h:", "History", "History search only · e.g. h:docs"],
-      ["a:", "Archive", "Archived tabs only · e.g. a:report · Enter restores"],
+      ["s:", "Stash", "Stashed tabs only · e.g. s:report · Enter restores"],
       ["?", "Help", "This cheat-sheet"],
       ["Tab", "Autocomplete", "Fills the selected row title into the input"],
       ["Alt+1–9", "Quick pick", "Runs the Nth visible row"],
-      ["Alt+Enter", "Temp container", "Opens URLs / restores archive without consuming"],
+      ["Alt+Enter", "Temp container", "Opens URLs / restores stashed tabs without consuming"],
       ["Ctrl+N/P", "Navigate", "Move selection up/down without arrow keys"],
       ["Ctrl+W", "Close tab", "Closes the highlighted tab · palette stays open"],
       ["Shift+Enter", "Temp alias", "Same as Alt+Enter"],
@@ -102,7 +103,7 @@
         return `${n} · Enter switch / send / apply route · Esc clear`;
       case "bookmarks":
       case "history":
-      case "archive":
+      case "stash":
         return `${n} · Enter open / restore · Alt+Enter temp · Esc clear`;
       case "help":
         return `Enter inserts prefix · Esc closes`;

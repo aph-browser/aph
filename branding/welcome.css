@@ -2,7 +2,7 @@
    guest skin. System: Inter, the Aph radius scale, neutral desk
    surfaces (#17181f desk / #202028 elevated / #2a2c3a raised), ink +
    muted text. The tour is global surface throughout — no workspace
-   identity rows, so no workspace hues here by design (unlike archive
+   identity rows, so no workspace hues here by design (unlike the stash
    and settings, which stamp data-ws onto rows/pills). Every surface,
    radius, shadow and motion value comes from aph-tokens.css (the shared
    scale) — this file declares no local copies.
@@ -146,20 +146,6 @@ kbd {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-}
-
-#aph-welcome-donot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--aph-ink-dim);
-}
-
-#aph-welcome-skip {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--aph-ws-6);
 }
 
 #aph-welcome-actions {

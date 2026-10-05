@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stash</title>
+<link rel="stylesheet" href="chrome://browser/content/aph-stash.css" />
+<script src="chrome://browser/content/stash-shared.js"></script>
+<script src="chrome://browser/content/aph-stash-page.js"></script>
+</head>
+<body>
+<div id="aph-stash">
+  <header id="aph-stash-head">
+    <div id="aph-stash-title">Stash <span id="aph-stash-count"></span></div>
+    <input id="aph-stash-search" type="search" placeholder="Filter by title, domain, workspace…  ( / focuses, fuzzy)" autocomplete="off" spellcheck="false" aria-label="Filter stash" />
+        <div id="aph-stash-views" role="tablist" aria-label="Stash view">
+      <button id="aph-stash-view-tabs" type="button" role="tab" data-view="tabs" aria-selected="true">Stashed tabs</button>
+      <button id="aph-stash-view-stashes" type="button" role="tab" data-view="stashes" aria-selected="false">Workspace stashes</button>
+    </div>
+    <div id="aph-stash-tools">
+      <div id="aph-stash-pills" role="tablist" aria-label="Workspace filter"></div>
+      <div id="aph-stash-sortbar">
+        <label id="aph-stash-sortlabel" for="aph-stash-sort">Sort</label>
+        <select id="aph-stash-sort" aria-label="Sort stash">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="site">By site</option>
+        </select>
+        <span id="aph-stash-keep">Shift+Enter keeps a copy in the stash</span>
+      </div>
+      <div id="aph-stash-bulkbar" hidden>
+        <span id="aph-stash-bulkcount"></span>
+        <button id="aph-stash-bulk-restore" type="button">Restore selected</button>
+        <button id="aph-stash-bulk-delete" type="button">Delete selected</button>
+        <button id="aph-stash-bulk-clear" type="button">Clear</button>
+      </div>
+    </div>
+  </header>
+  <main id="aph-stash-list"></main>
+  <div id="aph-stash-empty" hidden>Nothing stashed yet. Stash a tab from the tab menu or the palette, or snapshot a whole workspace.</div>
+  <div id="aph-stash-nobridge" hidden>Stash bridge unavailable — restores are disabled. Try reloading this page.</div>
+  <div id="aph-stash-toast"></div>
+</div>
+</body>
+</html>

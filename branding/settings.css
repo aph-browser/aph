@@ -220,6 +220,22 @@ html, body {
   border-color: color-mix(in srgb, var(--aph-ink) 45%, transparent);
 }
 
+/* Appearance radios: native shape with the Aph accent wash (one prop,
+   no custom knob to drift from the toggle dialect). Rows reuse
+   .aph-settings-row; the label wraps input + text so the whole row
+   is the hit target. Logical props only (RTL-clean). */
+.aph-settings-appearance {
+  cursor: pointer;
+}
+.aph-settings-radio {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 4px;
+  accent-color: var(--aph-ws-6, #0090ff);
+  cursor: pointer;
+}
+
 .aph-settings-table {
   width: 100%;
   border-collapse: collapse;
@@ -246,7 +262,7 @@ html, body {
 }
 
 /* Workspace identity rows wear their own hue as a left chip
-   (dock parity) — stamped data-ws at render, same as archive pills. */
+   (dock parity) — stamped data-ws at render, same as stash pills. */
 .aph-settings-table tr[data-ws="1"] { --aph-ws-now: var(--aph-ws-1); }
 .aph-settings-table tr[data-ws="2"] { --aph-ws-now: var(--aph-ws-2); }
 .aph-settings-table tr[data-ws="3"] { --aph-ws-now: var(--aph-ws-3); }
@@ -256,6 +272,24 @@ html, body {
 .aph-settings-table tr[data-ws="7"] { --aph-ws-now: var(--aph-ws-7); }
 .aph-settings-table tr[data-ws="8"] { --aph-ws-now: var(--aph-ws-8); }
 .aph-settings-table tr[data-ws="9"] { --aph-ws-now: var(--aph-ws-9); }
+/* Per-WS accent override: data-accent="M" retunes the row chip to hue M.
+   Later + equal specificity vs data-ws above, so override wins. */
+.aph-settings-table tr[data-accent="1"] { --aph-ws-now: var(--aph-ws-1); }
+.aph-settings-table tr[data-accent="2"] { --aph-ws-now: var(--aph-ws-2); }
+.aph-settings-table tr[data-accent="3"] { --aph-ws-now: var(--aph-ws-3); }
+.aph-settings-table tr[data-accent="4"] { --aph-ws-now: var(--aph-ws-4); }
+.aph-settings-table tr[data-accent="5"] { --aph-ws-now: var(--aph-ws-5); }
+.aph-settings-table tr[data-accent="6"] { --aph-ws-now: var(--aph-ws-6); }
+.aph-settings-table tr[data-accent="7"] { --aph-ws-now: var(--aph-ws-7); }
+.aph-settings-table tr[data-accent="8"] { --aph-ws-now: var(--aph-ws-8); }
+.aph-settings-table tr[data-accent="9"] { --aph-ws-now: var(--aph-ws-9); }
+.aph-settings-table tr[data-accent="10"] { --aph-ws-now: var(--aph-ws-10); }
+.aph-settings-table tr[data-accent="11"] { --aph-ws-now: var(--aph-ws-11); }
+.aph-settings-table tr[data-accent="12"] { --aph-ws-now: var(--aph-ws-12); }
+.aph-settings-table tr[data-accent="13"] { --aph-ws-now: var(--aph-ws-13); }
+.aph-settings-table tr[data-accent="14"] { --aph-ws-now: var(--aph-ws-14); }
+.aph-settings-table tr[data-accent="15"] { --aph-ws-now: var(--aph-ws-15); }
+.aph-settings-table tr[data-accent="16"] { --aph-ws-now: var(--aph-ws-16); }
 .aph-settings-table tr[data-ws] td:first-child::before {
   content: "";
   display: inline-block;
@@ -390,6 +424,7 @@ html, body {
 .aph-settings-row:focus-visible,
 .aph-settings-toggle:focus-visible,
 .aph-settings-number:focus-visible,
+.aph-settings-radio:focus-visible,
 #aph-settings-export:focus-visible,
 #aph-settings-import:focus-visible,
 #aph-settings-reset-frecency:focus-visible {

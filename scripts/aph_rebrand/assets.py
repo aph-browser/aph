@@ -10,14 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .constants import (
-    ARCHIVE_CSS_JA_PATH,
-    ARCHIVE_CSS_SRC,
-    ARCHIVE_HTML_JA_PATH,
-    ARCHIVE_HTML_SRC,
-    ARCHIVE_JS_SRC,
-    ARCHIVE_PAGE_JA_PATH,
-    ARCHIVE_PAGE_SRC,
-    ARCHIVE_SHARED_SRC,
     BLANK_WORDMARK,
     BRAND_FTL_SRC,
     BRANDING_DIR,
@@ -31,6 +23,14 @@ from .constants import (
     SETTINGS_HTML_SRC,
     SETTINGS_PAGE_JA_PATH,
     SETTINGS_PAGE_SRC,
+    STASH_CSS_JA_PATH,
+    STASH_CSS_SRC,
+    STASH_HTML_JA_PATH,
+    STASH_HTML_SRC,
+    STASH_JS_SRC,
+    STASH_PAGE_JA_PATH,
+    STASH_PAGE_SRC,
+    STASH_SHARED_SRC,
     SYNC_BRAND_FTL_SRC,
     TABRENAME_JS_SRC,
     TEXTPICK_CHILD_JA_PATH,
@@ -65,9 +65,9 @@ class PatchPayloads:
     palette_css: bytes | None = None
     textpick_js: bytes | None = None
     textpick_files: dict[str, bytes] = field(default_factory=dict)
-    archive_js: bytes | None = None
-    archive_shared_js: bytes | None = None
-    archive_page_files: dict[str, bytes] = field(default_factory=dict)
+    stash_js: bytes | None = None
+    stash_shared_js: bytes | None = None
+    stash_page_files: dict[str, bytes] = field(default_factory=dict)
     settings_page_files: dict[str, bytes] = field(default_factory=dict)
     welcome_page_files: dict[str, bytes] = field(default_factory=dict)
     tabrename_js: bytes | None = None
@@ -173,16 +173,16 @@ def load_payloads(icon_buffers: dict[int, bytes]) -> PatchPayloads:
         "picker file",
     )
 
-    payloads.archive_shared_js = _read(ARCHIVE_SHARED_SRC, "archive shared injection")
-    payloads.archive_js = _read(ARCHIVE_JS_SRC, "archive injection")
+    payloads.stash_shared_js = _read(STASH_SHARED_SRC, "stash shared injection")
+    payloads.stash_js = _read(STASH_JS_SRC, "stash injection")
 
-    payloads.archive_page_files = _load_map(
+    payloads.stash_page_files = _load_map(
         [
-            (ARCHIVE_HTML_SRC, ARCHIVE_HTML_JA_PATH),
-            (ARCHIVE_CSS_SRC, ARCHIVE_CSS_JA_PATH),
-            (ARCHIVE_PAGE_SRC, ARCHIVE_PAGE_JA_PATH),
+            (STASH_HTML_SRC, STASH_HTML_JA_PATH),
+            (STASH_CSS_SRC, STASH_CSS_JA_PATH),
+            (STASH_PAGE_SRC, STASH_PAGE_JA_PATH),
         ],
-        "archive page file",
+        "stash page file",
     )
 
     payloads.settings_page_files = _load_map(

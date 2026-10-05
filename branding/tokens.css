@@ -1,13 +1,13 @@
 /* Aph design tokens — single source of truth for every Aph surface.
  *
  * Shipped as chrome://browser/content/aph-tokens.css and @imported by
- * theme.css, command-palette.css, settings.css, archive.css and
+ * theme.css, command-palette.css, settings.css, stash.css and
  * welcome.css (separate documents, no shared cascade — chrome window
  * vs chrome-tab pages). Each consumer keeps its local :root mirrors
  * as fallback so an older omni without this entry still paints.
  * Keep values in sync: test_settings_voice_parity +
- * test_archive_voice_parity pin the nine workspace hues to
- * theme.css §21.
+ * test_stash_voice_parity pin the sixteen hue stops to
+ * theme.css §21 (nine workspaces + seven accent-only extras).
  *
  * Canvas faces follow prefers-color-scheme (tracks the theme scheme).
  * Voice = workspace accent once :root[data-aph-ws] stamps, theme voice
@@ -34,6 +34,33 @@
   --aph-radius-xs: 3px;   /* tags, chips, focus-adjacent micro marks */
   --aph-radius-pill: 999px;
 
+  /* Spacing — 4px grid. Shared so guest pages (stash/stash cards,
+     settings, welcome) stop hand-rolling margins that drift off-grid. */
+  --aph-space-1: 4px;
+  --aph-space-2: 8px;
+  --aph-space-3: 12px;
+  --aph-space-4: 16px;
+
+  /* Icons — one grid. sm = pills/indicator glyphs, md = Aph-key/menu/urlbar
+     glyphs. Label gap documents the intentional 6px icon→text rhyme
+     (indicator svg margin + tab-icon-end-margin); not a space-* stop. */
+  --aph-icon-sm: 14px;
+  --aph-icon-md: 16px;
+  --aph-icon-label-gap: 6px;
+
+  /* Hit rhythm — one row. hit-min 28px = urlbar/indicator/pills/dock-key;
+     bar-button 30px = nav-bar buttons; bar-height 36px = nav-bar itself;
+     hit-sm 22px = collapsed pills/key only (density stays 28px at rest). */
+  --aph-hit-min: 28px;
+  --aph-hit-sm: 22px;
+  --aph-bar-button: 30px;
+  --aph-bar-height: 36px;
+
+  /* Empty workspaces — drag-only dashed affordance (counts stay in
+     tooltips/palette, never badges). */
+  --aph-pill-empty-opacity: 0.55;
+  --aph-pill-empty-dash: 35%;
+
   /* Canvas — dark room (default) */
   --aph-base: #17181f;
   --aph-surface: #202028;
@@ -44,38 +71,73 @@
   --aph-ink-faint: #626880;
   --aph-line: rgba(255, 255, 255, 0.09);
   /* Danger family: the only red in the system, functional by contract
-     (delete/reset signals). Lives here so guest pages stopped carrying
-     their own #ff5d73 copies; the warn pair is the archive row's
-     destructive-hover state. */
-  --aph-danger: #ff5d73;
-  --aph-warn-bg: #3a2430;
+     (delete/reset signals). Tied to Ruby so functional red speaks the
+     same scale as the workspace accents; the warn pair is the stash
+     row's destructive-hover state. Ruby Dark 11 (#ff949d-adjacent)
+     stays light-on-dark legible for the ink. */
+  --aph-danger: var(--aph-color-ruby);
+  --aph-warn-bg: color-mix(in srgb, var(--aph-danger) 15%, var(--aph-base));
   --aph-warn-ink: #ff9aae;
   /* Per-element workspace hue: the neutral slate until the owning page
      stamps it from a [data-ws] row/pill. Mirrors theme.css §21's
      --aph-ws-accent default (no workspace = no identity color). */
   --aph-ws-now: var(--aph-ws-9);
 
-  /* Voice + selection + hairline */
-  --aph-ws-6: #0090ff;
+  /* Voice + selection + hairline (ws-6 owned by the palette block
+     below — same value, single declaration site). */
   --aph-voice: color-mix(in srgb, var(--aph-ws-6, #0090ff) 28%, transparent);
   --aph-select: color-mix(in srgb, var(--aph-voice) 45%, transparent);
   --aph-hairline: color-mix(in srgb, var(--aph-ink, #e8e8ec) 12%, transparent);
 
-  /* Workspace hues — mirror of theme.css §21 (parity-tested) */
-  --aph-ws-1: #e54666;
-  --aph-ws-2: #f76808;
-  --aph-ws-3: #f5b301;
-  --aph-ws-4: #29a383;
-  --aph-ws-5: #00a2c7;
-  --aph-ws-7: #8e4ec6;
-  --aph-ws-8: #d6409f;
-  --aph-ws-9: #707885;
+  /* Workspace hues — mirror of theme.css §21 (parity-tested).
+     Base scale: Radix dark Step 9, one hex per hue (Aph's color-mix
+     spends derive hover/border/badge states — no Step 1..8 imports).
+     ws-1..9 keep their historic hues (workspace identity never
+     remaps); ws-10..16 are accent-only extras (no workspace wears
+     them by default). Deliberately absent: Sky/Lime/Yellow Step 9
+     (dark-text steps — fail the white-ink 45% presence gate) and
+     Teal (sits ~10° from Jade, inseparable at presence wash).
+     Every stop below is exact Radix dark Step 9 except Amber: true
+     Amber 9 #ffc53d fails the dark-room 45% presence gate at 4.28:1,
+     so ws-3 carries the muted stop per house rule (never hand-tuned
+     around). ws-7 is Purple 9 (was mislabeled Violet — true Violet 9
+     now lives at ws-14). */
+  --aph-color-ruby: #e54666;
+  --aph-color-tomato: #e54d2e;
+  --aph-color-orange: #f76b15;
+  --aph-color-amber: #f5b301;
+  --aph-color-grass: #46a758;
+  --aph-color-jade: #29a383;
+  --aph-color-green: #30a46c;
+  --aph-color-cyan: #00a2c7;
+  --aph-color-blue: #0090ff;
+  --aph-color-indigo: #3e63dd;
+  --aph-color-violet: #6e56cf;
+  --aph-color-purple: #8e4ec6;
+  --aph-color-pink: #d6409f;
+  --aph-color-plum: #ab4aba;
+  --aph-color-crimson: #e93d82;
+  --aph-color-slate: #696e77;
+  --aph-ws-1: var(--aph-color-ruby);
+  --aph-ws-2: var(--aph-color-orange);
+  --aph-ws-3: var(--aph-color-amber);
+  --aph-ws-4: var(--aph-color-jade);
+  --aph-ws-5: var(--aph-color-cyan);
+  --aph-ws-6: var(--aph-color-blue);
+  --aph-ws-7: var(--aph-color-purple);
+  --aph-ws-8: var(--aph-color-pink);
+  --aph-ws-9: var(--aph-color-slate);
+  --aph-ws-10: var(--aph-color-tomato);
+  --aph-ws-11: var(--aph-color-grass);
+  --aph-ws-12: var(--aph-color-green);
+  --aph-ws-13: var(--aph-color-indigo);
+  --aph-ws-14: var(--aph-color-violet);
+  --aph-ws-15: var(--aph-color-plum);
+  --aph-ws-16: var(--aph-color-crimson);
 
   /* Functional */
-  --aph-danger: #ff5d73;
-  --aph-warn-bg: #3a2430;
   --aph-warn-text: #ff9aae;
-  --aph-star: #e8b64c;
+  --aph-star: var(--aph-color-amber);
   --aph-secondary-opacity: 0.5;
 
   /* Gutters (content card frame) */

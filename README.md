@@ -1,6 +1,6 @@
 # Aph
 
-Aph is a Firefox-based, workspaces-first web browser: it repackages upstream Firefox with native workspace management, a command palette, tab archiving, and hardened privacy defaults injected directly into the browser UI — no fork, no recompilation, just the stock binary with Aph overrides applied on every launch.
+Aph is a Firefox-based, workspaces-first web browser: it repackages upstream Firefox with native workspace management, a command palette, tab stashing, and hardened privacy defaults injected directly into the browser UI — no fork, no recompilation, just the stock binary with Aph overrides applied on every launch.
 
 Website: <https://aph-browser.github.io/> · [Releases](https://github.com/aph-browser/aph/releases)
 
@@ -11,9 +11,10 @@ Website: <https://aph-browser.github.io/> · [Releases](https://github.com/aph-b
 ## Features
 
 - **Workspaces 1–9** (`Alt+1..9`, `Alt+Shift+]/[` to cycle, `Alt+Shift+Tab` for last-used): window-scoped — every window has its own set, and the same number may show in two windows at once with independent tabs. Windows never move each other's tabs; cross-window moves are explicit (palette / tab right-click → Move Tab to Other Window, arrivals join that window's current workspace). Closing a window is native (SessionStore undo); session restore is per-window native.
-- **Command palette** with workspace actions, tab search, bookmarks/history, and archive search.
-- **Tab archive** with auto-sweep, container + workspace restore, and staleness tracking.
+- **Command palette** with workspace actions, tab search, bookmarks/history, and stash search.
+- **Stash** for tabs and whole workspaces: auto-sweep, workspace snapshots, container + workspace restore, and staleness tracking.
 - **Native tab groups** inside workspaces, **per-workspace container bindings**, **starred tabs**, and **tab unloading**.
+- **Split view** (`Ctrl+Alt+\` or palette): native side-by-side panes with the most-recently-viewed same-workspace tab; switching workspaces separates the pair, both tabs stay open.
 - **Privacy defaults**: telemetry, health reports, Normandy, and activity-stream telemetry off (see `config/user.js`); your edits persist (seed-once, below).
 - **First-run welcome** tour (workspaces, palette, tabs) plus an **Aph Settings** page — both re-openable from the Aph menu and the command palette.
 

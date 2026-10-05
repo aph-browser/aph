@@ -2,8 +2,10 @@
   // vertical tab strip. The nav-bar #aph-ws-indicator auto-hides with the
   // top bar, so mouse users get this instead: active workspaces + current
   // + a "+" jump-to-next-empty pill, with container underlines, drag-and-
-  // drop retagging, and a right-click menu (rename / bind / unload /
-  // close). Zero new prefs; all state reuses tags, names and bindings.
+  // drop retagging, and a right-click menu (rename / icon / accent /
+  // bind / unload / close). Accent overrides persist in
+  // aph.workspaces.accents; everything else reuses tags, names and
+  // bindings.
   // Anchor: #vertical-tabs (light-DOM box projected into sidebar-main's
   // tabstrip slot, above the tools area). Horizontal-tabs mode leaves
   // #sidebar-container hidden, so the dock skips itself and the nav-bar
@@ -11,6 +13,27 @@
   // style) so a missing anchor never breaks chrome.
   const DOCK_ID = "aph-ws-dock";
   const DOCK_MENU_ID = "aph-ws-dock-menu";
+  // Accent hue names for the dock Accent submenu + settings picker.
+  // Full 16-stop scale (theme.css §21); ws-7 is Purple 9 (true Violet
+  // 9 lives at 14). Labels only.
+  const WS_ACCENT_NAMES = {
+    1: "Ruby",
+    2: "Orange",
+    3: "Amber",
+    4: "Jade",
+    5: "Cyan",
+    6: "Blue",
+    7: "Purple",
+    8: "Pink",
+    9: "Slate",
+    10: "Tomato",
+    11: "Grass",
+    12: "Green",
+    13: "Indigo",
+    14: "Violet",
+    15: "Plum",
+    16: "Crimson",
+  };
   // Tab being dragged over the dock (stock tab dataTransfer carries no tab
   // ref, so track dragstart on the shared tab container instead). Group
   // headers drag the whole native group: stock strip lets a <tab-group>
@@ -320,6 +343,20 @@
           if (!t || t.closing || t.pinned) {
             continue;
           }
+          // Restoring or not-yet-tagged tabs belong to no workspace yet
+          // (getWs defaults tagless to "1"): counting them inflates WS1
+          // mid-restore and lies in the pill titles and close labels
+          // that read these counts.
+          if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
+            continue;
+          }
+          let tagged = false;
+          try {
+            tagged = typeof rawWs === "function" && !!rawWs(t);
+          } catch (e) {}
+          if (!tagged) {
+            continue;
+          }
           const w = getWs(t);
           if (isValidId(w)) {
             counts[w] = (counts[w] || 0) + 1;
@@ -343,6 +380,10 @@
     return null;
   }
 
+  // Single creation path: switchTo funnels through finishWorkspaceSwitch
+  // → reconcile, which opens (and selects) the bound tab for an empty
+  // workspace. An explicit openBoundTab here used to race it into two
+  // new tabs, cleaned up only by a later switch's prune.
   function plusToWorkspace() {
     try {
       const free = lowestInactiveId(getActiveIds());
@@ -351,16 +392,46 @@
         return null;
       }
       switchTo(free);
-      return openBoundTab("about:newtab", free);
+      try {
+        const sel = gBrowser.selectedTab;
+        return sel && getWs(sel) === free ? sel : null;
+      } catch (e) {
+        return null;
+      }
     } catch (e) {
       return null;
     }
   }
 
+  // Bulk-close safety net: at least this many doomed tabs auto-stash before
+  // the close fires. Low enough that a real "clear this workspace" gesture
+  // is always covered, high enough that closing two tabs doesn't litter
+  // the stash with noise. Default only — the live value comes from the
+  // stash controller (aph.stash.safetyMin, Settings-tunable).
+  const SNAPSHOT_SAFETY_MIN = 3;
+
+  // Live safety threshold: controller pref when available, default above
+  // otherwise (tests, early init, missing controller all read the default).
+  function snapshotSafetyMin() {
+    try {
+      const ctl = window.AphStash;
+      if (ctl && typeof ctl.safetyThreshold === "function") {
+        const n = Number(ctl.safetyThreshold());
+        if (Number.isFinite(n) && n > 0) {
+          return Math.floor(n);
+        }
+      }
+    } catch (e) {}
+    return SNAPSHOT_SAFETY_MIN;
+  }
+
   // Close every unpinned tab tagged `id`. Current-workspace closes switch
   // to the nearest other active workspace first (never strand the window
   // tabless: sole-workspace closes abort with a pulse). Pinned tabs are
-  // global and always survive.
+  // global and always survive. SessionStore-owned (restoring) tabs are
+  // never touched: their tags are unsettled and getWs defaults tagless
+  // to "1", so WS1 would otherwise absorb pages the user never saw.
+  // Closes at the safety threshold or more auto-stash first (see above).
   function closeWorkspaceTabs(id) {
     try {
       if (!isValidId(id)) {
@@ -368,15 +439,51 @@
       }
       let doomed = [];
       try {
-        doomed = Array.from(gBrowser.tabs || []).filter(
-          (t) => t && !t.closing && !t.pinned && getWs(t) === id
-        );
+        doomed = Array.from(gBrowser.tabs || []).filter((t) => {
+          try {
+            if (!t || t.closing || t.pinned || getWs(t) !== id) {
+              return false;
+            }
+          } catch (e) {
+            return false;
+          }
+          try {
+            if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
+              return false;
+            }
+          } catch (e) {}
+          // Tagless tabs default to "1" via getWs: without a real tag we
+          // cannot know they belong to `id`, so fail closed (same rule as
+          // dockCounts/getActiveIds). Tags are never deleted, so tagless
+          // always means not-yet-tagged.
+          try {
+            if (typeof rawWs === "function" && !rawWs(t)) {
+              return false;
+            }
+          } catch (e) {
+            return false;
+          }
+          return true;
+        });
       } catch (e) {
         return { closed: 0 };
       }
       if (!doomed.length) {
         return { closed: 0 };
       }
+      // Safety stash: a bulk workspace close is the one bulk destructive
+      // action Aph owns, so capture the doomed tabs first (append-only
+      // restore means a regretted close is always undoable from the
+      // Stash page). Skipped below the threshold (a stray close is not
+      // worth a capture) and when the controller or the pref is off.
+      try {
+        if (doomed.length >= snapshotSafetyMin()) {
+          const stashCtl = window.AphStash;
+          if (stashCtl && typeof stashCtl.autoStashTabs === "function") {
+            stashCtl.autoStashTabs(doomed, `Before closing WS ${id}`);
+          }
+        }
+      } catch (e) {}
       if (id === current) {
         const others = getActiveIds()
           .filter((x) => x !== id)
@@ -439,6 +546,16 @@
       try {
         renderDock();
       } catch (e) {}
+      // Undo offer for the safety net above: the stash controller
+      // remembers the capture and toasts with Undo when it just ran.
+      // Absent controller (or no capture) stays silent; the close
+      // result itself never changes.
+      try {
+        const stashCtl = window.AphStash;
+        if (stashCtl && typeof stashCtl.confirmBulkClose === "function") {
+          stashCtl.confirmBulkClose(id, closed);
+        }
+      } catch (e) {}
       return { closed };
     } catch (e) {
       return { closed: 0 };
@@ -451,7 +568,21 @@
       pill = document.createElement("div");
       pill.className = "aph-ws-pill";
       pill.setAttribute("data-ws", id);
+      // Per-WS accent override (32): stamp data-accent="M" when WS id
+      // carries a hue override; absent means follow workspace. CSS
+      // resolves it to var(--aph-ws-M) with no new hexes.
+      try {
+        const hue = typeof getWsAccent === "function" ? getWsAccent(id) : "";
+        const hueOk =
+          typeof isHueId === "function"
+            ? isHueId(hue)
+            : (typeof isValidId === "function" && isValidId(hue));
+        if (hue && hueOk && hue !== id) {
+          pill.setAttribute("data-accent", hue);
+        }
+      } catch (e) {}
       pill.setAttribute("role", "button");
+      pill.setAttribute("tabindex", "0");
       if (isCurrent) {
         pill.setAttribute("data-current", "1");
       }
@@ -534,6 +665,9 @@
         pill.title = `${title} — click to switch, right-click for actions`;
       }
       try {
+        pill.setAttribute("aria-label", pill.title || title);
+      } catch (e) {}
+      try {
         pill.addEventListener("click", () => {
           try {
             if (id === current) {
@@ -544,6 +678,20 @@
             // workspaces in other windows are independent tab sets.
             switchTo(id);
           } catch (e) {}
+        });
+        pill.addEventListener("keydown", (e) => {
+          try {
+            if (e && (e.key === "Enter" || e.key === " ")) {
+              if (typeof e.preventDefault === "function") {
+                e.preventDefault();
+              }
+              if (id === current) {
+                pulseWorkspaceIndicator();
+                return;
+              }
+              switchTo(id);
+            }
+          } catch (_e) {}
         });
       } catch (e) {}
       try {
@@ -670,15 +818,30 @@
     try {
       pill = document.createElement("div");
       pill.className = "aph-ws-pill aph-ws-add";
+      pill.setAttribute("role", "button");
+      pill.setAttribute("tabindex", "0");
       pill.textContent = "+";
       pill.title = free
         ? `New workspace ${free} (click: switches here, opens a tab · drop: moves tab(s) here)`
         : "All 9 workspaces active";
       try {
+        pill.setAttribute("aria-label", pill.title);
+      } catch (e) {}
+      try {
         pill.addEventListener("click", () => {
           try {
             plusToWorkspace();
           } catch (e) {}
+        });
+        pill.addEventListener("keydown", (e) => {
+          try {
+            if (e && (e.key === "Enter" || e.key === " ")) {
+              if (typeof e.preventDefault === "function") {
+                e.preventDefault();
+              }
+              plusToWorkspace();
+            }
+          } catch (_e) {}
         });
       } catch (e) {}
       // The "+" pill is a drop target for a fresh workspace: dropping moves
@@ -822,15 +985,15 @@
     } catch (e) {}
   }
 
-  function aphOpenArchive() {
+  function aphOpenStash() {
     try {
-      const a = window.AphArchive || null;
-      if (a && typeof a.openArchive === "function" && a.openArchive()) {
+      const a = window.AphStash || null;
+      if (a && typeof a.openStash === "function" && a.openStash()) {
         return;
       }
     } catch (e) {}
     try {
-      aphOpenTab("chrome://browser/content/aph-archive.html");
+      aphOpenTab("chrome://browser/content/aph-stash.html");
     } catch (e) {}
   }
 
@@ -853,11 +1016,31 @@
     } catch (e) {}
   }
 
-  function aphArchiveCurrent() {
+  // Native Firefox Settings (about:preferences — themes live here, so
+  // this is the room-switch path). Stock openPreferences first (native
+  // pane/tab behavior); plain trusted tab fallback — never the bound
+  // container path (userContextId on a privileged URL must not throw).
+  // Fail-silent house style throughout.
+  function aphOpenFirefoxSettings() {
     try {
-      const a = window.AphArchive || null;
-      if (a && typeof a.archiveCurrent === "function") {
-        a.archiveCurrent();
+      if (typeof window.openPreferences === "function") {
+        window.openPreferences();
+        return;
+      }
+    } catch (e) {}
+    try {
+      const t = gBrowser.addTrustedTab("about:preferences");
+      try {
+        gBrowser.selectedTab = t;
+      } catch (_e) {}
+    } catch (e) {}
+  }
+
+  function aphStashCurrent() {
+    try {
+      const a = window.AphStash || null;
+      if (a && typeof a.stashCurrent === "function") {
+        a.stashCurrent();
         return;
       }
     } catch (e) {}
@@ -906,7 +1089,7 @@
         try {
           aphDockOpenPalette();
         } catch (err) {}
-      });
+      }, false, "palette");
       if (pal) {
         try {
           pal.setAttribute("shortcut", "Ctrl+K");
@@ -928,10 +1111,26 @@
             promptDockRename(cur);
           }
         } catch (err) {}
-      });
+      }, false, "rename");
       if (rename) {
         try {
           menu.appendChild(rename);
+        } catch (err) {}
+      }
+      // Same pair as the pill right-click menu (Rename above, Set Icon
+      // here): the Aph key is the keyboard path (Enter opens this menu),
+      // so the icon picker must live here too, not only on right-click.
+      const setIcon = makeDockMenuItem("aph-aph-set-icon", `Set Icon for ${head}…`, () => {
+        try {
+          const api = window.AphPalette;
+          if (api && typeof api.setWsIcon === "function") {
+            api.setWsIcon(cur);
+          }
+        } catch (err) {}
+      }, false, "set-icon");
+      if (setIcon) {
+        try {
+          menu.appendChild(setIcon);
         } catch (err) {}
       }
       try {
@@ -941,6 +1140,12 @@
               ? document.createXULElement("menu")
               : document.createElement("menu");
           bindMenu.setAttribute("label", `Bind ${head} to Container…`);
+          bindMenu.id = "aph-aph-bind";
+          try {
+            if (bindMenu.classList && typeof bindMenu.classList.add === "function") {
+              bindMenu.classList.add("menu-iconic");
+            }
+          } catch (err) {}
           const sub =
             typeof document.createXULElement === "function"
               ? document.createXULElement("menupopup")
@@ -998,30 +1203,40 @@
           menu.appendChild(bindMenu);
         }
       } catch (err) {}
-      let archTitle = "Archive Current Tab";
+      let stashTitle = "Stash Current Tab";
       try {
-        if (typeof archiveCmdTitle === "function") {
-          archTitle = archiveCmdTitle();
+        if (typeof stashCmdTitle === "function") {
+          stashTitle = stashCmdTitle();
         }
       } catch (err) {}
-      const arch = makeDockMenuItem("aph-aph-archive", archTitle, () => {
+      // Disabled with nothing archivable (pendingCount 0): the shared
+      // skin dims the row in place. An absent controller fails open
+      // (previous behavior) so tests and early init keep working.
+      let stashDisabled = false;
+      try {
+        const stashCtl = window.AphStash;
+        if (stashCtl && typeof stashCtl.pendingStashCount === "function") {
+          stashDisabled = stashCtl.pendingStashCount() === 0;
+        }
+      } catch (err) {}
+      const stashRow = makeDockMenuItem("aph-aph-stash", stashTitle, () => {
         try {
-          aphArchiveCurrent();
+          aphStashCurrent();
         } catch (err) {}
-      });
-      if (arch) {
+      }, stashDisabled, "stash");
+      if (stashRow) {
         try {
-          menu.appendChild(arch);
+          menu.appendChild(stashRow);
         } catch (err) {}
       }
-      const openArch = makeDockMenuItem("aph-aph-open-archive", "Open Archive", () => {
+      const openStash = makeDockMenuItem("aph-aph-open-stash", "Open Stash", () => {
         try {
-          aphOpenArchive();
+          aphOpenStash();
         } catch (err) {}
-      });
-      if (openArch) {
+      }, false, "open-stash");
+      if (openStash) {
         try {
-          menu.appendChild(openArch);
+          menu.appendChild(openStash);
         } catch (err) {}
       }
       try {
@@ -1035,7 +1250,7 @@
         try {
           aphShowCustomizeSidebar();
         } catch (err) {}
-      });
+      }, false, "customize");
       if (cust) {
         try {
           menu.appendChild(cust);
@@ -1045,17 +1260,27 @@
         try {
           aphOpenSettings();
         } catch (err) {}
-      });
+      }, false, "settings");
       if (prefs) {
         try {
           menu.appendChild(prefs);
+        } catch (err) {}
+      }
+      const fxPrefs = makeDockMenuItem("aph-aph-firefox-settings", "Firefox Settings…", () => {
+        try {
+          aphOpenFirefoxSettings();
+        } catch (err) {}
+      }, false, "firefox-settings");
+      if (fxPrefs) {
+        try {
+          menu.appendChild(fxPrefs);
         } catch (err) {}
       }
       const welcome = makeDockMenuItem("aph-aph-welcome", "Aph Welcome Tour", () => {
         try {
           aphOpenWelcome();
         } catch (err) {}
-      });
+      }, false, "welcome");
       if (welcome) {
         try {
           menu.appendChild(welcome);
@@ -1065,7 +1290,7 @@
         try {
           aphOpenTab("https://aph-browser.github.io/");
         } catch (err) {}
-      });
+      }, false, "about");
       if (about) {
         try {
           menu.appendChild(about);
@@ -1131,18 +1356,19 @@
     } catch (_e) {}
   }
 
-  // Aph mark: 2x2 spaces grid, active cell filled. Geometric and
-  // abstract on purpose — a letterform would read as text at 14px.
-  // currentColor throughout, so the ghost (dim) / hover (full) ink
-  // story needs no paint logic here. Namespaced construction (never
-  // innerHTML) so the XUL/XHTML host gets real SVG either way.
+  // Aph mark: 2x2 spaces grid with the tile's steel-blue home cell.
+  // Geometric and abstract on purpose — a letterform would read as
+  // text at 16px. Ghosts ride currentColor (dim at rest, full on
+  // hover); home keeps its brand blue at every state (logos don't
+  // dim). Namespaced construction (never innerHTML) so the XUL/XHTML
+  // host gets real SVG either way.
   function makeDockAphMark() {
     try {
       const NS = "http://www.w3.org/2000/svg";
       const svg = document.createElementNS(NS, "svg");
       svg.setAttribute("viewBox", "0 0 14 14");
-      svg.setAttribute("width", "14");
-      svg.setAttribute("height", "14");
+      svg.setAttribute("width", "16");
+      svg.setAttribute("height", "16");
       svg.setAttribute("aria-hidden", "true");
       const cells = [
         { x: 1, y: 1, active: true },
@@ -1158,7 +1384,7 @@
         r.setAttribute("height", "5");
         r.setAttribute("rx", "1.5");
         if (c.active) {
-          r.setAttribute("fill", "currentColor");
+          r.setAttribute("fill", "#4682b4");
         } else {
           r.setAttribute("fill", "none");
           r.setAttribute("stroke", "currentColor");
@@ -1186,7 +1412,7 @@
           btn.appendChild(mark);
         }
       } catch (e) {}
-      btn.title = "Aph — menu · click for Aph actions · right-click for workspace actions";
+      btn.title = "Aph menu — click for Aph actions · right-click for workspace actions";
       try {
         btn.addEventListener("click", (e) => {
           try {
@@ -1344,7 +1570,14 @@
     } catch (e) {}
   }
 
-  function makeDockMenuItem(id, label, action, disabled) {
+  // Aph-menu glyphs live in theme.css (§20b) as --menuitem-icon vars:
+  // stock 157 paints .menu-icon from that var (content: var), NOT the
+  // classic image attribute — bare image attrs unhide an empty slot.
+  // The iconKey below only flips the stock menuitem-iconic class (the
+  // display trigger); art + context-fill ink come from CSS, so dark /
+  // light / hover / disabled follow automatically. Dynamic or checked
+  // rows (bind list) stay text-only by passing no key.
+  function makeDockMenuItem(id, label, action, disabled, iconKey) {
     let item = null;
     try {
       // browser.xhtml is XHTML: createElement would build an
@@ -1355,6 +1588,13 @@
           : document.createElement("menuitem");
       item.id = id;
       item.setAttribute("label", label);
+      if (iconKey) {
+        try {
+          if (item.classList && typeof item.classList.add === "function") {
+            item.classList.add("menuitem-iconic");
+          }
+        } catch (e) {}
+      }
       if (disabled) {
         item.setAttribute("disabled", "true");
       }
@@ -1551,6 +1791,61 @@
           menu.appendChild(bindMenu);
         } catch (err) {}
       }
+      try {
+        const accentMenu =
+          typeof document.createXULElement === "function"
+            ? document.createXULElement("menu")
+            : document.createElement("menu");
+        accentMenu.setAttribute("label", `Accent for ${head}…`);
+        const accentSub =
+          typeof document.createXULElement === "function"
+            ? document.createXULElement("menupopup")
+            : document.createElement("menupopup");
+        let curHue = "";
+        try {
+          curHue = typeof getWsAccent === "function" ? getWsAccent(id) : "";
+        } catch (err) {}
+        const follow = makeDockMenuItem("aph-dock-accent-follow", "Follow workspace", () => {
+          try {
+            if (typeof setWsAccent === "function") {
+              setWsAccent(id, "");
+            }
+            renderDock();
+          } catch (err) {}
+        });
+        if (follow) {
+          if (!curHue) {
+            try {
+              follow.setAttribute("checked", "true");
+            } catch (err) {}
+          }
+          accentSub.appendChild(follow);
+        }
+        try {
+          for (let h = 1; h <= 16; h++) {
+            const hs = String(h);
+            const nm = WS_ACCENT_NAMES[hs] || `Hue ${hs}`;
+            const item = makeDockMenuItem(`aph-dock-accent-${hs}`, nm, () => {
+              try {
+                if (typeof setWsAccent === "function") {
+                  setWsAccent(id, hs);
+                }
+                renderDock();
+              } catch (err) {}
+            });
+            if (item && curHue === hs) {
+              try {
+                item.setAttribute("checked", "true");
+              } catch (err) {}
+            }
+            if (item) {
+              accentSub.appendChild(item);
+            }
+          }
+        } catch (err) {}
+        accentMenu.appendChild(accentSub);
+        menu.appendChild(accentMenu);
+      } catch (err) {}
       const unload = makeDockMenuItem(
         "aph-dock-unload",
         "Unload Inactive Tabs",
@@ -1620,6 +1915,163 @@
     }
   }
 
+  // Wheel-to-cycle: scroll on the dock moves between workspaces.
+  // No distinct "swipe" event exists in Firefox — a two-finger trackpad
+  // swipe arrives as wheel with deltaX, so one dominant-axis handler
+  // covers mouse wheel (deltaY), swipe (deltaX) and Shift+wheel alike.
+  // Down/right cycles up, up/left cycles down; pinch-zoom (ctrlKey)
+  // and tab-drag mode are never hijacked. Threshold + cooldown keep
+  // smooth-scroll devices to one switch per gesture beat.
+  let dockWheelAcc = 0;
+  let dockWheelLast = 0;
+  const DOCK_WHEEL_THRESHOLD = 60;
+  const DOCK_WHEEL_COOLDOWN_MS = 250;
+
+  function onDockWheel(e) {
+    try {
+      if (!e || dockDragActive) {
+        return;
+      }
+      try {
+        if (e.ctrlKey || e.metaKey) {
+          return;
+        }
+      } catch (err) {}
+      let dx = 0;
+      let dy = 0;
+      try {
+        dx = Number(e.deltaX) || 0;
+        dy = Number(e.deltaY) || 0;
+        if (e.deltaMode === 1) {
+          dx *= 40;
+          dy *= 40;
+        } else if (e.deltaMode === 2) {
+          dx *= 400;
+          dy *= 400;
+        }
+      } catch (err) {
+        return;
+      }
+      const mag = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
+      if (!mag) {
+        return;
+      }
+      // Direction flip starts a fresh gesture (no fighting the spring).
+      try {
+        if ((dockWheelAcc > 0) !== (mag > 0)) {
+          dockWheelAcc = 0;
+        }
+      } catch (err) {}
+      dockWheelAcc += mag;
+      if (Math.abs(dockWheelAcc) < DOCK_WHEEL_THRESHOLD) {
+        return;
+      }
+      let now = 0;
+      try {
+        now = Date.now();
+      } catch (err) {}
+      if (now - dockWheelLast < DOCK_WHEEL_COOLDOWN_MS) {
+        return;
+      }
+      dockWheelLast = now;
+      dockWheelAcc = 0;
+      try {
+        if (typeof e.preventDefault === "function") {
+          e.preventDefault();
+        }
+      } catch (err) {}
+      try {
+        if (typeof e.stopPropagation === "function") {
+          e.stopPropagation();
+        }
+      } catch (err) {}
+      try {
+        if (typeof cycleWorkspace === "function") {
+          cycleWorkspace(mag > 0 ? 1 : -1);
+        }
+      } catch (err) {}
+    } catch (e) {}
+  }
+
+  // Sidebar swipe: horizontal two-finger swipes anywhere on the vertical
+  // tab strip cycle workspaces; vertical wheel passes through untouched
+  // so the tab list keeps scrolling. Same threshold/cooldown shape as
+  // the dock wheel (shared cooldown clock, separate gesture sum).
+  // Wheel events from the dock bubble up here too — the dock handler
+  // owns those (and stops them on switch), so dock-originated events
+  // are ignored by target as well as by propagation.
+  let stripSwipeAcc = 0;
+
+  function onStripSwipe(e) {
+    try {
+      if (!e || dockDragActive) {
+        return;
+      }
+      try {
+        if (e.ctrlKey || e.metaKey) {
+          return;
+        }
+      } catch (err) {}
+      try {
+        if (
+          e.target &&
+          typeof e.target.closest === "function" &&
+          e.target.closest("#" + DOCK_ID)
+        ) {
+          return;
+        }
+      } catch (err) {}
+      let dx = 0;
+      let dy = 0;
+      try {
+        dx = Number(e.deltaX) || 0;
+        dy = Number(e.deltaY) || 0;
+        if (e.deltaMode === 1) {
+          dx *= 40;
+          dy *= 40;
+        } else if (e.deltaMode === 2) {
+          dx *= 400;
+          dy *= 400;
+        }
+      } catch (err) {
+        return;
+      }
+      // Horizontal-dominant only: vertical belongs to the tab list.
+      if (!dx || Math.abs(dx) < Math.abs(dy)) {
+        stripSwipeAcc = 0;
+        return;
+      }
+      try {
+        if ((stripSwipeAcc > 0) !== (dx > 0)) {
+          stripSwipeAcc = 0;
+        }
+      } catch (err) {}
+      stripSwipeAcc += dx;
+      if (Math.abs(stripSwipeAcc) < DOCK_WHEEL_THRESHOLD) {
+        return;
+      }
+      let now = 0;
+      try {
+        now = Date.now();
+      } catch (err) {}
+      if (now - dockWheelLast < DOCK_WHEEL_COOLDOWN_MS) {
+        return;
+      }
+      dockWheelLast = now;
+      stripSwipeAcc = 0;
+      try {
+        if (typeof e.preventDefault === "function") {
+          e.preventDefault();
+        }
+      } catch (err) {}
+      try {
+        if (typeof cycleWorkspace === "function") {
+          cycleWorkspace(dx > 0 ? 1 : -1);
+        }
+      } catch (err) {}
+    } catch (e) {}
+  }
+
   function ensureDock() {
     try {
       let dock = null;
@@ -1635,6 +2087,12 @@
       }
       dock = document.createElement("div");
       dock.id = DOCK_ID;
+      dock.title = "Workspaces — click to switch · scroll or swipe to cycle";
+      // Marker for Browser Console diagnosis (the listeners are
+      // invisible otherwise): both gestures attach once, at creation.
+      try {
+        dock.setAttribute("data-aph-dock-wheel", "1");
+      } catch (e) {}
       // Dock gaps (padding between pills) sit inside #vertical-tabs: a tab
       // drag hovering the gap would otherwise bubble to the strip's own
       // dragover and animate tab shoves with no pill in play. Swallow it.
@@ -1655,7 +2113,29 @@
         dock.addEventListener("dragenter", shield);
         dock.addEventListener("dragover", shield);
       } catch (e) {}
+      // Wheel-to-cycle must be non-passive: the strip's own wheel scroll
+      // (tab list) would otherwise also run under the switch.
+      try {
+        dock.addEventListener("wheel", onDockWheel, { passive: false });
+      } catch (e) {
+        try {
+          dock.addEventListener("wheel", onDockWheel);
+        } catch (_e) {}
+      }
       anchor.appendChild(dock);
+      // Sidebar swipe lives on the strip itself (once per window: this
+      // block only runs at dock creation). Vertical wheel is left alone
+      // so the tab list keeps scrolling; horizontal swipes cycle.
+      try {
+        anchor.addEventListener("wheel", onStripSwipe, { passive: false });
+      } catch (e) {
+        try {
+          anchor.addEventListener("wheel", onStripSwipe);
+        } catch (_e) {}
+      }
+      try {
+        anchor.setAttribute("data-aph-swipe", "1");
+      } catch (e) {}
       // Shared right-click menu must exist before pills reference it.
       try {
         ensureDockMenu();

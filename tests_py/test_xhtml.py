@@ -50,8 +50,8 @@ def test_canonical_order_has_all_eight_tags() -> None:
         "workspaces.js",
         "command-palette.js",
         "textpick.js",
-        "archive-shared.js",
-        "archive.js",
+        "stash-shared.js",
+        "stash.js",
         "tabrename.js",
     ):
         assert needle in joined, needle

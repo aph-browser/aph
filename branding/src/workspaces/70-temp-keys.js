@@ -410,6 +410,20 @@
       } catch (err) {}
       return;
     }
+    // Ctrl+Alt+F toggles focus mode (hide every chrome surface, page
+    // only). Same bare shape as Ctrl+Alt+T above: no editable-target
+    // skip (it types nothing in inputs), AltGraph guard above covers
+    // real AltGr layouts.
+    if (e.ctrlKey && !e.shiftKey && !e.metaKey && e.code === "KeyF") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof toggleFocusMode === "function") {
+          toggleFocusMode();
+        }
+      } catch (err) {}
+      return;
+    }
     // Ctrl+Alt+S toggles the star on the selected tab (starred tabs keep
     // a base URL: Ctrl+W resets drifted stars, parks at-base ones).
     // Skipped in editable text so typing stays safe.
@@ -439,6 +453,22 @@
       try {
         if (window.AphPalette) {
           window.AphPalette.renameCurrent();
+        }
+      } catch (err) {}
+      return;
+    }
+    // Ctrl+Alt+\ toggles the native dual split-view (Firefox 149+):
+    // separate when the selected tab is split, else side-by-side with
+    // the most-recently-viewed same-workspace tab (native tab picker
+    // when there is no partner). The combo types nothing, so no
+    // editable-target skip — the AltGraph guard above covers real
+    // AltGr layouts (their key would report AltGraph=true).
+    if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.code === "Backslash") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof splitToggle === "function") {
+          splitToggle();
         }
       } catch (err) {}
       return;

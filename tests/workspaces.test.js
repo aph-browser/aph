@@ -611,8 +611,7 @@ describe("global pins", () => {
 });
 
 describe("newtab pruning", () => {
-  it("never auto-closes pending (unloaded) tabs", () => {
-    // Lazy-restored / discarded tabs wear a blank face until they load;
+  it("never auto-closes pending (unloaded) tabs", () => {    // Lazy-restored / discarded tabs wear a blank face until they load;
     // pruning them as "extra newtabs" would destroy unloaded state on
     // every switch. Regression guard for the pending skip.
     const start = api.getCurrent();
@@ -632,6 +631,73 @@ describe("newtab pruning", () => {
         if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
       }
       while (sb.gBrowser.tabs.length > base) sb.gBrowser.tabs.pop();
+      sb.gBrowser.selectedTab = prevSel;
+      if (api.getCurrent() !== start) api.switchTo(start);
+    }
+  });
+
+  it("spares blank-faced tabs younger than the settle window", () => {
+    // A newborn tab wears about:blank until its first document commits
+    // (addTrustedTab births blank; the real URL lands later). Pruning on
+    // that transient face closed the first-run welcome mid-load (seen
+    // live in the Browser Console: prune killed a chrome:// tab reading
+    // as about:blank). Tabs born <10s ago settle first; older spares
+    // still prune exactly as before.
+    const start = api.getCurrent();
+    if (start !== "1") api.switchTo("1");
+    const prevSel = sb.gBrowser.selectedTab;
+    const ws2 = makeTab(tabVals, { label: "prune-ws2", ws: "2", spec: "https://ws2.example/" });
+    const keeper = makeTab(tabVals, { label: "keeper", ws: "1", spec: "https://keeper.example/" });
+    const fresh = makeTab(tabVals, { label: "fresh", ws: "1", spec: "about:blank" });
+    fresh.__aphBirth = Date.now();
+    const old1 = makeTab(tabVals, { label: "old1", ws: "1", spec: "about:blank" });
+    const old2 = makeTab(tabVals, { label: "old2", ws: "1", spec: "about:blank" });
+    sb.gBrowser.tabs.push(ws2, keeper, fresh, old1, old2);
+    sb.gBrowser.selectedTab = keeper;
+    try {
+      api.switchTo("2");
+      api.switchTo("1");
+      assert.ok(sb.gBrowser.tabs.includes(fresh), "newborn blank face survives the switch");
+      assert.ok(sb.gBrowser.tabs.includes(old1), "one settled spare survives (keep=1)");
+      assert.ok(!sb.gBrowser.tabs.includes(old2), "second settled spare still prunes");
+    } finally {
+      for (const t of [ws2, keeper, fresh, old1, old2]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+      sb.gBrowser.selectedTab = prevSel;
+      if (api.getCurrent() !== start) api.switchTo(start);
+    }
+  });
+
+  it("reconcile keeps a valid live selection instead of yanking to lastSelected", () => {
+    // resolveTargetTab prefers the remembered tab, but reconcile then
+    // forced selection onto it even when the live selection already
+    // belonged to the target workspace — burying just-opened foreground
+    // tabs (the welcome tab lost selection this way, and the following
+    // prune read its blank face as spare). Switching away and back lands
+    // on lastSelected as before; reconcile alone must not steal.
+    const start = api.getCurrent();
+    if (start !== "1") api.switchTo("1");
+    const prevSel = sb.gBrowser.selectedTab;
+    const a = makeTab(tabVals, { label: "rec-a", ws: "1", spec: "https://a.example/" });
+    const b = makeTab(tabVals, { label: "rec-b", ws: "1", spec: "https://b.example/" });
+    const x = makeTab(tabVals, { label: "rec-x", ws: "1", spec: "https://x.example/" });
+    const c = makeTab(tabVals, { label: "rec-c", ws: "2", spec: "https://c.example/" });
+    sb.gBrowser.tabs.push(a, b, x, c);
+    try {
+      sb.gBrowser.selectedTab = a;
+      api.switchTo("2");
+      api.switchTo("1");
+      assert.equal(sb.gBrowser.selectedTab, a, "switch back lands on lastSelected (control)");
+      sb.gBrowser.selectedTab = b;
+      api.sendTabTo("2", [x]);
+      assert.equal(sb.gBrowser.selectedTab, b, "reconcile keeps the valid live selection");
+    } finally {
+      for (const t of [a, b, x, c]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
       sb.gBrowser.selectedTab = prevSel;
       if (api.getCurrent() !== start) api.switchTo(start);
     }
@@ -670,6 +736,16 @@ describe("tab unloading", () => {
       } finally {
         const li = tabs.indexOf(pin);
         if (li !== -1) tabs.splice(li, 1);
+      }
+      // SessionStore-owned tabs are never touched (tags unsettled).
+      const rest = makeTab(tabVals, { label: "g-rest", ws: "1", spec: "https://example.com/" });
+      restoring.add(rest);
+      try {
+        const rr = api.canUnloadTab(rest);
+        assert.equal(rr.ok, false, "restoring blocks");
+        assert.equal(rr.reason, "restoring");
+      } finally {
+        restoring.delete(rest);
       }
     } finally {
       sb.gBrowser.selectedTab = prev;
@@ -1013,32 +1089,32 @@ describe("tab unloading", () => {
   });
 });
 
-describe("auto archive hook", () => {
-  it("notifies the archive controller on workspace switch", () => {
+describe("auto stash hook", () => {
+  it("notifies the stash controller on workspace switch", () => {
     const start = api.getCurrent();
     if (start !== "1") api.switchTo("1");
     const base = sb.gBrowser.tabs.length;
     const prevSelected = sb.gBrowser.selectedTab;
     let scheduled = 0;
-    sb.window.AphArchive = { scheduleAutoSweep() { scheduled++; return true; } };
+    sb.window.AphStash = { scheduleAutoStashSweep() { scheduled++; return true; } };
     try {
       api.switchTo("2");
       assert.equal(scheduled, 1, "switch arms the settle timer once");
     } finally {
       while (sb.gBrowser.tabs.length > base) sb.gBrowser.tabs.pop();
       sb.gBrowser.selectedTab = prevSelected;
-      delete sb.window.AphArchive;
+      delete sb.window.AphStash;
       if (api.getCurrent() !== start) api.switchTo(start);
     }
   });
 
-  it("switches fine with no archive controller present", () => {
+  it("switches fine with no stash controller present", () => {
     const start = api.getCurrent();
     if (start !== "1") api.switchTo("1");
     const base = sb.gBrowser.tabs.length;
     const prevSelected = sb.gBrowser.selectedTab;
     try {
-      assert.equal(sb.window.AphArchive, undefined);
+      assert.equal(sb.window.AphStash, undefined);
       api.switchTo("2");
       api.switchTo("1");
     } finally {

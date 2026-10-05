@@ -43,9 +43,6 @@
   * aph.unload.onLowMemory, default on). Manual scopes unload every
   * eligible tab; automatic sweeps spare recently-viewed and starred tabs.
   * Never unloads selected/pinned/audible/sharing/pending/about:/offline tabs.
- * Addon first-run silencer: managed extensions that open welcome/help tabs
- * on install (no 3rdparty policy support — e.g. SponsorBlock help page)
- * are closed pre-paint (pref aph.addons.silenceFirstRun, default on).
  * Injected into browser.xhtml via rebrand.py (chrome://browser/content/workspaces.js).
  */
 (function () {
@@ -449,7 +446,7 @@
 
   // Open `url` tagged into `ws` with an explicit container (0 = default).
   // Unlike openBoundTab (which uses the workspace's bound container), the
-  // container is chosen by the caller — used by the tab archive to restore
+  // container is chosen by the caller — used by the Stash to restore
   // full context (workspace + container). Returns the tab, unselected.
   function openInWorkspace(url, wsArg, userContextId) {
     const target = isValidId(wsArg) ? wsArg : isValidId(current) ? current : "1";
@@ -822,12 +819,12 @@
     syncTabChrome(tab);
   }
 
-  // Last-viewed stamp for auto-archive staleness: SessionStore custom tab
+  // Last-viewed stamp for auto-stash staleness: SessionStore custom tab
   // value LAST_VIEWED_KEY, ms epoch as a string (same persistence as
   // workspace tags, so stamps survive restarts and restored tabs keep
   // their pre-restart viewed time). Stamped on TabSelect and TabOpen
   // (80); never on SSTabRestored (restore must not look like viewing).
-  // archive.js reads it at sweep time (key duplicated there by design —
+  // stash.js (the Stash) reads it at sweep time (key duplicated there by design —
   // same pattern as "aphStarred" in 50/76).
   const LAST_VIEWED_KEY = "aphLastViewed";
 
@@ -982,6 +979,104 @@
     } catch (e) {
       return null;
     }
+  }
+  // Workspace accent overrides: {wsId: hueId} persists in pref
+  // aph.workspaces.accents; the workspace end stays allowlist-validated
+  // 1..9 (isValidId) while the hue end spans 1..16 (isHueId): nine
+  // workspaces, sixteen hues — 10..16 are accent-only extras, never
+  // workspace ids. Rendering is CSS-only via [data-accent="N"] /
+  // :root[data-aph-accent="N"] (theme.css §21 companion) — no paint
+  // logic here. Unset/empty means "follow workspace" (no attribute).
+  // Same JSON-string-pref precedent as names (30) and icons (31).
+  const WS_ACCENTS_PREF = "aph.workspaces.accents";
+  let wsAccents = null; // lazy-loaded {wsId: hueId}
+
+  // Hue ids cover the full 16-stop scale (theme.css §21); workspace ids
+  // stay 1..9. Local (not shared): only the accent paths validate hues.
+  function isHueId(v) {
+    return (
+      (v >= "1" && v <= "9" && v.length === 1) ||
+      (v >= "10" && v <= "16" && v.length === 2)
+    );
+  }
+
+  function loadWsAccents() {
+    if (wsAccents) {
+      return wsAccents;
+    }
+    wsAccents = Object.create(null);
+    try {
+      let raw = "";
+      try {
+        raw = Services.prefs.getStringPref(WS_ACCENTS_PREF, "");
+      } catch (e) {}
+      if (raw) {
+        const obj = JSON.parse(raw);
+        for (const k of Object.keys(obj || {})) {
+          const v = String(obj[k] || "").trim();
+          if (isValidId(k) && isHueId(v)) {
+            wsAccents[k] = v;
+          }
+        }
+      }
+    } catch (e) {}
+    return wsAccents;
+  }
+
+  function saveWsAccents() {
+    try {
+      const plain = {};
+      const map = loadWsAccents();
+      for (const k of Object.keys(map)) {
+        plain[k] = map[k];
+      }
+      Services.prefs.setStringPref(WS_ACCENTS_PREF, JSON.stringify(plain));
+    } catch (e) {}
+  }
+
+  function getWsAccent(wsId) {
+    try {
+      return loadWsAccents()[wsId] || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function setWsAccent(wsId, hueId) {
+    if (!isValidId(wsId)) {
+      return false;
+    }
+    const h = String(hueId || "").trim();
+    try {
+      if (h) {
+        if (!isHueId(h)) {
+          return false;
+        }
+        loadWsAccents()[wsId] = h;
+      } else {
+        delete loadWsAccents()[wsId];
+      }
+      saveWsAccents();
+    } catch (e) {
+      return false;
+    }
+    try {
+      renderDock();
+    } catch (e) {}
+    try {
+      updateIndicator();
+    } catch (e) {}
+    // Immediate room: the window accent (:root[data-aph-accent] -> tab
+    // fill, voice, hairline) is otherwise only stamped on switch/birth,
+    // so a retune would lag one switch behind. Idempotent re-read of
+    // the current workspace's hue — unconditional on purpose (cheaper
+    // than diffing whether this ws is current).
+    try {
+      if (typeof stampWindowWs === "function") {
+        stampWindowWs(typeof current !== "undefined" ? current : "1");
+      }
+    } catch (e) {}
+    return true;
   }
   // Per-workspace pinned tabs: stock gBrowser.hideTab() refuses pinned tabs
   // (`aTab.pinned` early-return), so pinned could only ever be global. These
@@ -1259,10 +1354,20 @@
       if (!sel || sel.closing || getWs(sel) !== target) {
         gBrowser.selectedTab = focus;
       }
-      if (gBrowser.selectedTab !== focus) {
-        aphShowTab(focus);
-        gBrowser.selectedTab = focus;
-      }
+      // Assignment can silently not take (a hidden tab refuses selection),
+      // so retry once shown — but ONLY when the live selection is still
+      // outside the target. Never yank a valid selection to `focus`: a tab
+      // opened + selected after the last switch (first-run welcome, routed
+      // foreground tab) must keep focus. Seen live: reconcile re-selected
+      // a stale lastSelected blank, and the following prune then read the
+      // welcome tab's still-blank face as a spare newtab and closed it.
+      try {
+        const now = gBrowser.selectedTab;
+        if (now !== focus && (!now || now.closing || getWs(now) !== target)) {
+          aphShowTab(focus);
+          gBrowser.selectedTab = focus;
+        }
+      } catch (e) {}
     } catch (e) {}
     for (const t of tabs) {
       if (t.closing) {
@@ -1310,6 +1415,14 @@
     return false;
   }
 
+  // A newborn tab wears its predecessor's face until the first document
+  // commits (addTrustedTab births about:blank; the real URL lands later).
+  // Pruning on that transient face closes real pages — the first-run
+  // welcome died exactly this way (seen live: blank face at prune time).
+  // Tabs younger than this settle first; the next sweep takes them once
+  // their URL is real. Deferral only, never exemption.
+  const PRUNE_SETTLE_MS = 10000;
+
   function pruneExtraNewTabs(target) {
     if (!isValidId(target)) {
       return;
@@ -1343,6 +1456,16 @@
       // them destroys unloaded state. Same rule as the unload guards.
       try {
         if (typeof t.hasAttribute === "function" && t.hasAttribute("pending")) {
+          continue;
+        }
+      } catch (e) {}
+      // Fresh tabs still committing their first document (see
+      // PRUNE_SETTLE_MS above): never judge the transient blank face.
+      // Tabs without a birth stamp (tests, restored tabs — restore
+      // deliberately stamps none) stay on the old path.
+      try {
+        const birth = (t && t.__aphBirth) || 0;
+        if (birth && Date.now() - birth < PRUNE_SETTLE_MS) {
           continue;
         }
       } catch (e) {}
@@ -1417,10 +1540,10 @@
 
   // Staleness threshold for the automatic sweeper: minutes (pref
   // aph.unload.staleMin, default 30), read live so about:config flips apply
-  // to the next sweep. Separate from aph.archive.autoStaleMin on purpose:
-  // unloading is cheap and reversible (click reloads) while archiving
+  // to the next sweep. Separate from aph.stash.autoStaleMin on purpose:
+  // unloading is cheap and reversible (click reloads) while stashing
   // closes the tab, so they deserve different thresholds. Pair them as
-  // unload < archive so tabs discard before they close.
+  // unload < stash so tabs discard before they close.
   function getUnloadStaleMs() {
     try {
       if (Services.prefs && typeof Services.prefs.getIntPref === "function") {
@@ -1436,7 +1559,7 @@
   // Last-viewed read for staleness: SessionStore custom tab value
   // "aphLastViewed" (ms epoch, stamped by the workspaces bundle on
   // TabSelect/TabOpen — key duplicated here by design, same pattern as
-  // "aphStarred" and archive.js). Missing/unreadable/malformed reads as 0
+  // "aphStarred" and stash.js). Missing/unreadable/malformed reads as 0
   // (epoch): untracked tabs count as stale.
   const UNLOAD_LAST_VIEWED_KEY = "aphLastViewed";
 
@@ -1478,7 +1601,7 @@
 
   // Auto-only eligibility: the manual guards plus the starred exemption
   // and staleness. Starred tabs are user-marked keepers
-  // (archive.js already exempts them); manual scopes stay a force tool and
+  // (stash.js already exempts them); manual scopes stay a force tool and
   // skip both filters.
   // nowMs/staleMs are parameters so tests can drive time deterministically;
   // callers that pass nothing get live values.
@@ -1536,6 +1659,12 @@
       try {
         if (tab.closing) {
           return { ok: false, reason: "closing" };
+        }
+      } catch (e) {}
+      // SessionStore owns restoring tabs (tags unsettled): never touch.
+      try {
+        if (typeof isRestoringTab === "function" && isRestoringTab(tab)) {
+          return { ok: false, reason: "restoring" };
         }
       } catch (e) {}
       try {
@@ -1861,7 +1990,7 @@
     }
   }
 
-  // Settle delay (the time-based foundation, same shape as archive.js):
+  // Settle delay (the time-based foundation, same shape as stash.js):
   // the switch hook does not sweep instantly — it arms this, and every
   // further switch re-arms it, so the sweep only fires once you've sat on
   // one workspace for the full delay. Guards + the hidden set re-check at
@@ -2008,8 +2137,7 @@
   }
 
   // Ctrl/Cmd+W on a selected pinned tab keeps it open (pref
-  // aph.pins.ctrlWUnloads, default on — same default-true shape as
-  // silenceFirstRun): pins are app anchors. A drifted pin first resets to
+  // aph.pins.ctrlWUnloads, default on): pins are app anchors. A drifted pin first resets to
   // its pinned base URL in place (stay selected, no unload — next press,
   // now at base, parks); a pin already at base parks (unloads) instead of
   // closing; a second press (now pending) falls through to stock close, as
@@ -3011,11 +3139,29 @@
 
   // Window-level workspace stamp: mirrors the tabContainer claim onto
   // documentElement so theme.css can tint per workspace
-  // (:root[data-aph-ws="N"] -> --aph-ws-accent, §20). try/catch like the
-  // tabContainer stamp — paint must never break a switch.
+  // (:root[data-aph-ws="N"] -> --aph-ws-accent, §20). Per-WS accent
+  // override (32) rides alongside as data-aph-accent="M" (absent =
+  // follow workspace). try/catch like the tabContainer stamp — paint
+  // must never break a switch.
   function stampWindowWs(target) {
     try {
       document.documentElement.setAttribute("data-aph-ws", target);
+    } catch (e) {}
+    try {
+      let hue = "";
+      try {
+        hue = typeof getWsAccent === "function" ? getWsAccent(target) : "";
+      } catch (e) {}
+      if (
+        hue &&
+        (typeof isHueId === "function"
+          ? isHueId(hue)
+          : (typeof isValidId === "function" && isValidId(hue)))
+      ) {
+        document.documentElement.setAttribute("data-aph-accent", hue);
+      } else if (document.documentElement.removeAttribute) {
+        document.documentElement.removeAttribute("data-aph-accent");
+      }
     } catch (e) {}
   }
 
@@ -3026,6 +3172,14 @@
     if (!isValidId(target) || target === current) {
       return;
     }
+    // Splits are session-scoped: dissolve first so a tab hidden by the
+    // switch below can never keep painting inside the content card.
+    // Both tabs stay open, each tagged to its own workspace.
+    try {
+      if (typeof dissolveSplitsForSwitch === "function") {
+        dissolveSplitsForSwitch();
+      }
+    } catch (e) {}
     let tabs = [];
     try {
       tabs = Array.from(gBrowser.tabs);
@@ -3088,7 +3242,7 @@
       }
     } catch (e) {}
     // Deferred settle sweep so the switch stays snappy: each switch
-    // (re-)arms a 15 s timer there (same shape as auto-archive below), so
+    // (re-)arms a 15 s timer there (same shape as auto-stash below), so
     // the sweep fires only once you've sat still. Guards re-check at fire
     // time. Scope "auto" (staleness covers hidden and idle-current tabs);
     // no other auto path exists: every automatic unload in this bundle
@@ -3096,14 +3250,14 @@
     try {
       scheduleUnloadSweep();
     } catch (e) {}
-    // Auto-archive (opt-in pref, default off — archive.js owns the pref
+    // Auto-stash (opt-in pref, default off — stash.js owns the pref
     // read, eligibility and timing): each switch (re-)arms a 15 s settle
     // timer there, so the sweep fires only once you've sat still; V1 has
     // no staleness threshold and every eligible hidden-workspace tab goes.
     try {
-      const arc = window.AphArchive;
-      if (arc && typeof arc.scheduleAutoSweep === "function") {
-        arc.scheduleAutoSweep();
+      const arc = window.AphStash;
+      if (arc && typeof arc.scheduleAutoStashSweep === "function") {
+        arc.scheduleAutoStashSweep();
       }
     } catch (e) {}
   }
@@ -3293,6 +3447,19 @@
           if (t.closing || t.pinned) {
             continue;
           }
+          // Restoring or not-yet-tagged tabs belong to no workspace yet
+          // (getWs defaults tagless to "1"): counting them inflates WS1
+          // mid-restore and misroutes cycle/plus/close targets.
+          if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
+            continue;
+          }
+          let tagged = false;
+          try {
+            tagged = typeof rawWs === "function" && !!rawWs(t);
+          } catch (e) {}
+          if (!tagged) {
+            continue;
+          }
           const w = getWs(t);
           if (isValidId(w)) {
             seen.add(w);
@@ -3309,6 +3476,11 @@
   function cycleWorkspace(dir) {
     const ids = getActiveIds();
     if (ids.length < 2) {
+      // Nowhere to go — pulse instead of dying silent (every other
+      // Aph no-op signals; a dead gesture reads as broken input).
+      try {
+        pulseWorkspaceIndicator();
+      } catch (e) {}
       return;
     }
     const i = ids.indexOf(isValidId(current) ? current : "1");
@@ -3440,6 +3612,14 @@
       return false;
     }
     const list = Array.from(moving);
+    // A split pair must not straddle workspaces: separate any split
+    // touching the move set before retagging (both tabs stay open —
+    // the sent tab hides on reconcile below).
+    try {
+      if (typeof separateSplitsOf === "function") {
+        separateSplitsOf(list);
+      }
+    } catch (e) {}
     let preserved = null;
     try {
       preserved = preservedSendGroups(list);
@@ -4009,8 +4189,10 @@
   // vertical tab strip. The nav-bar #aph-ws-indicator auto-hides with the
   // top bar, so mouse users get this instead: active workspaces + current
   // + a "+" jump-to-next-empty pill, with container underlines, drag-and-
-  // drop retagging, and a right-click menu (rename / bind / unload /
-  // close). Zero new prefs; all state reuses tags, names and bindings.
+  // drop retagging, and a right-click menu (rename / icon / accent /
+  // bind / unload / close). Accent overrides persist in
+  // aph.workspaces.accents; everything else reuses tags, names and
+  // bindings.
   // Anchor: #vertical-tabs (light-DOM box projected into sidebar-main's
   // tabstrip slot, above the tools area). Horizontal-tabs mode leaves
   // #sidebar-container hidden, so the dock skips itself and the nav-bar
@@ -4018,6 +4200,27 @@
   // style) so a missing anchor never breaks chrome.
   const DOCK_ID = "aph-ws-dock";
   const DOCK_MENU_ID = "aph-ws-dock-menu";
+  // Accent hue names for the dock Accent submenu + settings picker.
+  // Full 16-stop scale (theme.css §21); ws-7 is Purple 9 (true Violet
+  // 9 lives at 14). Labels only.
+  const WS_ACCENT_NAMES = {
+    1: "Ruby",
+    2: "Orange",
+    3: "Amber",
+    4: "Jade",
+    5: "Cyan",
+    6: "Blue",
+    7: "Purple",
+    8: "Pink",
+    9: "Slate",
+    10: "Tomato",
+    11: "Grass",
+    12: "Green",
+    13: "Indigo",
+    14: "Violet",
+    15: "Plum",
+    16: "Crimson",
+  };
   // Tab being dragged over the dock (stock tab dataTransfer carries no tab
   // ref, so track dragstart on the shared tab container instead). Group
   // headers drag the whole native group: stock strip lets a <tab-group>
@@ -4327,6 +4530,20 @@
           if (!t || t.closing || t.pinned) {
             continue;
           }
+          // Restoring or not-yet-tagged tabs belong to no workspace yet
+          // (getWs defaults tagless to "1"): counting them inflates WS1
+          // mid-restore and lies in the pill titles and close labels
+          // that read these counts.
+          if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
+            continue;
+          }
+          let tagged = false;
+          try {
+            tagged = typeof rawWs === "function" && !!rawWs(t);
+          } catch (e) {}
+          if (!tagged) {
+            continue;
+          }
           const w = getWs(t);
           if (isValidId(w)) {
             counts[w] = (counts[w] || 0) + 1;
@@ -4350,6 +4567,10 @@
     return null;
   }
 
+  // Single creation path: switchTo funnels through finishWorkspaceSwitch
+  // → reconcile, which opens (and selects) the bound tab for an empty
+  // workspace. An explicit openBoundTab here used to race it into two
+  // new tabs, cleaned up only by a later switch's prune.
   function plusToWorkspace() {
     try {
       const free = lowestInactiveId(getActiveIds());
@@ -4358,16 +4579,46 @@
         return null;
       }
       switchTo(free);
-      return openBoundTab("about:newtab", free);
+      try {
+        const sel = gBrowser.selectedTab;
+        return sel && getWs(sel) === free ? sel : null;
+      } catch (e) {
+        return null;
+      }
     } catch (e) {
       return null;
     }
   }
 
+  // Bulk-close safety net: at least this many doomed tabs auto-stash before
+  // the close fires. Low enough that a real "clear this workspace" gesture
+  // is always covered, high enough that closing two tabs doesn't litter
+  // the stash with noise. Default only — the live value comes from the
+  // stash controller (aph.stash.safetyMin, Settings-tunable).
+  const SNAPSHOT_SAFETY_MIN = 3;
+
+  // Live safety threshold: controller pref when available, default above
+  // otherwise (tests, early init, missing controller all read the default).
+  function snapshotSafetyMin() {
+    try {
+      const ctl = window.AphStash;
+      if (ctl && typeof ctl.safetyThreshold === "function") {
+        const n = Number(ctl.safetyThreshold());
+        if (Number.isFinite(n) && n > 0) {
+          return Math.floor(n);
+        }
+      }
+    } catch (e) {}
+    return SNAPSHOT_SAFETY_MIN;
+  }
+
   // Close every unpinned tab tagged `id`. Current-workspace closes switch
   // to the nearest other active workspace first (never strand the window
   // tabless: sole-workspace closes abort with a pulse). Pinned tabs are
-  // global and always survive.
+  // global and always survive. SessionStore-owned (restoring) tabs are
+  // never touched: their tags are unsettled and getWs defaults tagless
+  // to "1", so WS1 would otherwise absorb pages the user never saw.
+  // Closes at the safety threshold or more auto-stash first (see above).
   function closeWorkspaceTabs(id) {
     try {
       if (!isValidId(id)) {
@@ -4375,15 +4626,51 @@
       }
       let doomed = [];
       try {
-        doomed = Array.from(gBrowser.tabs || []).filter(
-          (t) => t && !t.closing && !t.pinned && getWs(t) === id
-        );
+        doomed = Array.from(gBrowser.tabs || []).filter((t) => {
+          try {
+            if (!t || t.closing || t.pinned || getWs(t) !== id) {
+              return false;
+            }
+          } catch (e) {
+            return false;
+          }
+          try {
+            if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
+              return false;
+            }
+          } catch (e) {}
+          // Tagless tabs default to "1" via getWs: without a real tag we
+          // cannot know they belong to `id`, so fail closed (same rule as
+          // dockCounts/getActiveIds). Tags are never deleted, so tagless
+          // always means not-yet-tagged.
+          try {
+            if (typeof rawWs === "function" && !rawWs(t)) {
+              return false;
+            }
+          } catch (e) {
+            return false;
+          }
+          return true;
+        });
       } catch (e) {
         return { closed: 0 };
       }
       if (!doomed.length) {
         return { closed: 0 };
       }
+      // Safety stash: a bulk workspace close is the one bulk destructive
+      // action Aph owns, so capture the doomed tabs first (append-only
+      // restore means a regretted close is always undoable from the
+      // Stash page). Skipped below the threshold (a stray close is not
+      // worth a capture) and when the controller or the pref is off.
+      try {
+        if (doomed.length >= snapshotSafetyMin()) {
+          const stashCtl = window.AphStash;
+          if (stashCtl && typeof stashCtl.autoStashTabs === "function") {
+            stashCtl.autoStashTabs(doomed, `Before closing WS ${id}`);
+          }
+        }
+      } catch (e) {}
       if (id === current) {
         const others = getActiveIds()
           .filter((x) => x !== id)
@@ -4446,6 +4733,16 @@
       try {
         renderDock();
       } catch (e) {}
+      // Undo offer for the safety net above: the stash controller
+      // remembers the capture and toasts with Undo when it just ran.
+      // Absent controller (or no capture) stays silent; the close
+      // result itself never changes.
+      try {
+        const stashCtl = window.AphStash;
+        if (stashCtl && typeof stashCtl.confirmBulkClose === "function") {
+          stashCtl.confirmBulkClose(id, closed);
+        }
+      } catch (e) {}
       return { closed };
     } catch (e) {
       return { closed: 0 };
@@ -4458,7 +4755,21 @@
       pill = document.createElement("div");
       pill.className = "aph-ws-pill";
       pill.setAttribute("data-ws", id);
+      // Per-WS accent override (32): stamp data-accent="M" when WS id
+      // carries a hue override; absent means follow workspace. CSS
+      // resolves it to var(--aph-ws-M) with no new hexes.
+      try {
+        const hue = typeof getWsAccent === "function" ? getWsAccent(id) : "";
+        const hueOk =
+          typeof isHueId === "function"
+            ? isHueId(hue)
+            : (typeof isValidId === "function" && isValidId(hue));
+        if (hue && hueOk && hue !== id) {
+          pill.setAttribute("data-accent", hue);
+        }
+      } catch (e) {}
       pill.setAttribute("role", "button");
+      pill.setAttribute("tabindex", "0");
       if (isCurrent) {
         pill.setAttribute("data-current", "1");
       }
@@ -4541,6 +4852,9 @@
         pill.title = `${title} — click to switch, right-click for actions`;
       }
       try {
+        pill.setAttribute("aria-label", pill.title || title);
+      } catch (e) {}
+      try {
         pill.addEventListener("click", () => {
           try {
             if (id === current) {
@@ -4551,6 +4865,20 @@
             // workspaces in other windows are independent tab sets.
             switchTo(id);
           } catch (e) {}
+        });
+        pill.addEventListener("keydown", (e) => {
+          try {
+            if (e && (e.key === "Enter" || e.key === " ")) {
+              if (typeof e.preventDefault === "function") {
+                e.preventDefault();
+              }
+              if (id === current) {
+                pulseWorkspaceIndicator();
+                return;
+              }
+              switchTo(id);
+            }
+          } catch (_e) {}
         });
       } catch (e) {}
       try {
@@ -4677,15 +5005,30 @@
     try {
       pill = document.createElement("div");
       pill.className = "aph-ws-pill aph-ws-add";
+      pill.setAttribute("role", "button");
+      pill.setAttribute("tabindex", "0");
       pill.textContent = "+";
       pill.title = free
         ? `New workspace ${free} (click: switches here, opens a tab · drop: moves tab(s) here)`
         : "All 9 workspaces active";
       try {
+        pill.setAttribute("aria-label", pill.title);
+      } catch (e) {}
+      try {
         pill.addEventListener("click", () => {
           try {
             plusToWorkspace();
           } catch (e) {}
+        });
+        pill.addEventListener("keydown", (e) => {
+          try {
+            if (e && (e.key === "Enter" || e.key === " ")) {
+              if (typeof e.preventDefault === "function") {
+                e.preventDefault();
+              }
+              plusToWorkspace();
+            }
+          } catch (_e) {}
         });
       } catch (e) {}
       // The "+" pill is a drop target for a fresh workspace: dropping moves
@@ -4829,15 +5172,15 @@
     } catch (e) {}
   }
 
-  function aphOpenArchive() {
+  function aphOpenStash() {
     try {
-      const a = window.AphArchive || null;
-      if (a && typeof a.openArchive === "function" && a.openArchive()) {
+      const a = window.AphStash || null;
+      if (a && typeof a.openStash === "function" && a.openStash()) {
         return;
       }
     } catch (e) {}
     try {
-      aphOpenTab("chrome://browser/content/aph-archive.html");
+      aphOpenTab("chrome://browser/content/aph-stash.html");
     } catch (e) {}
   }
 
@@ -4860,11 +5203,31 @@
     } catch (e) {}
   }
 
-  function aphArchiveCurrent() {
+  // Native Firefox Settings (about:preferences — themes live here, so
+  // this is the room-switch path). Stock openPreferences first (native
+  // pane/tab behavior); plain trusted tab fallback — never the bound
+  // container path (userContextId on a privileged URL must not throw).
+  // Fail-silent house style throughout.
+  function aphOpenFirefoxSettings() {
     try {
-      const a = window.AphArchive || null;
-      if (a && typeof a.archiveCurrent === "function") {
-        a.archiveCurrent();
+      if (typeof window.openPreferences === "function") {
+        window.openPreferences();
+        return;
+      }
+    } catch (e) {}
+    try {
+      const t = gBrowser.addTrustedTab("about:preferences");
+      try {
+        gBrowser.selectedTab = t;
+      } catch (_e) {}
+    } catch (e) {}
+  }
+
+  function aphStashCurrent() {
+    try {
+      const a = window.AphStash || null;
+      if (a && typeof a.stashCurrent === "function") {
+        a.stashCurrent();
         return;
       }
     } catch (e) {}
@@ -4913,7 +5276,7 @@
         try {
           aphDockOpenPalette();
         } catch (err) {}
-      });
+      }, false, "palette");
       if (pal) {
         try {
           pal.setAttribute("shortcut", "Ctrl+K");
@@ -4935,10 +5298,26 @@
             promptDockRename(cur);
           }
         } catch (err) {}
-      });
+      }, false, "rename");
       if (rename) {
         try {
           menu.appendChild(rename);
+        } catch (err) {}
+      }
+      // Same pair as the pill right-click menu (Rename above, Set Icon
+      // here): the Aph key is the keyboard path (Enter opens this menu),
+      // so the icon picker must live here too, not only on right-click.
+      const setIcon = makeDockMenuItem("aph-aph-set-icon", `Set Icon for ${head}…`, () => {
+        try {
+          const api = window.AphPalette;
+          if (api && typeof api.setWsIcon === "function") {
+            api.setWsIcon(cur);
+          }
+        } catch (err) {}
+      }, false, "set-icon");
+      if (setIcon) {
+        try {
+          menu.appendChild(setIcon);
         } catch (err) {}
       }
       try {
@@ -4948,6 +5327,12 @@
               ? document.createXULElement("menu")
               : document.createElement("menu");
           bindMenu.setAttribute("label", `Bind ${head} to Container…`);
+          bindMenu.id = "aph-aph-bind";
+          try {
+            if (bindMenu.classList && typeof bindMenu.classList.add === "function") {
+              bindMenu.classList.add("menu-iconic");
+            }
+          } catch (err) {}
           const sub =
             typeof document.createXULElement === "function"
               ? document.createXULElement("menupopup")
@@ -5005,30 +5390,40 @@
           menu.appendChild(bindMenu);
         }
       } catch (err) {}
-      let archTitle = "Archive Current Tab";
+      let stashTitle = "Stash Current Tab";
       try {
-        if (typeof archiveCmdTitle === "function") {
-          archTitle = archiveCmdTitle();
+        if (typeof stashCmdTitle === "function") {
+          stashTitle = stashCmdTitle();
         }
       } catch (err) {}
-      const arch = makeDockMenuItem("aph-aph-archive", archTitle, () => {
+      // Disabled with nothing archivable (pendingCount 0): the shared
+      // skin dims the row in place. An absent controller fails open
+      // (previous behavior) so tests and early init keep working.
+      let stashDisabled = false;
+      try {
+        const stashCtl = window.AphStash;
+        if (stashCtl && typeof stashCtl.pendingStashCount === "function") {
+          stashDisabled = stashCtl.pendingStashCount() === 0;
+        }
+      } catch (err) {}
+      const stashRow = makeDockMenuItem("aph-aph-stash", stashTitle, () => {
         try {
-          aphArchiveCurrent();
+          aphStashCurrent();
         } catch (err) {}
-      });
-      if (arch) {
+      }, stashDisabled, "stash");
+      if (stashRow) {
         try {
-          menu.appendChild(arch);
+          menu.appendChild(stashRow);
         } catch (err) {}
       }
-      const openArch = makeDockMenuItem("aph-aph-open-archive", "Open Archive", () => {
+      const openStash = makeDockMenuItem("aph-aph-open-stash", "Open Stash", () => {
         try {
-          aphOpenArchive();
+          aphOpenStash();
         } catch (err) {}
-      });
-      if (openArch) {
+      }, false, "open-stash");
+      if (openStash) {
         try {
-          menu.appendChild(openArch);
+          menu.appendChild(openStash);
         } catch (err) {}
       }
       try {
@@ -5042,7 +5437,7 @@
         try {
           aphShowCustomizeSidebar();
         } catch (err) {}
-      });
+      }, false, "customize");
       if (cust) {
         try {
           menu.appendChild(cust);
@@ -5052,17 +5447,27 @@
         try {
           aphOpenSettings();
         } catch (err) {}
-      });
+      }, false, "settings");
       if (prefs) {
         try {
           menu.appendChild(prefs);
+        } catch (err) {}
+      }
+      const fxPrefs = makeDockMenuItem("aph-aph-firefox-settings", "Firefox Settings…", () => {
+        try {
+          aphOpenFirefoxSettings();
+        } catch (err) {}
+      }, false, "firefox-settings");
+      if (fxPrefs) {
+        try {
+          menu.appendChild(fxPrefs);
         } catch (err) {}
       }
       const welcome = makeDockMenuItem("aph-aph-welcome", "Aph Welcome Tour", () => {
         try {
           aphOpenWelcome();
         } catch (err) {}
-      });
+      }, false, "welcome");
       if (welcome) {
         try {
           menu.appendChild(welcome);
@@ -5072,7 +5477,7 @@
         try {
           aphOpenTab("https://aph-browser.github.io/");
         } catch (err) {}
-      });
+      }, false, "about");
       if (about) {
         try {
           menu.appendChild(about);
@@ -5138,18 +5543,19 @@
     } catch (_e) {}
   }
 
-  // Aph mark: 2x2 spaces grid, active cell filled. Geometric and
-  // abstract on purpose — a letterform would read as text at 14px.
-  // currentColor throughout, so the ghost (dim) / hover (full) ink
-  // story needs no paint logic here. Namespaced construction (never
-  // innerHTML) so the XUL/XHTML host gets real SVG either way.
+  // Aph mark: 2x2 spaces grid with the tile's steel-blue home cell.
+  // Geometric and abstract on purpose — a letterform would read as
+  // text at 16px. Ghosts ride currentColor (dim at rest, full on
+  // hover); home keeps its brand blue at every state (logos don't
+  // dim). Namespaced construction (never innerHTML) so the XUL/XHTML
+  // host gets real SVG either way.
   function makeDockAphMark() {
     try {
       const NS = "http://www.w3.org/2000/svg";
       const svg = document.createElementNS(NS, "svg");
       svg.setAttribute("viewBox", "0 0 14 14");
-      svg.setAttribute("width", "14");
-      svg.setAttribute("height", "14");
+      svg.setAttribute("width", "16");
+      svg.setAttribute("height", "16");
       svg.setAttribute("aria-hidden", "true");
       const cells = [
         { x: 1, y: 1, active: true },
@@ -5165,7 +5571,7 @@
         r.setAttribute("height", "5");
         r.setAttribute("rx", "1.5");
         if (c.active) {
-          r.setAttribute("fill", "currentColor");
+          r.setAttribute("fill", "#4682b4");
         } else {
           r.setAttribute("fill", "none");
           r.setAttribute("stroke", "currentColor");
@@ -5193,7 +5599,7 @@
           btn.appendChild(mark);
         }
       } catch (e) {}
-      btn.title = "Aph — menu · click for Aph actions · right-click for workspace actions";
+      btn.title = "Aph menu — click for Aph actions · right-click for workspace actions";
       try {
         btn.addEventListener("click", (e) => {
           try {
@@ -5351,7 +5757,14 @@
     } catch (e) {}
   }
 
-  function makeDockMenuItem(id, label, action, disabled) {
+  // Aph-menu glyphs live in theme.css (§20b) as --menuitem-icon vars:
+  // stock 157 paints .menu-icon from that var (content: var), NOT the
+  // classic image attribute — bare image attrs unhide an empty slot.
+  // The iconKey below only flips the stock menuitem-iconic class (the
+  // display trigger); art + context-fill ink come from CSS, so dark /
+  // light / hover / disabled follow automatically. Dynamic or checked
+  // rows (bind list) stay text-only by passing no key.
+  function makeDockMenuItem(id, label, action, disabled, iconKey) {
     let item = null;
     try {
       // browser.xhtml is XHTML: createElement would build an
@@ -5362,6 +5775,13 @@
           : document.createElement("menuitem");
       item.id = id;
       item.setAttribute("label", label);
+      if (iconKey) {
+        try {
+          if (item.classList && typeof item.classList.add === "function") {
+            item.classList.add("menuitem-iconic");
+          }
+        } catch (e) {}
+      }
       if (disabled) {
         item.setAttribute("disabled", "true");
       }
@@ -5558,6 +5978,61 @@
           menu.appendChild(bindMenu);
         } catch (err) {}
       }
+      try {
+        const accentMenu =
+          typeof document.createXULElement === "function"
+            ? document.createXULElement("menu")
+            : document.createElement("menu");
+        accentMenu.setAttribute("label", `Accent for ${head}…`);
+        const accentSub =
+          typeof document.createXULElement === "function"
+            ? document.createXULElement("menupopup")
+            : document.createElement("menupopup");
+        let curHue = "";
+        try {
+          curHue = typeof getWsAccent === "function" ? getWsAccent(id) : "";
+        } catch (err) {}
+        const follow = makeDockMenuItem("aph-dock-accent-follow", "Follow workspace", () => {
+          try {
+            if (typeof setWsAccent === "function") {
+              setWsAccent(id, "");
+            }
+            renderDock();
+          } catch (err) {}
+        });
+        if (follow) {
+          if (!curHue) {
+            try {
+              follow.setAttribute("checked", "true");
+            } catch (err) {}
+          }
+          accentSub.appendChild(follow);
+        }
+        try {
+          for (let h = 1; h <= 16; h++) {
+            const hs = String(h);
+            const nm = WS_ACCENT_NAMES[hs] || `Hue ${hs}`;
+            const item = makeDockMenuItem(`aph-dock-accent-${hs}`, nm, () => {
+              try {
+                if (typeof setWsAccent === "function") {
+                  setWsAccent(id, hs);
+                }
+                renderDock();
+              } catch (err) {}
+            });
+            if (item && curHue === hs) {
+              try {
+                item.setAttribute("checked", "true");
+              } catch (err) {}
+            }
+            if (item) {
+              accentSub.appendChild(item);
+            }
+          }
+        } catch (err) {}
+        accentMenu.appendChild(accentSub);
+        menu.appendChild(accentMenu);
+      } catch (err) {}
       const unload = makeDockMenuItem(
         "aph-dock-unload",
         "Unload Inactive Tabs",
@@ -5627,6 +6102,163 @@
     }
   }
 
+  // Wheel-to-cycle: scroll on the dock moves between workspaces.
+  // No distinct "swipe" event exists in Firefox — a two-finger trackpad
+  // swipe arrives as wheel with deltaX, so one dominant-axis handler
+  // covers mouse wheel (deltaY), swipe (deltaX) and Shift+wheel alike.
+  // Down/right cycles up, up/left cycles down; pinch-zoom (ctrlKey)
+  // and tab-drag mode are never hijacked. Threshold + cooldown keep
+  // smooth-scroll devices to one switch per gesture beat.
+  let dockWheelAcc = 0;
+  let dockWheelLast = 0;
+  const DOCK_WHEEL_THRESHOLD = 60;
+  const DOCK_WHEEL_COOLDOWN_MS = 250;
+
+  function onDockWheel(e) {
+    try {
+      if (!e || dockDragActive) {
+        return;
+      }
+      try {
+        if (e.ctrlKey || e.metaKey) {
+          return;
+        }
+      } catch (err) {}
+      let dx = 0;
+      let dy = 0;
+      try {
+        dx = Number(e.deltaX) || 0;
+        dy = Number(e.deltaY) || 0;
+        if (e.deltaMode === 1) {
+          dx *= 40;
+          dy *= 40;
+        } else if (e.deltaMode === 2) {
+          dx *= 400;
+          dy *= 400;
+        }
+      } catch (err) {
+        return;
+      }
+      const mag = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
+      if (!mag) {
+        return;
+      }
+      // Direction flip starts a fresh gesture (no fighting the spring).
+      try {
+        if ((dockWheelAcc > 0) !== (mag > 0)) {
+          dockWheelAcc = 0;
+        }
+      } catch (err) {}
+      dockWheelAcc += mag;
+      if (Math.abs(dockWheelAcc) < DOCK_WHEEL_THRESHOLD) {
+        return;
+      }
+      let now = 0;
+      try {
+        now = Date.now();
+      } catch (err) {}
+      if (now - dockWheelLast < DOCK_WHEEL_COOLDOWN_MS) {
+        return;
+      }
+      dockWheelLast = now;
+      dockWheelAcc = 0;
+      try {
+        if (typeof e.preventDefault === "function") {
+          e.preventDefault();
+        }
+      } catch (err) {}
+      try {
+        if (typeof e.stopPropagation === "function") {
+          e.stopPropagation();
+        }
+      } catch (err) {}
+      try {
+        if (typeof cycleWorkspace === "function") {
+          cycleWorkspace(mag > 0 ? 1 : -1);
+        }
+      } catch (err) {}
+    } catch (e) {}
+  }
+
+  // Sidebar swipe: horizontal two-finger swipes anywhere on the vertical
+  // tab strip cycle workspaces; vertical wheel passes through untouched
+  // so the tab list keeps scrolling. Same threshold/cooldown shape as
+  // the dock wheel (shared cooldown clock, separate gesture sum).
+  // Wheel events from the dock bubble up here too — the dock handler
+  // owns those (and stops them on switch), so dock-originated events
+  // are ignored by target as well as by propagation.
+  let stripSwipeAcc = 0;
+
+  function onStripSwipe(e) {
+    try {
+      if (!e || dockDragActive) {
+        return;
+      }
+      try {
+        if (e.ctrlKey || e.metaKey) {
+          return;
+        }
+      } catch (err) {}
+      try {
+        if (
+          e.target &&
+          typeof e.target.closest === "function" &&
+          e.target.closest("#" + DOCK_ID)
+        ) {
+          return;
+        }
+      } catch (err) {}
+      let dx = 0;
+      let dy = 0;
+      try {
+        dx = Number(e.deltaX) || 0;
+        dy = Number(e.deltaY) || 0;
+        if (e.deltaMode === 1) {
+          dx *= 40;
+          dy *= 40;
+        } else if (e.deltaMode === 2) {
+          dx *= 400;
+          dy *= 400;
+        }
+      } catch (err) {
+        return;
+      }
+      // Horizontal-dominant only: vertical belongs to the tab list.
+      if (!dx || Math.abs(dx) < Math.abs(dy)) {
+        stripSwipeAcc = 0;
+        return;
+      }
+      try {
+        if ((stripSwipeAcc > 0) !== (dx > 0)) {
+          stripSwipeAcc = 0;
+        }
+      } catch (err) {}
+      stripSwipeAcc += dx;
+      if (Math.abs(stripSwipeAcc) < DOCK_WHEEL_THRESHOLD) {
+        return;
+      }
+      let now = 0;
+      try {
+        now = Date.now();
+      } catch (err) {}
+      if (now - dockWheelLast < DOCK_WHEEL_COOLDOWN_MS) {
+        return;
+      }
+      dockWheelLast = now;
+      stripSwipeAcc = 0;
+      try {
+        if (typeof e.preventDefault === "function") {
+          e.preventDefault();
+        }
+      } catch (err) {}
+      try {
+        if (typeof cycleWorkspace === "function") {
+          cycleWorkspace(dx > 0 ? 1 : -1);
+        }
+      } catch (err) {}
+    } catch (e) {}
+  }
+
   function ensureDock() {
     try {
       let dock = null;
@@ -5642,6 +6274,12 @@
       }
       dock = document.createElement("div");
       dock.id = DOCK_ID;
+      dock.title = "Workspaces — click to switch · scroll or swipe to cycle";
+      // Marker for Browser Console diagnosis (the listeners are
+      // invisible otherwise): both gestures attach once, at creation.
+      try {
+        dock.setAttribute("data-aph-dock-wheel", "1");
+      } catch (e) {}
       // Dock gaps (padding between pills) sit inside #vertical-tabs: a tab
       // drag hovering the gap would otherwise bubble to the strip's own
       // dragover and animate tab shoves with no pill in play. Swallow it.
@@ -5662,7 +6300,29 @@
         dock.addEventListener("dragenter", shield);
         dock.addEventListener("dragover", shield);
       } catch (e) {}
+      // Wheel-to-cycle must be non-passive: the strip's own wheel scroll
+      // (tab list) would otherwise also run under the switch.
+      try {
+        dock.addEventListener("wheel", onDockWheel, { passive: false });
+      } catch (e) {
+        try {
+          dock.addEventListener("wheel", onDockWheel);
+        } catch (_e) {}
+      }
       anchor.appendChild(dock);
+      // Sidebar swipe lives on the strip itself (once per window: this
+      // block only runs at dock creation). Vertical wheel is left alone
+      // so the tab list keeps scrolling; horizontal swipes cycle.
+      try {
+        anchor.addEventListener("wheel", onStripSwipe, { passive: false });
+      } catch (e) {
+        try {
+          anchor.addEventListener("wheel", onStripSwipe);
+        } catch (_e) {}
+      }
+      try {
+        anchor.setAttribute("data-aph-swipe", "1");
+      } catch (e) {}
       // Shared right-click menu must exist before pills reference it.
       try {
         ensureDockMenu();
@@ -6494,6 +7154,20 @@
       } catch (err) {}
       return;
     }
+    // Ctrl+Alt+F toggles focus mode (hide every chrome surface, page
+    // only). Same bare shape as Ctrl+Alt+T above: no editable-target
+    // skip (it types nothing in inputs), AltGraph guard above covers
+    // real AltGr layouts.
+    if (e.ctrlKey && !e.shiftKey && !e.metaKey && e.code === "KeyF") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof toggleFocusMode === "function") {
+          toggleFocusMode();
+        }
+      } catch (err) {}
+      return;
+    }
     // Ctrl+Alt+S toggles the star on the selected tab (starred tabs keep
     // a base URL: Ctrl+W resets drifted stars, parks at-base ones).
     // Skipped in editable text so typing stays safe.
@@ -6523,6 +7197,22 @@
       try {
         if (window.AphPalette) {
           window.AphPalette.renameCurrent();
+        }
+      } catch (err) {}
+      return;
+    }
+    // Ctrl+Alt+\ toggles the native dual split-view (Firefox 149+):
+    // separate when the selected tab is split, else side-by-side with
+    // the most-recently-viewed same-workspace tab (native tab picker
+    // when there is no partner). The combo types nothing, so no
+    // editable-target skip — the AltGraph guard above covers real
+    // AltGr layouts (their key would report AltGraph=true).
+    if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.code === "Backslash") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof splitToggle === "function") {
+          splitToggle();
         }
       } catch (err) {}
       return;
@@ -6688,7 +7378,7 @@
   }
 
   // Resolve the right-clicked tab, mirroring stock tab-context-menu.js and
-  // the archive.js pattern: triggerNode may carry the tab directly (.tab)
+  // the stash.js pattern: triggerNode may carry the tab directly (.tab)
   // or contain it; fall back to the selected tab.
   function contextClickedTab(e) {
     try {
@@ -6750,6 +7440,67 @@
         commit(window.prompt(promptTitle, initial || ""));
       }
     } catch (err) {}
+  }
+  // Focus mode: hide every chrome surface (top bar, sidebar strip, dock)
+  // and leave only the page. Toggled by Ctrl+Alt+F and the palette
+  // ("Toggle Focus Mode"); session-only and per-window, like workspaces
+  // themselves — the expando + document attribute below both die with the
+  // window, so nothing persists, restores, or syncs. No pref, no Settings
+  // row, no observers, no timers: nothing to leak on unload.
+  // The palette overlay mounts on documentElement (outside the toolbox),
+  // so Ctrl+K still opens in focus mode — hotkey + palette are the exit
+  // paths. Esc is deliberately NOT an exit (it belongs to page content:
+  // video players, dialogs, editors).
+  const FOCUS_ATTR = "data-aph-focus";
+
+  function isFocusMode() {
+    try {
+      return !!window.__aphFocus;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function setFocusMode(on) {
+    const enable = !!on;
+    try {
+      if (!!window.__aphFocus === enable) {
+        return enable;
+      }
+    } catch (e) {
+      return isFocusMode();
+    }
+    try {
+      window.__aphFocus = enable;
+    } catch (e) {}
+    try {
+      if (enable) {
+        document.documentElement.setAttribute(FOCUS_ATTR, "1");
+      } else {
+        document.documentElement.removeAttribute(FOCUS_ATTR);
+      }
+    } catch (e) {}
+    // Focus follows the visible surface: page content when hiding chrome,
+    // the urlbar when bringing it back (same discipline as openBoundTab).
+    try {
+      if (enable) {
+        const bw = gBrowser.selectedBrowser;
+        if (bw && typeof bw.focus === "function") {
+          bw.focus();
+        }
+      } else if (typeof focusUrlBar === "function") {
+        focusUrlBar();
+      }
+    } catch (e) {}
+    return enable;
+  }
+
+  function toggleFocusMode() {
+    try {
+      return setFocusMode(!isFocusMode());
+    } catch (e) {
+      return isFocusMode();
+    }
   }
   // Zen-style pinned-tab URLs: every pinned tab owns a "pinned URL"
   // (captured at pin time, editable). Right-click offers "Reset to Pinned
@@ -7485,6 +8236,377 @@
   } else {
     window.addEventListener("load", initStar, { once: true });
   }
+  // Native dual split-view (Firefox 149+ tab-split-view-wrapper engine).
+  // Aph only drives stock entry points: creation through
+  // gBrowser.addTabSplitView, teardown through wrapper.unsplitTabs, and
+  // the native tab picker through BrowserCommands.addTabSplitView — the
+  // same calls the tab context menu makes. Selected-tab guards mirror
+  // BrowserCommands.addTabSplitView (unpinned, visible, unsplit).
+  // Workspace contract: splits are same-workspace and session-scoped.
+  // beginWorkspaceSwitch dissolves every split first (separateSplits),
+  // so a tab hidden by the switch can never keep painting inside the
+  // content card; both tabs stay open, each tagged to its own
+  // workspace. Nothing here persists: stock session restore owns split
+  // wrappers, Aph owns visibility. All guards fail closed — when in
+  // doubt, no split. (Never name anything splitWorkspaceCommands: that
+  // identifier is banned by tests_py/test_assets.py as dead code.)
+
+  const SPLIT_PREF = "browser.tabs.splitView.enabled";
+  // Last-viewed read for the split partner pick: SessionStore custom tab
+  // value "aphLastViewed" (ms epoch, stamped by the workspaces bundle on
+  // TabSelect/TabOpen — key duplicated here by design, same pattern as
+  // "aphStarred" and stash.js). Missing reads as 0 (never viewed).
+  const SPLIT_LAST_VIEWED_KEY = "aphLastViewed";
+
+  function splitLog(msg) {
+    try {
+      Services.console.logStringMessage(`[AphSplit] ${msg}`);
+    } catch (e) {}
+  }
+
+  // Stock entry point present (pinned Firefox 157 ships the engine).
+  function nativeSplitAvailable() {
+    try {
+      return !!(gBrowser && typeof gBrowser.addTabSplitView === "function");
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Stock default is on (pinned-build firefox.js); unreadable prefs read
+  // as on — function presence above is the real gate.
+  function splitPrefOn() {
+    try {
+      if (
+        Services &&
+        Services.prefs &&
+        typeof Services.prefs.getBoolPref === "function"
+      ) {
+        return !!Services.prefs.getBoolPref(SPLIT_PREF, true);
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  function readSplitLastViewed(tab) {
+    try {
+      if (SessionStore && typeof SessionStore.getCustomTabValue === "function") {
+        const v = SessionStore.getCustomTabValue(tab, SPLIT_LAST_VIEWED_KEY);
+        const n = typeof v === "string" || typeof v === "number" ? Number(v) : NaN;
+        if (Number.isFinite(n) && n > 0) {
+          return n;
+        }
+      }
+    } catch (e) {}
+    return 0;
+  }
+
+  function selectedSplitView() {
+    try {
+      const sel =
+        (gBrowser && gBrowser.selectedTab) || null;
+      return (sel && sel.splitview) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Every live split wrapper in this window (unique). Wrappers die with
+  // their last tab (native MutationObserver), so this never goes stale.
+  function collectSplitViews() {
+    const out = [];
+    try {
+      const tabs = Array.from((gBrowser && gBrowser.tabs) || []);
+      for (const t of tabs) {
+        try {
+          const w = t && t.splitview;
+          if (w && out.indexOf(w) === -1) {
+            out.push(w);
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  function unsplitWrapper(wrapper, trigger) {
+    try {
+      if (wrapper && typeof wrapper.unsplitTabs === "function") {
+        wrapper.unsplitTabs(trigger);
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // Dissolve every split in the window (both tabs stay open). Runs first
+  // in beginWorkspaceSwitch so hidden tabs never paint; returns how many
+  // dissolved (console callers can confirm what ran).
+  function dissolveSplitsForSwitch() {
+    let n = 0;
+    try {
+      for (const w of collectSplitViews()) {
+        try {
+          if (unsplitWrapper(w, "aph_switch")) {
+            n++;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return n;
+  }
+
+  // Dissolve only splits touching `tabs` (workspace-send path: a pair
+  // must not straddle workspaces — the sent tab hides on reconcile).
+  function separateSplitsOf(tabs) {
+    let n = 0;
+    try {
+      const targets = new Set();
+      try {
+        for (const t of tabs || []) {
+          if (t && !t.closing) {
+            targets.add(t);
+          }
+        }
+      } catch (e) {}
+      if (!targets.size) {
+        return 0;
+      }
+      const seen = [];
+      try {
+        const all = Array.from((gBrowser && gBrowser.tabs) || []);
+        for (const t of all) {
+          try {
+            const w = t && t.splitview;
+            if (w && seen.indexOf(w) === -1) {
+              seen.push(w);
+            }
+          } catch (e) {}
+        }
+      } catch (e) {}
+      for (const w of seen) {
+        let touches = false;
+        try {
+          const members = (w.tabs || []).filter((t) => t);
+          touches = members.some((t) => targets.has(t));
+        } catch (e) {}
+        if (touches) {
+          try {
+            if (unsplitWrapper(w, "aph_send")) {
+              n++;
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    return n;
+  }
+
+  // Most-recently-viewed same-workspace partner for the selected tab:
+  // visible, unpinned, unsplit, settled (no restoring/tagless tabs — same
+  // fail-closed rule as bulk close), never about:opentabs pickers.
+  // Highest aphLastViewed wins; strictly-greater keeps strip order on
+  // ties; unviewed tabs sort last. Null when there is no partner.
+  function splitCandidate() {
+    try {
+      if (!isValidId(current)) {
+        return null;
+      }
+      let sel = null;
+      try {
+        sel = (gBrowser && gBrowser.selectedTab) || null;
+      } catch (e) {
+        return null;
+      }
+      if (!sel) {
+        return null;
+      }
+      let tabs = [];
+      try {
+        tabs = Array.from((gBrowser && gBrowser.tabs) || []);
+      } catch (e) {
+        return null;
+      }
+      let best = null;
+      let bestViewed = -1;
+      for (const t of tabs) {
+        try {
+          if (!t || t.closing || t === sel || t.pinned || t.hidden) {
+            continue;
+          }
+          if (t.splitview) {
+            continue;
+          }
+          try {
+            if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
+              continue;
+            }
+          } catch (e) {}
+          let tag = null;
+          try {
+            tag = typeof rawWs === "function" ? rawWs(t) : null;
+          } catch (e) {
+            tag = null;
+          }
+          if (tag !== current) {
+            continue;
+          }
+          let spec = "";
+          try {
+            spec =
+              (t.linkedBrowser &&
+                t.linkedBrowser.currentURI &&
+                t.linkedBrowser.currentURI.spec) ||
+              "";
+          } catch (e) {
+            spec = "";
+          }
+          if (!spec || spec === "about:opentabs") {
+            continue;
+          }
+          const viewed = readSplitLastViewed(t);
+          if (viewed > bestViewed) {
+            bestViewed = viewed;
+            best = t;
+          }
+        } catch (e) {}
+      }
+      return best;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Selected tab may anchor a split (mirrors stock addTabSplitView).
+  function canSmartSplit() {
+    try {
+      if (!nativeSplitAvailable() || !splitPrefOn()) {
+        return false;
+      }
+      let sel = null;
+      try {
+        sel = (gBrowser && gBrowser.selectedTab) || null;
+      } catch (e) {
+        return false;
+      }
+      if (!sel || sel.closing || sel.hidden || sel.pinned || sel.splitview) {
+        return false;
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Hotkey/palette toggle: separate when the selected tab is split,
+  // else side-by-side with the MRU same-workspace tab, else the native
+  // tab picker. Always returns an {action} object (noop carries reason).
+  function splitToggle() {
+    try {
+      const active = selectedSplitView();
+      if (active) {
+        const ok = unsplitWrapper(active, "aph_hotkey");
+        return { action: ok ? "separated" : "noop", reason: ok ? "" : "separate-failed" };
+      }
+      if (!canSmartSplit()) {
+        return { action: "noop", reason: "not-splittable" };
+      }
+      let sel = null;
+      try {
+        sel = (gBrowser && gBrowser.selectedTab) || null;
+      } catch (e) {
+        return { action: "noop", reason: "no-selected" };
+      }
+      const partner = splitCandidate();
+      if (partner) {
+        try {
+          gBrowser.addTabSplitView([sel, partner], {
+            insertBefore: sel,
+            trigger: "aph_hotkey",
+          });
+          try {
+            splitLog(`split ws=${current} with=${readSplitLastViewed(partner)}`);
+          } catch (_e) {}
+          return { action: "split" };
+        } catch (e) {
+          return { action: "noop", reason: "split-failed" };
+        }
+      }
+      try {
+        if (
+          typeof BrowserCommands !== "undefined" &&
+          BrowserCommands &&
+          typeof BrowserCommands.addTabSplitView === "function"
+        ) {
+          BrowserCommands.addTabSplitView();
+          return { action: "picker" };
+        }
+      } catch (e) {}
+      return { action: "noop", reason: "no-partner" };
+    } catch (e) {
+      return { action: "noop", reason: "error" };
+    }
+  }
+
+  function separateActiveSplit() {
+    try {
+      return unsplitWrapper(selectedSplitView(), "aph_palette");
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function reverseActiveSplit() {
+    try {
+      const active = selectedSplitView();
+      if (active && typeof active.reverseTabs === "function") {
+        active.reverseTabs("aph_palette");
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // Palette row state (read-only): whether the selected tab is split,
+  // whether a smart split is possible, and the partner title for the
+  // "Split with Last Tab" row.
+  function splitState() {
+    try {
+      const inSplit = !!selectedSplitView();
+      const state = { inSplit, canSplit: false, candidateTitle: "", candidateUrl: "" };
+      if (inSplit) {
+        return state;
+      }
+      if (!canSmartSplit()) {
+        return state;
+      }
+      state.canSplit = true;
+      try {
+        const partner = splitCandidate();
+        if (partner) {
+          let spec = "";
+          try {
+            spec =
+              (partner.linkedBrowser &&
+                partner.linkedBrowser.currentURI &&
+                partner.linkedBrowser.currentURI.spec) ||
+              "";
+          } catch (e) {
+            spec = "";
+          }
+          state.candidateUrl = spec;
+          try {
+            state.candidateTitle = partner.label || spec || "Untitled";
+          } catch (e) {
+            state.candidateTitle = spec || "Untitled";
+          }
+        }
+      } catch (e) {}
+      return state;
+    } catch (e) {
+      return { inSplit: false, canSplit: false, candidateTitle: "", candidateUrl: "" };
+    }
+  }
   // Stamp fresh tabs (restored keep theirs); inherit a
   // grouped sibling's tag. Tabs armed for container repair are skipped —
   // the deferred repair either swaps them (still empty) or stamps them
@@ -7541,16 +8663,17 @@
         return;
       }
     } catch (err) {}
-    // Birth stamp for the addon first-run silencer (age gate). Every live
-    // tab passes here; restored tabs (SSTabRestored) deliberately get none
-    // so a kept-open page is never mistaken for an install tab (adopted
-    // tabs arrive with live content, which the first-content gate covers).
+    // Birth stamp for the prune settle window (a newborn tab wears
+    // about:blank until its first document commits — pruning on that
+    // transient face would close real pages). Every live tab passes here;
+    // restored tabs (SSTabRestored) deliberately get none so they stay on
+    // the old prune path (adopted tabs arrive with live content).
     try {
       if (tab) {
         tab.__aphBirth = Date.now();
       }
     } catch (err) {}
-    // Birth counts as viewed for auto-archive staleness.
+    // Birth counts as viewed for auto-stash staleness.
     try {
       if (typeof stampLastViewed === "function") {
         stampLastViewed(tab);
@@ -7715,7 +8838,7 @@
     } catch (err) {}
   }
 
-  // Selecting counts as viewing for auto-archive staleness (same stamp
+  // Selecting counts as viewing for auto-stash staleness (same stamp
   // as birth in onTabOpen; never on SSTabRestored, where restore must
   // not look like viewing).
   function onTabSelect(e) {
@@ -7934,146 +9057,6 @@
     } catch (e) {}
   }
 
-  // Extension first-run silencer (startup interceptor): managed extensions
-  // installed via policies.json ExtensionSettings (e.g. SponsorBlock) can
-  // open welcome/help tabs on install — chrome.tabs.create fires on the
-  // extension's onInstalled event, which no 3rdparty policy can suppress
-  // for addons without managed-storage support. Those tabs are junk by
-  // construction, so they are closed pre-paint (channel cancelled, then
-  // removed) with a commit-stage backstop, reusing the domain router's two
-  // stages. Precision guards (all must hold — fail closed): kill-switch
-  // pref on, moz-extension scheme, welcome-path pattern, tab born seconds
-  // ago via TabOpen (never a restored tab), first content still blank
-  // (never a deliberate navigation), and no opener tab (never a link).
-  const ADDON_SILENCE_PREF = "aph.addons.silenceFirstRun";
-  const ADDON_SILENCE_MAX_AGE_MS = 30000;
-  const ADDON_FIRSTRUN_PATTERNS = [
-    "/help/index.html",
-    "first-run",
-    "welcome",
-    "onboarding",
-    "installed",
-    "thank-you",
-  ];
-
-  function getSilenceFirstRun() {
-    try {
-      if (Services.prefs && typeof Services.prefs.getBoolPref === "function") {
-        return Services.prefs.getBoolPref(ADDON_SILENCE_PREF);
-      }
-    } catch (e) {}
-    return true;
-  }
-
-  function isAddonFirstRunSpec(spec) {
-    try {
-      const lower = String(spec || "").toLowerCase();
-      if (!lower.startsWith("moz-extension://")) {
-        return false;
-      }
-      for (const pat of ADDON_FIRSTRUN_PATTERNS) {
-        if (lower.includes(pat)) {
-          return true;
-        }
-      }
-    } catch (e) {}
-    return false;
-  }
-
-  // Brand-new tabs show about:blank (extension tabs.create) — anything else
-  // means content already lived here; never touch those.
-  function isFirstContentTab(tab) {
-    try {
-      const cur = String(tab.linkedBrowser?.currentURI?.spec || "");
-      return cur === "about:blank" || cur === "about:newtab" || cur === "about:home" || cur === "";
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function isYoungTab(tab) {
-    try {
-      const birth = (tab && tab.__aphBirth) || 0;
-      if (!birth) {
-        return false;
-      }
-      return Date.now() - birth <= ADDON_SILENCE_MAX_AGE_MS;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // Returns true when the tab was closed.
-  function silenceAddonTab(tab, spec, request) {
-    try {
-      if (!tab || tab.closing) {
-        return false;
-      }
-      // Session-restored tabs are born young with blank content in TabOpen
-      // (birth stamped before SessionStore applies extData) — never mistake
-      // a restored extension page for a fresh install tab.
-      try {
-        if (
-          SessionStore &&
-          typeof SessionStore.isTabRestoring === "function" &&
-          SessionStore.isTabRestoring(tab)
-        ) {
-          return false;
-        }
-      } catch (e) {}
-      if (!getSilenceFirstRun() || !isAddonFirstRunSpec(spec)) {
-        return false;
-      }
-      if (!isYoungTab(tab) || !isFirstContentTab(tab)) {
-        return false;
-      }
-      // Followed links carry a stock openerTab — never silence those.
-      try {
-        if (tab.openerTab) {
-          return false;
-        }
-      } catch (e) {}
-      try {
-        tab.__aphFresh = false;
-      } catch (e) {}
-      // Cancel pre-paint so nothing flashes, then remove (same abort code
-      // the domain router uses).
-      try {
-        if (request && typeof request.cancel === "function") {
-          let aborted = 0x804b0002; // NS_BINDING_ABORTED
-          try {
-            if (typeof Cr !== "undefined" && Cr && typeof Cr.NS_BINDING_ABORTED === "number") {
-              aborted = Cr.NS_BINDING_ABORTED;
-            } else if (
-              typeof Components !== "undefined" &&
-              Components &&
-              Components.results &&
-              typeof Components.results.NS_BINDING_ABORTED === "number"
-            ) {
-              aborted = Components.results.NS_BINDING_ABORTED;
-            }
-          } catch (e) {}
-          request.cancel(aborted);
-        }
-      } catch (e) {}
-      try {
-        gBrowser.removeTab(tab, { animate: false });
-      } catch (e) {
-        try {
-          gBrowser.removeTab(tab);
-        } catch (_e) {
-          return false;
-        }
-      }
-      try {
-        routeLog(`silenced addon first-run tab (${String(spec || "").slice(0, 80)})`);
-      } catch (e) {}
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
   // Pre-paint router, two stages sharing the fresh-tab protocol:
   // 1. onStateChange (document STATE_START): the channel exists but nothing
   //    has hit the wire yet (no DNS, no TLS, no cookies). A matching rule
@@ -8127,7 +9110,7 @@
         // Session restore in flight for this tab (created tagless via
         // TabOpen, extData applied after): never route it — its first
         // commit looks exactly like a fresh navigation. Settle it so no
-        // later stage claims it either. (The silencer guards itself.)
+        // later stage claims it either.
         try {
           if (
             SessionStore &&
@@ -8146,14 +9129,8 @@
         } catch (e) {
           return;
         }
-        // Commit-stage backstop for the addon first-run silencer (covers a
-        // missed pre-dispatch). aLocation always has .spec in chrome.
+        // Extension pages never route (domain rules are http/https only).
         if (scheme === "moz-extension") {
-          let spec = "";
-          try {
-            spec = String(aLocation.spec || "");
-          } catch (e) {}
-          silenceAddonTab(tab, spec, aRequest);
           return;
         }
         if (scheme !== "http" && scheme !== "https") {
@@ -8257,14 +9234,8 @@
         } catch (e) {
           return;
         }
-        // Pre-dispatch stage for the addon first-run silencer: the channel
-        // exists but nothing has painted yet.
+        // Extension pages never route (domain rules are http/https only).
         if (scheme === "moz-extension") {
-          let spec = "";
-          try {
-            spec = String((uri && uri.spec) || "");
-          } catch (e) {}
-          silenceAddonTab(tab, spec, aRequest);
           return;
         }
         if (scheme !== "http" && scheme !== "https") {
@@ -8819,10 +9790,16 @@
         Services.prefs.removeObserver(WS_ICONS_PREF, wsIconObserver);
       }
     } catch (e) {}
+    try {
+      if (typeof wsAccentObserver !== "undefined" && wsAccentObserver) {
+        Services.prefs.removeObserver(WS_ACCENTS_PREF, wsAccentObserver);
+      }
+    } catch (e) {}
     bindingObserver = null;
     routeObserver = null;
     nameObserver = null;
     wsIconObserver = null;
+    wsAccentObserver = null;
     try {
       if (startupRestoreObserver && Services.obs) {
         Services.obs.removeObserver(
@@ -9036,8 +10013,24 @@
           typeof unloadCandidates === "function"
             ? unloadCandidates
             : () => ({ total: 0, list: [] }),
+        splitToggle:
+          typeof splitToggle === "function" ? splitToggle : () => ({ action: "noop" }),
+        separateSplit:
+          typeof separateActiveSplit === "function" ? separateActiveSplit : () => false,
+        reverseSplit:
+          typeof reverseActiveSplit === "function" ? reverseActiveSplit : () => false,
+        splitState:
+          typeof splitState === "function"
+            ? splitState
+            : () => ({ inSplit: false, canSplit: false, candidateTitle: "", candidateUrl: "" }),
         renderDock,
         closeWorkspaceTabs,
+        getFocusMode:
+          typeof isFocusMode === "function" ? isFocusMode : () => false,
+        setFocusMode:
+          typeof setFocusMode === "function" ? setFocusMode : () => false,
+        toggleFocusMode:
+          typeof toggleFocusMode === "function" ? toggleFocusMode : () => false,
         applySidebarFooter:
           typeof applySidebarFooter === "function" ? applySidebarFooter : () => false,
       };
@@ -9200,6 +10193,30 @@
       Services.prefs.addObserver(WS_ICONS_PREF, wsIconObserver);
     } catch (e) {
       wsIconObserver = null;
+    }
+    // Cross-window/cross-document accent sync: the Settings page writes
+    // aph.workspaces.accents directly, so without this nothing repaints
+    // until the next switch. Drop the cache, repaint dock + badge, and
+    // restamp the room at once — the retune lands immediately in every
+    // window, same as a dock-menu pick (setWsAccent).
+    try {
+      wsAccentObserver = {
+        observe() {
+          try {
+            wsAccents = null;
+            renderDock();
+            updateIndicator();
+          } catch (e) {}
+          try {
+            if (typeof stampWindowWs === "function") {
+              stampWindowWs(typeof current !== "undefined" ? current : "1");
+            }
+          } catch (e) {}
+        },
+      };
+      Services.prefs.addObserver(WS_ACCENTS_PREF, wsAccentObserver);
+    } catch (e) {
+      wsAccentObserver = null;
     }
     try {
       initRouteListener();

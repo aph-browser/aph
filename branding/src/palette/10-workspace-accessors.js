@@ -35,28 +35,28 @@
 
   function arc() {
     try {
-      return window.AphArchive || null;
+      return window.AphStash || null;
     } catch (e) {
       return null;
     }
   }
 
-  // "Archive Current Tab", or "Archive N Tabs" when a multiselection is
-  // pending. Fully guarded: the archive controller may be absent (tests).
-  function archiveCmdTitle() {
+  // "Stash Current Tab", or "Stash N Tabs" when a multiselection is
+  // pending. Fully guarded: the stash controller may be absent (tests).
+  function stashCmdTitle() {
     try {
       const a = arc();
-      if (a && typeof a.pendingCount === "function" && a.pendingCount() > 1) {
-        return `Archive ${a.pendingCount()} Tabs`;
+      if (a && typeof a.pendingStashCount === "function" && a.pendingStashCount() > 1) {
+        return `Stash ${a.pendingStashCount()} Tabs`;
       }
     } catch (e) {}
     try {
       const n = (gBrowser.selectedTabs || gBrowser.multiselectedTabs || []).length;
       if (n > 1) {
-        return `Archive ${n} Tabs`;
+        return `Stash ${n} Tabs`;
       }
     } catch (e) {}
-    return "Archive Current Tab";
+    return "Stash Current Tab";
   }
 
   // "Send Active Tab to …", or "Send N Tabs to …" when a multiselection is

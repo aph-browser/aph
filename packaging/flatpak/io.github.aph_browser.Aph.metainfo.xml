@@ -23,11 +23,11 @@
   <description>
     <p>
       Aph is a Firefox-based browser with native workspace, command-palette,
-      and tab-archive overrides plus hardened privacy defaults.
+      and tab-stash overrides plus hardened privacy defaults.
     </p>
     <p>
       Organize tabs into nine workspaces per window, jump with a
-      Raycast-style command palette, park tabs in the archive with
+      Raycast-style command palette, park tabs in the stash with
       workspace and container restore, and browse with telemetry and
       Normandy switched off.
     </p>

@@ -54,16 +54,17 @@
         return;
       }
     } catch (err) {}
-    // Birth stamp for the addon first-run silencer (age gate). Every live
-    // tab passes here; restored tabs (SSTabRestored) deliberately get none
-    // so a kept-open page is never mistaken for an install tab (adopted
-    // tabs arrive with live content, which the first-content gate covers).
+    // Birth stamp for the prune settle window (a newborn tab wears
+    // about:blank until its first document commits — pruning on that
+    // transient face would close real pages). Every live tab passes here;
+    // restored tabs (SSTabRestored) deliberately get none so they stay on
+    // the old prune path (adopted tabs arrive with live content).
     try {
       if (tab) {
         tab.__aphBirth = Date.now();
       }
     } catch (err) {}
-    // Birth counts as viewed for auto-archive staleness.
+    // Birth counts as viewed for auto-stash staleness.
     try {
       if (typeof stampLastViewed === "function") {
         stampLastViewed(tab);
@@ -228,7 +229,7 @@
     } catch (err) {}
   }
 
-  // Selecting counts as viewing for auto-archive staleness (same stamp
+  // Selecting counts as viewing for auto-stash staleness (same stamp
   // as birth in onTabOpen; never on SSTabRestored, where restore must
   // not look like viewing).
   function onTabSelect(e) {

@@ -39,8 +39,8 @@ def test_patch_replaces_brand_and_appends_features(synthetic_ja) -> None:
     assert counts.css == 1
     assert counts.tokens == 1
     assert counts.textpick == 4  # controller + shared/child/parent
-    assert (counts.archivejs, counts.archiveshared) == (1, 1)
-    assert counts.archivepage == 3  # html/css/page
+    assert (counts.stashjs, counts.stashshared) == (1, 1)
+    assert counts.stashpage == 3  # html/css/page
     assert counts.tabrenamejs == 1
     assert counts.fonts == 4  # inter 400/500/600/700 latin woff2
 
@@ -56,17 +56,17 @@ def test_patch_replaces_brand_and_appends_features(synthetic_ja) -> None:
             assert f"chrome/browser/content/browser/aph-fonts/inter-{w}-latin.woff2" in names
         # Regression guard: every xhtml <script> tag must have its payload
         # entry appended, otherwise the browser logs "Missing chrome or
-        # resource URL" at startup (textpick/archive bug).
+        # resource URL" at startup (textpick/stash bug).
         for entry in (
             "chrome/browser/content/browser/textpick.js",
             "actors/aph-textpick-shared.js",
             "actors/AphTextPickChild.sys.mjs",
             "actors/AphTextPickParent.sys.mjs",
-            "chrome/browser/content/browser/archive-shared.js",
-            "chrome/browser/content/browser/archive.js",
-            "chrome/browser/content/browser/aph-archive.html",
-            "chrome/browser/content/browser/aph-archive.css",
-            "chrome/browser/content/browser/aph-archive-page.js",
+            "chrome/browser/content/browser/stash-shared.js",
+            "chrome/browser/content/browser/stash.js",
+            "chrome/browser/content/browser/aph-stash.html",
+            "chrome/browser/content/browser/aph-stash.css",
+            "chrome/browser/content/browser/aph-stash-page.js",
         ):
             assert entry in names, entry
         assert b"Aph" in z.read("localization/en-US/brand.ftl")

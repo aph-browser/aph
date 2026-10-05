@@ -17,10 +17,10 @@ from .constants import OMNI_JA, ROOT_OMNI_JA, WORKSPACES_XHTML_PATH
 from .injectors.base import Injector, PatchCounts
 from .injectors.brand import BrandStringsInjector
 from .injectors.features import (
-    ArchiveInjector,
     FontInjector,
     PaletteInjector,
     SettingsInjector,
+    StashInjector,
     TabrenameInjector,
     TextpickInjector,
     ThemeInjector,
@@ -47,9 +47,9 @@ LEAGCY_LOG_FIELDS = (
     "palette.js",
     "palette.css",
     "textpick files (controller/shared/child/parent)",
-    "archive.js",
-    "archive-shared.js",
-    "archive page files (html/css/page)",
+    "stash.js",
+    "stash-shared.js",
+    "stash page files (html/css/page)",
     "settings page files (html/css/page)",
     "welcome page files (html/css/page)",
     "tabrename.js",
@@ -75,10 +75,10 @@ class BrandPatcher:
             TokensInjector(payloads.tokens_css),
             PaletteInjector(payloads.palette_js, payloads.palette_css),
             TextpickInjector(payloads.textpick_js, payloads.textpick_files),
-            ArchiveInjector(
-                payloads.archive_js,
-                payloads.archive_shared_js,
-                payloads.archive_page_files,
+            StashInjector(
+                payloads.stash_js,
+                payloads.stash_shared_js,
+                payloads.stash_page_files,
             ),
             SettingsInjector(payloads.settings_page_files),
             WelcomeInjector(payloads.welcome_page_files),
@@ -205,8 +205,8 @@ class BrandPatcher:
             f"{counts.tokens} tokens.css, "
             f"{counts.paljs} palette.js, {counts.palcss} palette.css, "
             f"{counts.textpick} textpick files (controller/shared/child/parent), "
-            f"{counts.archivejs} archive.js, {counts.archiveshared} archive-shared.js, "
-            f"{counts.archivepage} archive page files (html/css/page), "
+            f"{counts.stashjs} stash.js, {counts.stashshared} stash-shared.js, "
+            f"{counts.stashpage} stash page files (html/css/page), "
             f"{counts.settingspage} settings page files (html/css/page), "
             f"{counts.welcomepage} welcome page files (html/css/page), "
             f"{counts.tabrenamejs} tabrename.js, "

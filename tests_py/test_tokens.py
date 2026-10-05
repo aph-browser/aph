@@ -13,7 +13,7 @@ CONSUMERS = (
     ROOT / "branding" / "theme.css",
     ROOT / "branding" / "command-palette.css",
     ROOT / "branding" / "settings.css",
-    ROOT / "branding" / "archive.css",
+    ROOT / "branding" / "stash.css",
     ROOT / "branding" / "welcome.css",
 )
 
@@ -34,21 +34,37 @@ def test_tokens_source_is_sane() -> None:
         "--aph-radius-card",
         "--aph-pop-in-duration",
         "--aph-pop-in-ease",
+        "--aph-icon-sm",
+        "--aph-icon-md",
+        "--aph-icon-label-gap",
+        "--aph-hit-min",
+        "--aph-hit-sm",
+        "--aph-bar-button",
+        "--aph-bar-height",
+        "--aph-pill-empty-opacity",
+        "--aph-pill-empty-dash",
     ):
         assert live in css, f"missing shared token: {live}"
 
 
 def test_tokens_hues_match_chrome() -> None:
-    """Nine workspace hues mirror theme.css §21 (same parity contract as
-    the settings/archive mirrors)."""
+    """Sixteen hue stops mirror theme.css §21 (same parity contract as
+    the settings/stash mirrors). tokens.css declares each hex once under
+    --aph-color-* with --aph-ws-N aliasing it; theme.css keeps literals
+    as fallback for older omnis — compare resolved values."""
     theme = (ROOT / "branding" / "theme.css").read_text(encoding="utf-8")
     tokens = TOKENS.read_text(encoding="utf-8")
-    theme_hues = dict(re.findall(r"--aph-ws-([1-9]):\s*(#[0-9a-fA-F]{6})", theme))
-    token_hues = dict(re.findall(r"--aph-ws-([1-9]):\s*(#[0-9a-fA-F]{6})", tokens))
-    assert len(theme_hues) == 9 and len(token_hues) == 9
-    for n in "123456789":
-        assert token_hues[n].lower() == theme_hues[n].lower(), (
-            f"ws{n} diverged: tokens {token_hues[n]} vs chrome {theme_hues[n]}"
+    theme_hues = dict(re.findall(r"--aph-ws-([0-9]{1,2}):\s*(#[0-9a-fA-F]{6})", theme))
+    assert len(theme_hues) == 16, f"expected 16 chrome hues, found {len(theme_hues)}"
+    colors = dict(re.findall(r"--aph-color-([a-z]+):\s*(#[0-9a-fA-F]{6})", tokens))
+    assert len(colors) == 16, f"expected 16 named colors, found {len(colors)}"
+    aliases = dict(re.findall(r"--aph-ws-([0-9]{1,2}):\s*var\(--aph-color-([a-z]+)\)", tokens))
+    assert len(aliases) == 16, f"expected 16 ws aliases, found {len(aliases)}"
+    for n in [str(i) for i in range(1, 17)]:
+        assert n in aliases, f"tokens missing alias for hue {n}"
+        resolved = colors[aliases[n]].lower()
+        assert resolved == theme_hues[n].lower(), (
+            f"ws{n} diverged: tokens {resolved} vs chrome {theme_hues[n]}"
         )
 
 
@@ -70,7 +86,7 @@ def test_every_consumer_imports_tokens_first() -> None:
                     for i in (
                         css.find("#aph-palette-overlay {"),
                         css.find("#aph-settings {"),
-                        css.find("#aph-archive {"),
+                        css.find("#aph-stash {"),
                         css.find("#aph-welcome {"),
                     )
                     if i != -1

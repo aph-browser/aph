@@ -3,8 +3,13 @@
    profile/chrome/).
 
    Covers all native menus with two stable selectors: `menupopup` (page /
-   tab context menus) and `panelview` (hamburger panel, subviews). The
-   canvas owns surface + ink, so no installed theme (green, red,
+   tab context menus) and `panelview` (hamburger panel, subviews). Every
+   `menupopup` leg carries `:not(#ContentSelectDropdown menupopup,
+   .in-menulist)`: web-content `<select>` dropdowns render as
+   `menulist#ContentSelectDropdown > menupopup` inside the same popupset,
+   so unguarded rules themed the select popup on random webpages. The
+   guard keeps browser menus themed while form-control popups stay
+   native. The canvas owns surface + ink, so no installed theme (green, red,
    anything) can tint menus; the voice owns hover. Everything else
    stays stock Firefox:
 
@@ -30,15 +35,15 @@
    by redefining the variable on the host — the same mechanism
    lightweight themes use. The host/::part background rules below are
    belt-and-braces. */
-menupopup {
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) {
   --panel-background-color: var(--aph-surface, Menu) !important;
 }
-menupopup,
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist),
 panelview {
   background-color: var(--aph-surface, Window) !important;
   color: var(--aph-ink, WindowText) !important;
 }
-menupopup::part(content) {
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist)::part(content) {
   background-color: var(--aph-surface, Window) !important;
 }
 
@@ -50,7 +55,7 @@ menupopup::part(content) {
    loads without it. 6px rows match the palette.
    NOTE: --lwt-toolbar-field-highlight is NOT used here — Sun leaves it
    undefined, which rendered as plain blue and looked stock. */
-menupopup > :is(menu, menuitem)[_moz-menuactive="true"],
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > :is(menu, menuitem)[_moz-menuactive="true"],
 panelview :is(.subviewbutton, toolbarbutton):is(:hover, [_moz-menuactive="true"]) {
   background-color: color-mix(
     in srgb,
@@ -63,7 +68,7 @@ panelview :is(.subviewbutton, toolbarbutton):is(:hover, [_moz-menuactive="true"]
 /* 3. Separator hairlines: kill the native groove (appearance:none) and
    draw a single 1px ink wash with vertical breathing room. Covers
    context menus (menuseparator) and panels (toolbarseparator). */
-menupopup menuseparator,
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) menuseparator,
 panelview toolbarseparator {
   appearance: none !important;
   -moz-appearance: none !important;
@@ -77,7 +82,7 @@ panelview toolbarseparator {
 
 /* 4. Disabled items: dim in place. Opacity only — geometry, ink, and
    layout pass through untouched. */
-menupopup > :is(menu, menuitem)[disabled="true"],
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > :is(menu, menuitem)[disabled="true"],
 panelview :is(.subviewbutton, toolbarbutton)[disabled="true"] {
   opacity: 0.45 !important;
 }
@@ -86,19 +91,19 @@ panelview :is(.subviewbutton, toolbarbutton)[disabled="true"] {
    never changes between states, so hover can't reflow the list) so
    the 6px hover pills float off the popup edge. Comfortable 6px block
    padding keeps rows tappable; icons align on a 16px grid. */
-menupopup > :is(menu, menuitem) {
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > :is(menu, menuitem) {
   margin-inline: 4px !important;
   padding-block: 6px !important;
 }
 
-menupopup > :is(menu, menuitem) > .menu-iconic-icon,
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > :is(menu, menuitem) > .menu-iconic-icon,
 panelview .subviewbutton > .toolbarbutton-icon {
   width: 16px !important;
   height: 16px !important;
 }
 
 /* Keyboard focus: same voice wash as hover, never the stock dotted ring. */
-menupopup > :is(menu, menuitem):focus-visible,
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > :is(menu, menuitem):focus-visible,
 panelview :is(.subviewbutton, toolbarbutton):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--aph-voice, var(--toolbarbutton-background-color-hover, rgba(125, 190, 255, 0.28))) 60%, transparent) !important;
   outline-offset: -2px !important;

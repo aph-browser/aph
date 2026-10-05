@@ -96,6 +96,7 @@ function makeFakeNode(localName) {
     localName: localName || "div",
     children: [],
     _attrs: {},
+    dataset: {},
     style: {},
     hidden: false,
     textContent: "",

@@ -311,15 +311,15 @@ jobs:
 
            Command palette (`Ctrl+K`)
            - Bold Raycast-style restyle with no open-flash-reopen
-             stutter, fuzzy archive search, and frecency ranking.
+             stutter, fuzzy stash search, and frecency ranking.
            - Workspace icon picker is reachable from the palette and
              from the dock menu.
 
-           Settings, welcome & archive
+           Settings, welcome & stash
            - Settings page is editable in place; welcome page has a
              new hero tour (both re-openable from the Aph menu and
              the palette).
-           - Archive search is fuzzy with workspace + container
+           - Stash search is fuzzy with workspace + container
              restore and staleness control intact.
 
            Workspaces
@@ -330,7 +330,7 @@ jobs:
              for the first tabs, flat fade beyond) and respects
              reduced-motion.
            - Shared `aph-tokens.css` theme payload for palette,
-             settings, welcome, and archive.
+             settings, welcome, and stash.
 
            Upstream robustness
            - Drift detector pins every stock selector/token/pref Aph

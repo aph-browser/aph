@@ -130,10 +130,16 @@
         Services.prefs.removeObserver(WS_ICONS_PREF, wsIconObserver);
       }
     } catch (e) {}
+    try {
+      if (typeof wsAccentObserver !== "undefined" && wsAccentObserver) {
+        Services.prefs.removeObserver(WS_ACCENTS_PREF, wsAccentObserver);
+      }
+    } catch (e) {}
     bindingObserver = null;
     routeObserver = null;
     nameObserver = null;
     wsIconObserver = null;
+    wsAccentObserver = null;
     try {
       if (startupRestoreObserver && Services.obs) {
         Services.obs.removeObserver(
@@ -347,8 +353,24 @@
           typeof unloadCandidates === "function"
             ? unloadCandidates
             : () => ({ total: 0, list: [] }),
+        splitToggle:
+          typeof splitToggle === "function" ? splitToggle : () => ({ action: "noop" }),
+        separateSplit:
+          typeof separateActiveSplit === "function" ? separateActiveSplit : () => false,
+        reverseSplit:
+          typeof reverseActiveSplit === "function" ? reverseActiveSplit : () => false,
+        splitState:
+          typeof splitState === "function"
+            ? splitState
+            : () => ({ inSplit: false, canSplit: false, candidateTitle: "", candidateUrl: "" }),
         renderDock,
         closeWorkspaceTabs,
+        getFocusMode:
+          typeof isFocusMode === "function" ? isFocusMode : () => false,
+        setFocusMode:
+          typeof setFocusMode === "function" ? setFocusMode : () => false,
+        toggleFocusMode:
+          typeof toggleFocusMode === "function" ? toggleFocusMode : () => false,
         applySidebarFooter:
           typeof applySidebarFooter === "function" ? applySidebarFooter : () => false,
       };
@@ -511,6 +533,30 @@
       Services.prefs.addObserver(WS_ICONS_PREF, wsIconObserver);
     } catch (e) {
       wsIconObserver = null;
+    }
+    // Cross-window/cross-document accent sync: the Settings page writes
+    // aph.workspaces.accents directly, so without this nothing repaints
+    // until the next switch. Drop the cache, repaint dock + badge, and
+    // restamp the room at once — the retune lands immediately in every
+    // window, same as a dock-menu pick (setWsAccent).
+    try {
+      wsAccentObserver = {
+        observe() {
+          try {
+            wsAccents = null;
+            renderDock();
+            updateIndicator();
+          } catch (e) {}
+          try {
+            if (typeof stampWindowWs === "function") {
+              stampWindowWs(typeof current !== "undefined" ? current : "1");
+            }
+          } catch (e) {}
+        },
+      };
+      Services.prefs.addObserver(WS_ACCENTS_PREF, wsAccentObserver);
+    } catch (e) {
+      wsAccentObserver = null;
     }
     try {
       initRouteListener();

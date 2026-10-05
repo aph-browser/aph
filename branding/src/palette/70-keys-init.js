@@ -24,6 +24,41 @@
     }
   }
 
+  // True when focus sits in the browser's own search-entry fields
+  // (urlbar / searchbar). The stock Ctrl+K binding lives exactly there
+  // (focus-search), and hijacking it is the toggle's whole job — fresh
+  // tabs focus the urlbar, so treating those fields as blockers would
+  // surrender Ctrl+K to the search engine on every new tab.
+  function isSearchFieldFocused() {
+    try {
+      const ae = document.activeElement;
+      if (!ae || typeof ae.closest !== "function") {
+        return false;
+      }
+      return !!ae.closest("#urlbar, #searchbar");
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Whether focus blocks the Ctrl+K toggle: editable text keeps its
+  // keystrokes, except the browser's own search fields (see above).
+  // Our own field never blocks (ae === input reads as non-editable),
+  // so Ctrl+K still closes an open palette.
+  function ctrlKBlockedByFocus() {
+    try {
+      if (isOpen()) {
+        return false;
+      }
+      if (!isEditableFocused()) {
+        return false;
+      }
+      return !isSearchFieldFocused();
+    } catch (e) {
+      return false;
+    }
+  }
+
   function moveSelection(delta) {
     if (!items.length) {
       return;
@@ -46,7 +81,7 @@
       if (it.kind === "help") {
         return "Insert prefix";
       }
-      if (it.kind === "archive") {
+      if (it.kind === "stash") {
         return "Restore entry";
       }
       if (it.kind === "go" || it.kind === "bookmark" || it.kind === "history") {
@@ -236,10 +271,10 @@
     const mod = e.ctrlKey || e.metaKey;
     // Toggle on Ctrl/⌘+K (hijack Firefox's search-focus binding).
     if (mod && !e.altKey && !e.shiftKey && e.code === "KeyK") {
-      // Never steal keystrokes from editable text (urlbar, sidebar
-      // inputs, devtools, page editors). Our own field is exempt so
-      // Ctrl+K still closes an open palette.
-      if (!isOpen() && isEditableFocused()) {
+      // Never steal keystrokes from editable text (page editors,
+      // sidebar inputs, devtools) — except the browser's own search
+      // fields, which is where the hijacked binding lives.
+      if (ctrlKBlockedByFocus()) {
         return;
       }
       e.preventDefault();

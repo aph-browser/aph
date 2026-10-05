@@ -98,21 +98,21 @@ TEXTPICK_PARENT_SRC = BRANDING_DIR / "textpick-parent.sys.mjs"
 TEXTPICK_PARENT_JA_PATH = "actors/AphTextPickParent.sys.mjs"
 TEXTPICK_PARENT_URI = "resource:///actors/AphTextPickParent.sys.mjs"
 
-# Tab archive: window controller + shared logic ride browser.xhtml (script
-# tags, like workspaces.js); the archive page (HTML/CSS/page script) ships
+# Tab stash: window controller + shared logic ride browser.xhtml (script
+# tags, like workspaces.js); the stash page (HTML/CSS/page script) ships
 # tag-less and loads by chrome:// URL in its own tab.
-ARCHIVE_SHARED_SRC = BRANDING_DIR / "archive-shared.js"
-ARCHIVE_SHARED_JA_PATH = "chrome/browser/content/browser/archive-shared.js"
-ARCHIVE_SHARED_SCRIPT_TAG = '<script src="chrome://browser/content/archive-shared.js"></script>'
-ARCHIVE_JS_SRC = BRANDING_DIR / "archive.js"
-ARCHIVE_JA_PATH = "chrome/browser/content/browser/archive.js"
-ARCHIVE_SCRIPT_TAG = '<script src="chrome://browser/content/archive.js"></script>'
-ARCHIVE_HTML_SRC = BRANDING_DIR / "archive.html"
-ARCHIVE_HTML_JA_PATH = "chrome/browser/content/browser/aph-archive.html"
-ARCHIVE_CSS_SRC = BRANDING_DIR / "archive.css"
-ARCHIVE_CSS_JA_PATH = "chrome/browser/content/browser/aph-archive.css"
-ARCHIVE_PAGE_SRC = BRANDING_DIR / "archive-page.js"
-ARCHIVE_PAGE_JA_PATH = "chrome/browser/content/browser/aph-archive-page.js"
+STASH_SHARED_SRC = BRANDING_DIR / "stash-shared.js"
+STASH_SHARED_JA_PATH = "chrome/browser/content/browser/stash-shared.js"
+STASH_SHARED_SCRIPT_TAG = '<script src="chrome://browser/content/stash-shared.js"></script>'
+STASH_JS_SRC = BRANDING_DIR / "stash.js"
+STASH_JA_PATH = "chrome/browser/content/browser/stash.js"
+STASH_SCRIPT_TAG = '<script src="chrome://browser/content/stash.js"></script>'
+STASH_HTML_SRC = BRANDING_DIR / "stash.html"
+STASH_HTML_JA_PATH = "chrome/browser/content/browser/aph-stash.html"
+STASH_CSS_SRC = BRANDING_DIR / "stash.css"
+STASH_CSS_JA_PATH = "chrome/browser/content/browser/aph-stash.css"
+STASH_PAGE_SRC = BRANDING_DIR / "stash-page.js"
+STASH_PAGE_JA_PATH = "chrome/browser/content/browser/aph-stash-page.js"
 
 # Tab rename: per-tab custom labels, window controller via xhtml script tag.
 TABRENAME_JS_SRC = BRANDING_DIR / "tabrename.js"
@@ -120,8 +120,8 @@ TABRENAME_JA_PATH = "chrome/browser/content/browser/tabrename.js"
 TABRENAME_SCRIPT_TAG = '<script src="chrome://browser/content/tabrename.js"></script>'
 
 # Aph settings: tag-less settings page (HTML/CSS/page script) shipping
-# beside the archive page — loads by chrome:// URL in its own tab, no
-# browser.xhtml tag. Mirrors the ARCHIVE_* trio on purpose.
+# beside the stash page — loads by chrome:// URL in its own tab, no
+# browser.xhtml tag. Mirrors the STASH_* trio on purpose.
 SETTINGS_HTML_SRC = BRANDING_DIR / "settings.html"
 SETTINGS_HTML_JA_PATH = "chrome/browser/content/browser/aph-settings.html"
 SETTINGS_CSS_SRC = BRANDING_DIR / "settings.css"

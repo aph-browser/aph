@@ -18,7 +18,7 @@ const L = sb.AphWelcomeLogic;
 assert.ok(L, "AphWelcomeLogic global missing");
 // deepStrictEqual fails across the node:vm realm boundary (objects built
 // inside the sandbox carry the sandbox Object prototype), so compare the
-// serialized form instead (same as archive.test.js).
+// serialized form instead (same as stash.test.js).
 function assertJsonEqual(actual, expected) {
   assert.equal(JSON.stringify(actual), JSON.stringify(expected));
 }

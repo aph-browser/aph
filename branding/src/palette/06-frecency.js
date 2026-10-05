@@ -64,7 +64,7 @@
   function frecIdFor(it) {
     try {
       // Stable enough: command titles are static except counts
-      // ("Archive N Tabs" normalizes to "Archive Tab").
+      // ("Stash N Tabs" normalizes to "Stash Tab").
       const t = String((it && it.title) || "");
       return t.replace(/\b\d+ Tabs\b/, "Tab").replace(/\b\d+\b/g, "#");
     } catch (e) {
@@ -73,7 +73,7 @@
   }
 
   // +0..150: 5 points per use (cap 100) + recency decay (50 max, halves
-  // after ~3 days). Tabs/places/archive get at most the usage part — the
+  // after ~3 days). Tabs/places/stash get at most the usage part — the
   // recency kick is commands-only so MRU tabs keep their own order.
   function frecBoost(it) {
     try {

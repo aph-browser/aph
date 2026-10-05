@@ -98,6 +98,29 @@ def test_shipped_css_is_sane() -> None:
         assert "var(--aph-ink" in decl, decl
 
 
+def test_shipped_css_leaves_select_popups_native() -> None:
+    """Web-content <select> dropdowns render as
+    menulist#ContentSelectDropdown > menupopup in the same popupset, so
+    every menupopup leg must exclude them (plus .in-menulist) — else the
+    select popup on random webpages wears the Aph menu skin."""
+    root = Path(__file__).resolve().parent.parent
+    for name in ("branding/userChrome.css", "branding/theme.css"):
+        css = (root / name).read_text(encoding="utf-8")
+        code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        assert "#ContentSelectDropdown" in code, f"{name}: select exclusion went missing"
+        assert ".in-menulist" in code, f"{name}: menulist exclusion went missing"
+        found = 0
+        for line in code.splitlines():
+            for part in line.split(","):
+                if "menupopup" not in part:
+                    continue
+                found += 1
+                assert "#ContentSelectDropdown" in part, (
+                    f"{name}: unguarded menupopup leg themes <select> popups: {part.strip()}"
+                )
+        assert found, f"{name}: no menupopup legs found"
+
+
 def test_seed_seeds_content_backdrop_alongside(tmp_path: Path) -> None:
     """seed_chrome_css also seeds userContent.css (new-tab backdrop) —
     still seed-once, still never overwrites user edits."""
@@ -132,3 +155,44 @@ def test_shipped_content_css_is_sane() -> None:
     assert "[style*=" not in css
     assert "html {" in css
     assert "background-color: transparent" in css
+
+
+def test_content_css_has_no_unscoped_rules() -> None:
+    """userContent.css applies to *every* web page Firefox loads: any style
+    rule outside an @-moz-document block themes random webpages (the way
+    unguarded menupopup rules once themed <select> popups from the chrome
+    side). Walk the brace structure — every rule-opening brace must sit
+    inside @-moz-document (directly or via the light-scheme @media)."""
+    root = Path(__file__).resolve().parent.parent
+    css = (root / "branding" / "userContent.css").read_text(encoding="utf-8")
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    stack: list[str] = []
+    leaks: list[str] = []
+    last_close = 0
+    i, n = 0, len(code)
+    while i < n:
+        if code.startswith("@-moz-document", i):
+            j = code.find("{", i)
+            assert j != -1, "unterminated @-moz-document"
+            stack.append("document")
+            last_close = j + 1
+            i = j + 1
+            continue
+        if code.startswith("@media", i):
+            j = code.find("{", i)
+            assert j != -1, "unterminated @media"
+            stack.append("media")
+            last_close = j + 1
+            i = j + 1
+            continue
+        ch = code[i]
+        if ch == "{":
+            if "document" not in stack:
+                leaks.append(code[last_close:i].strip().splitlines()[-1].strip())
+            stack.append("rule")
+        elif ch == "}":
+            if stack:
+                stack.pop()
+            last_close = i + 1
+        i += 1
+    assert not leaks, f"unscoped userContent rules theme the whole web: {leaks}"

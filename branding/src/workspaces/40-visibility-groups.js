@@ -274,10 +274,20 @@
       if (!sel || sel.closing || getWs(sel) !== target) {
         gBrowser.selectedTab = focus;
       }
-      if (gBrowser.selectedTab !== focus) {
-        aphShowTab(focus);
-        gBrowser.selectedTab = focus;
-      }
+      // Assignment can silently not take (a hidden tab refuses selection),
+      // so retry once shown — but ONLY when the live selection is still
+      // outside the target. Never yank a valid selection to `focus`: a tab
+      // opened + selected after the last switch (first-run welcome, routed
+      // foreground tab) must keep focus. Seen live: reconcile re-selected
+      // a stale lastSelected blank, and the following prune then read the
+      // welcome tab's still-blank face as a spare newtab and closed it.
+      try {
+        const now = gBrowser.selectedTab;
+        if (now !== focus && (!now || now.closing || getWs(now) !== target)) {
+          aphShowTab(focus);
+          gBrowser.selectedTab = focus;
+        }
+      } catch (e) {}
     } catch (e) {}
     for (const t of tabs) {
       if (t.closing) {
@@ -325,6 +335,14 @@
     return false;
   }
 
+  // A newborn tab wears its predecessor's face until the first document
+  // commits (addTrustedTab births about:blank; the real URL lands later).
+  // Pruning on that transient face closes real pages — the first-run
+  // welcome died exactly this way (seen live: blank face at prune time).
+  // Tabs younger than this settle first; the next sweep takes them once
+  // their URL is real. Deferral only, never exemption.
+  const PRUNE_SETTLE_MS = 10000;
+
   function pruneExtraNewTabs(target) {
     if (!isValidId(target)) {
       return;
@@ -358,6 +376,16 @@
       // them destroys unloaded state. Same rule as the unload guards.
       try {
         if (typeof t.hasAttribute === "function" && t.hasAttribute("pending")) {
+          continue;
+        }
+      } catch (e) {}
+      // Fresh tabs still committing their first document (see
+      // PRUNE_SETTLE_MS above): never judge the transient blank face.
+      // Tabs without a birth stamp (tests, restored tabs — restore
+      // deliberately stamps none) stay on the old path.
+      try {
+        const birth = (t && t.__aphBirth) || 0;
+        if (birth && Date.now() - birth < PRUNE_SETTLE_MS) {
           continue;
         }
       } catch (e) {}

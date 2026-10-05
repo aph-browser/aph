@@ -48,16 +48,16 @@ def test_geometry_matches_svg_source() -> None:
     assert base["fill"] == GEOMETRY["base_fill"]
 
     cells = [attrs(tag) for tag in rects[1:]]
-    assert [c["width"] for c in cells] == [str(GEOMETRY["cell"])] * 4
-    assert [c["rx"] for c in cells] == [str(GEOMETRY["cell_rx"])] * 4
-    home_x, home_y, far = (str(v) for v in GEOMETRY["cell_xy"])
+    assert cells[0]["width"] == cells[0]["height"] == str(GEOMETRY["home_cell"])
+    assert cells[0]["rx"] == str(GEOMETRY["home_rx"])
+    assert [c["width"] for c in cells[1:]] == [str(GEOMETRY["cell"])] * 3
+    assert [c["rx"] for c in cells[1:]] == [str(GEOMETRY["cell_rx"])] * 3
+    home_x, home_y = (str(v) for v in GEOMETRY["home_xy"])
     assert [(c["x"], c["y"]) for c in cells] == [
         (home_x, home_y),
-        (far, home_y),
-        (home_x, far),
-        (far, far),
+        *[(str(x), str(y)) for x, y in GEOMETRY["ghost_xy"]],
     ]
-    assert cells[0]["fill"] == GEOMETRY["ink"]
+    assert cells[0]["fill"] == GEOMETRY["home_fill"]
     for cell in cells[1:]:
         assert cell["stroke"] == GEOMETRY["ink"]
         assert cell["stroke-width"] == str(GEOMETRY["stroke"])
@@ -77,14 +77,14 @@ def _channel_means(path: Path) -> tuple[float, float, float, float]:
 
 def test_master_is_grid_not_flame() -> None:
     """The shipped master reads as the dark grid: low luminance, no red
-    dominance (the legacy flame was red-dominant), and a real ink cell
-    (filled home workspace, ~7% of pixels)."""
+    dominance (the legacy flame was red-dominant), and a real accent
+    home cell (ws-6 blue, oversized, ~8% of pixels)."""
     lum, mean_r, mean_g, _mean_b = _channel_means(BRANDING / "aph.png")
-    assert lum < 70, f"master too bright for the dark grid: {lum:.1f}"
-    assert -10 < (mean_r - mean_g) < 25, "master is red-dominant like the legacy flame"
+    assert lum < 80, f"master too bright for the dark grid: {lum:.1f}"
+    assert -20 < (mean_r - mean_g) < 25, "master is red-dominant like the legacy flame"
     rgb = Image.open(BRANDING / "aph.png").convert("RGB")
-    ink = sum(1 for p in rgb.get_flattened_data() if p[0] > 200 and p[1] > 200 and p[2] > 200)
-    assert ink / (rgb.width * rgb.height) > 0.05, "filled home cell went missing"
+    blue = sum(1 for p in rgb.get_flattened_data() if p[2] > 165 and p[2] > p[0] + 60 and p[1] > 90)
+    assert blue / (rgb.width * rgb.height) > 0.05, "accent home cell went missing"
 
 
 def test_small_master_has_heavier_strokes() -> None:

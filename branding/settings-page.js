@@ -1,7 +1,7 @@
 /* Aph settings page — runs inside aph-settings.html (chrome:// page in a tab).
  *
  * System-principal chrome pages can use Services directly (same precedent
- * as about:config and aph-archive-page.js), so toggles read and write
+ * as about:config and aph-stash-page.js), so toggles read and write
  * the aph.* prefs here with seed-once defaults from config/user.js.
  * Classic script, external file only (no inline scripts — chrome pages
  * may enforce script-src restrictions).
@@ -18,8 +18,8 @@ var AphSettingsLogic = (function () {
     // below keeps it user-togglable so about:config flips survive restarts
     // via the usual user.js write-through.
     "browser.tabs.unloadOnLowMemory": true,
-    "aph.archive.autoEnabled": false,
-    "aph.addons.silenceFirstRun": true,
+    "aph.stash.autoEnabled": false,
+    "aph.stash.snapshots.autoEnabled": true,
     "aph.pins.ctrlWUnloads": true,
     "aph.stars.ctrlWUnloads": true,
     "aph.sidebar.hideFooter": true,
@@ -30,14 +30,26 @@ var AphSettingsLogic = (function () {
     "signon.rememberSignons": false,
   };
 
-  const STALE_PREF = "aph.archive.autoStaleMin";
+  const STALE_PREF = "aph.stash.autoStaleMin";
   const STALE_DEFAULT = 5;
   const STALE_MIN = 0;
   const STALE_MAX = 1440;
 
-  // Automatic unloading staleness: separate pref from the archive one on
+  // Workspace-snapshot automation: periodic cadence (minutes) and the
+  // bulk-close safety threshold (doomed tabs at or above this capture
+  // first). Own clamps — the staleness 0..1440 range fits neither.
+  const SNAP_INTERVAL_PREF = "aph.stash.snapshots.intervalMin";
+  const SNAP_INTERVAL_DEFAULT = 30;
+  const SNAP_INTERVAL_MIN = 5;
+  const SNAP_INTERVAL_MAX = 240;
+  const SAFETY_PREF = "aph.stash.safetyMin";
+  const SAFETY_DEFAULT = 3;
+  const SAFETY_MIN = 1;
+  const SAFETY_MAX = 9;
+
+  // Automatic unloading staleness: separate pref from the stash one on
   // purpose — unloading is cheap and reversible (click reloads) while
-  // archiving closes the tab. Pair them as unload < archive so tabs
+  // stashing closes the tab. Pair them as unload < stash so tabs
   // discard before they close. Same 0..1440 clamp as STALE_* above.
   const UNLOAD_STALE_PREF = "aph.unload.staleMin";
   const UNLOAD_STALE_DEFAULT = 30;
@@ -56,7 +68,43 @@ var AphSettingsLogic = (function () {
   const NAMES_PREF = "aph.workspaces.names";
   const BINDINGS_PREF = "aph.workspaces.containerBindings";
   const ROUTES_PREF = "aph.workspaces.domainRoutes";
-  const ARCHIVE_PREF = "aph.archive.tabs";
+  const ACCENTS_PREF = "aph.workspaces.accents";
+  const STASH_PREF = "aph.stash.tabs";
+
+  // Appearance (color-scheme room): driven through Firefox's own built-in
+  // themes, never an Aph override — every prefers-color-scheme consumer
+  // (canvas faces, menu glyphs, palette/stash light blocks) follows for
+  // free. System = stock default theme = today's behavior exactly.
+  const APPEARANCE_OPTIONS = ["system", "dark", "light"];
+  const APPEARANCE_THEMES = {
+    system: "default-theme@mozilla.org",
+    dark: "firefox-compact-dark@mozilla.org",
+    light: "firefox-compact-light@mozilla.org",
+  };
+
+  function themeIdForAppearance(sel) {
+    try {
+      const k = String(sel || "").trim().toLowerCase();
+      if (k && APPEARANCE_THEMES[k]) {
+        return APPEARANCE_THEMES[k];
+      }
+    } catch (e) {}
+    return APPEARANCE_THEMES.system;
+  }
+
+  // Unknown active themes (Alpenglow, colorways, third-party) bucket to
+  // System: Aph only promises its three rooms, never a stranger's.
+  function appearanceForThemeId(id) {
+    try {
+      const v = String(id || "").trim();
+      for (const k of APPEARANCE_OPTIONS) {
+        if (APPEARANCE_THEMES[k] === v) {
+          return k;
+        }
+      }
+    } catch (e) {}
+    return "system";
+  }
 
   const GROUPS = [
     {
@@ -72,7 +120,7 @@ var AphSettingsLogic = (function () {
           kind: "int",
           pref: "aph.unload.staleMin",
           title: "Auto-unload staleness",
-          desc: "Tabs viewed within this many minutes are spared when the sweep fires. Tabs with no recorded view time count as stale. Keep this below the auto-archive staleness so tabs discard before they close.",
+          desc: "Tabs viewed within this many minutes are spared when the sweep fires. Tabs with no recorded view time count as stale. Keep this below the auto-stash staleness so tabs discard before they close.",
         },
         {
           kind: "presets",
@@ -95,19 +143,37 @@ var AphSettingsLogic = (function () {
       ],
     },
     {
-      name: "Archive",
+      name: "Stash",
       rows: [
         {
           kind: "bool",
-          pref: "aph.archive.autoEnabled",
-          title: "Auto-archive hidden tabs",
-          desc: "15 s after you stop switching, archive (close + store) every eligible hidden-workspace tab. Selected, pinned, starred, audible, loading and unsaved-form tabs never auto-close.",
+          pref: "aph.stash.autoEnabled",
+          title: "Auto-stash hidden tabs",
+          desc: "15 s after you stop switching, stash (close + store) every eligible hidden-workspace tab. Selected, pinned, starred, audible, loading and unsaved-form tabs never auto-close.",
         },
         {
           kind: "int",
-          pref: "aph.archive.autoStaleMin",
-          title: "Auto-archive staleness",
+          pref: "aph.stash.autoStaleMin",
+          title: "Auto-stash staleness",
           desc: "Tabs viewed within this many minutes are spared when the sweep fires. Tabs with no recorded view time count as stale.",
+        },
+        {
+          kind: "bool",
+          pref: "aph.stash.snapshots.autoEnabled",
+          title: "Snapshot workspaces automatically",
+          desc: "Every few minutes, capture any workspace whose tabs changed since its last auto snapshot, plus a safety capture before bulk workspace closes. Restores never close anything.",
+        },
+        {
+          kind: "int",
+          pref: "aph.stash.snapshots.intervalMin",
+          title: "Snapshot cadence",
+          desc: "Minutes between automatic workspace captures (5–240). Only workspaces whose tabs changed are captured.",
+        },
+        {
+          kind: "int",
+          pref: "aph.stash.safetyMin",
+          title: "Bulk-close safety threshold",
+          desc: "Closing a workspace with at least this many tabs captures a safety snapshot first (1–9).",
         },
       ],
     },
@@ -125,17 +191,6 @@ var AphSettingsLogic = (function () {
           pref: "aph.stars.ctrlWUnloads",
           title: "Ctrl+W parks starred tabs",
           desc: "Mirrors pins for starred tabs: drifted stars reset in place, at-base stars unload, second press closes.",
-        },
-      ],
-    },
-    {
-      name: "Add-ons",
-      rows: [
-        {
-          kind: "bool",
-          pref: "aph.addons.silenceFirstRun",
-          title: "Silence extension welcome tabs",
-          desc: "Close noisy install/welcome tabs (e.g. SponsorBlock help) pre-paint. Off keeps them.",
         },
       ],
     },
@@ -183,6 +238,49 @@ var AphSettingsLogic = (function () {
     return n;
   }
 
+  function clampSnapIntervalMin(v) {
+    const n = Math.floor(Number(v));
+    if (!Number.isFinite(n)) {
+      return SNAP_INTERVAL_DEFAULT;
+    }
+    if (n < SNAP_INTERVAL_MIN) {
+      return SNAP_INTERVAL_MIN;
+    }
+    if (n > SNAP_INTERVAL_MAX) {
+      return SNAP_INTERVAL_MAX;
+    }
+    return n;
+  }
+
+  function clampSafetyMin(v) {
+    const n = Math.floor(Number(v));
+    if (!Number.isFinite(n)) {
+      return SAFETY_DEFAULT;
+    }
+    if (n < SAFETY_MIN) {
+      return SAFETY_MIN;
+    }
+    if (n > SAFETY_MAX) {
+      return SAFETY_MAX;
+    }
+    return n;
+  }
+
+  // Per-pref clamp dispatcher for the generic int rows (read + write +
+  // backup share it, so the page can never persist an out-of-range
+  // value no matter which path writes).
+  function clampIntPref(pref, v) {
+    try {
+      if (pref === SNAP_INTERVAL_PREF) {
+        return clampSnapIntervalMin(v);
+      }
+      if (pref === SAFETY_PREF) {
+        return clampSafetyMin(v);
+      }
+    } catch (e) {}
+    return clampStaleMin(v);
+  }
+
   // Guarded JSON-object parse: malformed / non-object values become {}.
   function parseJsonObject(raw) {
     try {
@@ -212,7 +310,7 @@ var AphSettingsLogic = (function () {
   // delete); unknown keys are ignored so newer files stay loadable.
   const BACKUP_VERSION = 1;
   const BACKUP_BOOL_PREFS = Object.keys(BOOL_DEFAULTS);
-  const BACKUP_JSON_PREFS = [NAMES_PREF, BINDINGS_PREF, ROUTES_PREF, ARCHIVE_PREF, FRECENCY_PREF];
+  const BACKUP_JSON_PREFS = [NAMES_PREF, BINDINGS_PREF, ROUTES_PREF, ACCENTS_PREF, STASH_PREF, FRECENCY_PREF];
 
   // read: { bool(pref, def), int(pref, def), json(pref) } — the DOM
   // controller binds these to Services; tests pass stubs.
@@ -224,6 +322,8 @@ var AphSettingsLogic = (function () {
       }
       out[STALE_PREF] = clampStaleMin(read.int(STALE_PREF, STALE_DEFAULT));
       out[UNLOAD_STALE_PREF] = clampStaleMin(read.int(UNLOAD_STALE_PREF, UNLOAD_STALE_DEFAULT));
+      out[SNAP_INTERVAL_PREF] = clampSnapIntervalMin(read.int(SNAP_INTERVAL_PREF, SNAP_INTERVAL_DEFAULT));
+      out[SAFETY_PREF] = clampSafetyMin(read.int(SAFETY_PREF, SAFETY_DEFAULT));
       for (const k of BACKUP_JSON_PREFS) {
         out[k] = read.json(k);
       }
@@ -279,17 +379,29 @@ var AphSettingsLogic = (function () {
       }
       prefs[UNLOAD_STALE_PREF] = clampStaleMin(root.prefs[UNLOAD_STALE_PREF]);
     }
+    if (SNAP_INTERVAL_PREF in root.prefs) {
+      if (typeof root.prefs[SNAP_INTERVAL_PREF] !== "number" || !Number.isFinite(root.prefs[SNAP_INTERVAL_PREF])) {
+        return { ok: false, error: `${SNAP_INTERVAL_PREF} must be a number.` };
+      }
+      prefs[SNAP_INTERVAL_PREF] = clampSnapIntervalMin(root.prefs[SNAP_INTERVAL_PREF]);
+    }
+    if (SAFETY_PREF in root.prefs) {
+      if (typeof root.prefs[SAFETY_PREF] !== "number" || !Number.isFinite(root.prefs[SAFETY_PREF])) {
+        return { ok: false, error: `${SAFETY_PREF} must be a number.` };
+      }
+      prefs[SAFETY_PREF] = clampSafetyMin(root.prefs[SAFETY_PREF]);
+    }
     // JSON prefs validate in BACKUP_JSON_PREFS order so an export →
     // import round-trip keeps stable key order (diffable files).
     for (const k of BACKUP_JSON_PREFS) {
       if (!(k in root.prefs)) {
         continue;
       }
-      if (k === ARCHIVE_PREF) {
+      if (k === STASH_PREF) {
         if (!Array.isArray(root.prefs[k])) {
           return { ok: false, error: `${k} must be a list.` };
         }
-        // Entries are sanitized again on read by the archive page, but
+        // Entries are sanitized again on read by the stash page, but
         // drop obvious junk now so a corrupt file can't wedge the store.
         const kept = [];
         let dropped = 0;
@@ -302,7 +414,7 @@ var AphSettingsLogic = (function () {
         }
         prefs[k] = kept;
         if (dropped > 0) {
-          prefs.__droppedArchive = dropped;
+          prefs.__droppedStash = dropped;
         }
         continue;
       }
@@ -360,8 +472,12 @@ var AphSettingsLogic = (function () {
       if (r) {
         bits.push(`${r} route${r === 1 ? "" : "s"}`);
       }
-      if (Array.isArray(prefs[ARCHIVE_PREF])) {
-        bits.push(`${prefs[ARCHIVE_PREF].length} archived tab${prefs[ARCHIVE_PREF].length === 1 ? "" : "s"}`);
+      const a = countKeys(prefs[ACCENTS_PREF]);
+      if (a) {
+        bits.push(`${a} accent${a === 1 ? "" : "s"}`);
+      }
+      if (Array.isArray(prefs[STASH_PREF])) {
+        bits.push(`${prefs[STASH_PREF].length} stashed tab${prefs[STASH_PREF].length === 1 ? "" : "s"}`);
       }
       let toggles = 0;
       for (const k of BACKUP_BOOL_PREFS) {
@@ -373,6 +489,12 @@ var AphSettingsLogic = (function () {
         toggles++;
       }
       if (UNLOAD_STALE_PREF in prefs) {
+        toggles++;
+      }
+      if (SNAP_INTERVAL_PREF in prefs) {
+        toggles++;
+      }
+      if (SAFETY_PREF in prefs) {
         toggles++;
       }
       if (toggles) {
@@ -388,6 +510,14 @@ var AphSettingsLogic = (function () {
     STALE_DEFAULT,
     STALE_MIN,
     STALE_MAX,
+    SNAP_INTERVAL_PREF,
+    SNAP_INTERVAL_DEFAULT,
+    SNAP_INTERVAL_MIN,
+    SNAP_INTERVAL_MAX,
+    SAFETY_PREF,
+    SAFETY_DEFAULT,
+    SAFETY_MIN,
+    SAFETY_MAX,
     UNLOAD_STALE_PREF,
     UNLOAD_STALE_DEFAULT,
     UNLOAD_STALE_PRESETS,
@@ -395,9 +525,17 @@ var AphSettingsLogic = (function () {
     NAMES_PREF,
     BINDINGS_PREF,
     ROUTES_PREF,
-    ARCHIVE_PREF,
+    ACCENTS_PREF,
+    STASH_PREF,
+    APPEARANCE_OPTIONS,
+    APPEARANCE_THEMES,
+    themeIdForAppearance,
+    appearanceForThemeId,
     GROUPS,
     clampStaleMin,
+    clampSnapIntervalMin,
+    clampSafetyMin,
+    clampIntPref,
     parseJsonObject,
     countKeys,
     BACKUP_VERSION,
@@ -440,6 +578,25 @@ var AphSettingsLogic = (function () {
     }
   }
 
+  // Pre-rename keys (display fallback only — writes target the new key).
+  // Lets profiles that customized the old names still see their values;
+  // the stash controller adopts the data forward on its next save.
+  const LEGACY_PREFS = {
+    "aph.stash.tabs": "aph.archive.tabs",
+    "aph.stash.autoEnabled": "aph.archive.autoEnabled",
+    "aph.stash.autoStaleMin": "aph.archive.autoStaleMin",
+    "aph.stash.snapshots": "aph.snapshots",
+    "aph.stash.snapshots.autoEnabled": "aph.snapshots.autoEnabled",
+  };
+
+  function legacyPref(pref) {
+    try {
+      return LEGACY_PREFS[pref] || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
   function boolDefault(pref) {
     try {
       const l = L();
@@ -461,7 +618,21 @@ var AphSettingsLogic = (function () {
         // Two-arg form where supported; throws where not.
         return p.getBoolPref(pref, d);
       } catch (e) {
-        return p.getBoolPref(pref);
+        try {
+          return p.getBoolPref(pref);
+        } catch (_e) {
+          const old = legacyPref(pref);
+          if (old) {
+            try {
+              return p.getBoolPref(old, d);
+            } catch (__e) {
+              try {
+                return p.getBoolPref(old);
+              } catch (___e) {}
+            }
+          }
+          return d;
+        }
       }
     } catch (e) {
       return d;
@@ -563,20 +734,45 @@ var AphSettingsLogic = (function () {
     }
   }
 
-  // Generic int-pref IO shared by both staleness rows (archive +
-  // unload). readStale/writeStale stay as archive-pref wrappers so
-  // existing callers keep working.
+  // Generic int-pref IO shared by every number row (staleness, unload,
+  // snapshot cadence, safety threshold). readStale/writeStale stay as
+  // stash-pref wrappers so existing callers keep working.
   function staleDefaultFor(pref) {
     try {
       const l = L();
       if (l && pref === l.UNLOAD_STALE_PREF) {
         return l.UNLOAD_STALE_DEFAULT || 30;
       }
+      if (l && pref === l.SNAP_INTERVAL_PREF) {
+        return l.SNAP_INTERVAL_DEFAULT || 30;
+      }
+      if (l && pref === l.SAFETY_PREF) {
+        return l.SAFETY_DEFAULT || 3;
+      }
       if (l && typeof l.STALE_DEFAULT === "number") {
         return l.STALE_DEFAULT;
       }
     } catch (e) {}
-    return pref === "aph.unload.staleMin" ? 30 : 5;
+    if (pref === "aph.unload.staleMin" || pref === "aph.stash.snapshots.intervalMin") {
+      return 30;
+    }
+    if (pref === "aph.stash.safetyMin") {
+      return 3;
+    }
+    return 5;
+  }
+
+  function clampIntFor(pref, v) {
+    try {
+      const l = L();
+      if (l && typeof l.clampIntPref === "function") {
+        return l.clampIntPref(pref, v);
+      }
+      if (l && typeof l.clampStaleMin === "function") {
+        return l.clampStaleMin(v);
+      }
+    } catch (e) {}
+    return Math.floor(Number(v));
   }
 
   function readIntPref(pref) {
@@ -588,16 +784,30 @@ var AphSettingsLogic = (function () {
         return d;
       }
       let v = d;
+      let missing = false;
       try {
         v = p.getIntPref(pref, d);
       } catch (e) {
         try {
           v = p.getIntPref(pref);
         } catch (_e) {
+          missing = true;
           v = d;
         }
       }
-      return l ? l.clampStaleMin(v) : v;
+      if (missing) {
+        const old = legacyPref(pref);
+        if (old) {
+          try {
+            v = p.getIntPref(old, d);
+          } catch (e) {
+            try {
+              v = p.getIntPref(old);
+            } catch (_e) {}
+          }
+        }
+      }
+      return clampIntFor(pref, v);
     } catch (e) {
       return d;
     }
@@ -605,8 +815,7 @@ var AphSettingsLogic = (function () {
 
   function writeIntPref(pref, v) {
     try {
-      const l = L();
-      const clamped = l ? l.clampStaleMin(v) : Math.floor(Number(v));
+      const clamped = clampIntFor(pref, v);
       const p = prefs();
       if (p && typeof p.setIntPref === "function") {
         p.setIntPref(pref, clamped);
@@ -624,7 +833,7 @@ var AphSettingsLogic = (function () {
   function readStale() {
     try {
       const l = L();
-      return readIntPref((l && l.STALE_PREF) || "aph.archive.autoStaleMin");
+      return readIntPref((l && l.STALE_PREF) || "aph.stash.autoStaleMin");
     } catch (e) {
       return 5;
     }
@@ -633,7 +842,7 @@ var AphSettingsLogic = (function () {
   function writeStale(v) {
     try {
       const l = L();
-      return writeIntPref((l && l.STALE_PREF) || "aph.archive.autoStaleMin", v);
+      return writeIntPref((l && l.STALE_PREF) || "aph.stash.autoStaleMin", v);
     } catch (e) {
       return null;
     }
@@ -645,16 +854,28 @@ var AphSettingsLogic = (function () {
       if (!p) {
         return "";
       }
+      const old = legacyPref(pref);
       if (typeof p.getStringPref === "function") {
+        let v = "";
         try {
-          return p.getStringPref(pref, "");
+          v = p.getStringPref(pref, "") || "";
         } catch (e) {
           try {
-            return p.getStringPref(pref);
+            v = p.getStringPref(pref) || "";
           } catch (_e) {
-            return "";
+            v = "";
           }
         }
+        if (!v && old) {
+          try {
+            v = p.getStringPref(old, "") || "";
+          } catch (e) {
+            try {
+              v = p.getStringPref(old) || "";
+            } catch (_e) {}
+          }
+        }
+        return v || "";
       }
       if (typeof p.getCharPref === "function") {
         try {
@@ -735,9 +956,9 @@ var AphSettingsLogic = (function () {
     return false;
   }
 
-  function archiveCount() {
+  function stashCount() {
     try {
-      const raw = readString("aph.archive.tabs");
+      const raw = readString("aph.stash.tabs");
       if (!raw) {
         return 0;
       }
@@ -746,6 +967,326 @@ var AphSettingsLogic = (function () {
     } catch (e) {
       return 0;
     }
+  }
+
+  // readString already falls back to the pre-rename key, so the count
+  // covers both without a second parse.
+
+  // Appearance bridge: Firefox's own theme manager drives the room
+  // (System/Dark/Light), so every prefers-color-scheme consumer follows
+  // with no Aph-side override to drift. Layered resolution — bare
+  // global, window/globalThis globals, the AddonManager module (ESM,
+  // then legacy JSM), then the lightweight-theme XPCOM service — all
+  // fail-silent: no manager means the radio writes degrade to the
+  // about:addons fallback below, never throw. diagLog records which
+  // stage failed to the consoles (Browser Console included) so a
+  // "unreachable manager" report carries its cause.
+  function diagLog(msg) {
+    try {
+      const line = `[AphAppearance] ${msg}`;
+      try {
+        const svc = typeof Services !== "undefined" ? Services : null;
+        if (svc && svc.console && typeof svc.console.logStringMessage === "function") {
+          svc.console.logStringMessage(line);
+          return;
+        }
+      } catch (_e) {}
+      try {
+        if (typeof console !== "undefined" && console && typeof console.error === "function") {
+          console.error(line);
+        }
+      } catch (_e) {}
+    } catch (e) {}
+  }
+
+  function pickAddonManager(m) {
+    try {
+      if (!m) {
+        return null;
+      }
+      if (typeof m.getAddonByID === "function" && typeof m.getAddonsByTypes === "function") {
+        return m;
+      }
+      // ESM namespace shape ({ AddonManager } or default-exported).
+      const inner = m.AddonManager || m.default || null;
+      if (inner && typeof inner.getAddonByID === "function") {
+        return inner;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function getAddonManagerAsync() {
+    try {
+      let direct = null;
+      try {
+        if (typeof AddonManager !== "undefined" && AddonManager) {
+          direct = AddonManager;
+        }
+      } catch (e) {}
+      try {
+        if (!direct && typeof window !== "undefined" && window && window.AddonManager) {
+          direct = window.AddonManager;
+        }
+      } catch (e) {}
+      try {
+        if (!direct && typeof globalThis !== "undefined" && globalThis && globalThis.AddonManager) {
+          direct = globalThis.AddonManager;
+        }
+      } catch (e) {}
+      const picked = pickAddonManager(direct);
+      if (picked) {
+        return Promise.resolve(picked);
+      }
+    } catch (e) {}
+    try {
+      if (
+        typeof ChromeUtils !== "undefined" &&
+        ChromeUtils &&
+        typeof ChromeUtils.importESModule === "function"
+      ) {
+        return ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs").then(
+          (m) => pickAddonManager(m),
+          (e) => {
+            diagLog(`AddonManager.sys.mjs import failed: ${e && (e.message || e)}`);
+            return null;
+          }
+        );
+      }
+      diagLog("ChromeUtils.importESModule unavailable");
+    } catch (e) {
+      diagLog(`module import threw: ${e && (e.message || e)}`);
+    }
+    try {
+      if (
+        typeof Components !== "undefined" &&
+        Components &&
+        Components.utils &&
+        typeof Components.utils.import === "function"
+      ) {
+        const m = Components.utils.import("resource://gre/modules/AddonManager.jsm", {});
+        const picked = pickAddonManager(m);
+        if (picked) {
+          return Promise.resolve(picked);
+        }
+      }
+    } catch (e) {}
+    try {
+      return Promise.resolve(null);
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function readAppearance() {
+    try {
+      const p = getAddonManagerAsync();
+      if (!p || typeof p.then !== "function") {
+        return Promise.resolve(null);
+      }
+      return p.then(
+        (am) => {
+          if (!am || typeof am.getAddonsByTypes !== "function") {
+            return null;
+          }
+          try {
+            return am.getAddonsByTypes(["theme"]).then(
+              (list) => {
+                try {
+                  const l = L();
+                  for (const a of list || []) {
+                    if (a && a.isActive) {
+                      return l && typeof l.appearanceForThemeId === "function"
+                        ? l.appearanceForThemeId(a.id)
+                        : "system";
+                    }
+                  }
+                } catch (_e) {}
+                return "system";
+              },
+              (e) => {
+                diagLog(`theme list failed: ${e && (e.message || e)}`);
+                return null;
+              }
+            );
+          } catch (_e) {
+            return null;
+          }
+        },
+        () => null
+      );
+    } catch (e) {
+      try {
+        return Promise.resolve(null);
+      } catch (_e) {
+        return null;
+      }
+    }
+  }
+
+  // Last resort when no theme manager is reachable: deep-link the
+  // built-in theme manager so the room switch stays one click away
+  // instead of a dead toast. New window (never navigate this page).
+  function openThemeManagerFallback() {
+    try {
+      if (typeof window !== "undefined" && window && typeof window.open === "function") {
+        window.open("about:addons");
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function writeAppearance(sel) {
+    try {
+      const l = L();
+      const id = l && typeof l.themeIdForAppearance === "function"
+        ? l.themeIdForAppearance(sel)
+        : "default-theme@mozilla.org";
+      const p = getAddonManagerAsync();
+      if (!p || typeof p.then !== "function") {
+        diagLog("no async manager channel");
+        if (openThemeManagerFallback()) {
+          toast("Opening theme manager…");
+        } else {
+          toast("Settings unavailable");
+        }
+        return;
+      }
+      p.then(
+        (am) => {
+          if (!am || typeof am.getAddonByID !== "function") {
+            diagLog("manager resolved without getAddonByID");
+            if (openThemeManagerFallback()) {
+              toast("Opening theme manager…");
+            } else {
+              toast("Settings unavailable");
+            }
+            return;
+          }
+          try {
+            am.getAddonByID(id).then(
+              (addon) => {
+                if (!addon || typeof addon.enable !== "function") {
+                  diagLog(`built-in theme missing: ${id}`);
+                  toast("Theme unavailable");
+                  return;
+                }
+                try {
+                  Promise.resolve(addon.enable()).then(
+                    () => toast("Saved"),
+                    (e) => {
+                      diagLog(`enable failed: ${e && (e.message || e)}`);
+                      toast("Write failed");
+                    }
+                  );
+                } catch (_e) {
+                  toast("Write failed");
+                }
+              },
+              (e) => {
+                diagLog(`theme lookup failed: ${e && (e.message || e)}`);
+                toast("Theme unavailable");
+              }
+            );
+          } catch (_e) {
+            toast("Theme unavailable");
+          }
+        },
+        () => {
+          if (openThemeManagerFallback()) {
+            toast("Opening theme manager…");
+          } else {
+            toast("Settings unavailable");
+          }
+        }
+      );
+    } catch (e) {
+      toast("Write failed");
+    }
+  }
+
+  // First group on the page: System follows the OS, Dark/Light pin the
+  // room regardless of OS. Native radios with an Aph accent wash
+  // (accent-color) — no custom knob to drift from the toggle dialect.
+  function makeAppearanceSection() {
+    const section = document.createElement("section");
+    section.className = "aph-settings-group";
+    section.dataset.group = "Appearance";
+    const h = document.createElement("h2");
+    h.textContent = "Appearance";
+    section.appendChild(h);
+    const opts = [
+      { value: "system", label: "System", desc: "Follow the OS appearance." },
+      { value: "dark", label: "Dark", desc: "Always the dark room." },
+      { value: "light", label: "Light", desc: "Always the paper room." },
+    ];
+    for (const o of opts) {
+      const row = document.createElement("label");
+      row.className = "aph-settings-row aph-settings-appearance";
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "aph-appearance";
+      radio.value = o.value;
+      radio.className = "aph-settings-radio";
+      radio.setAttribute("aria-label", `Appearance: ${o.label}`);
+      radio.addEventListener("change", () => {
+        try {
+          if (radio.checked) {
+            writeAppearance(radio.value);
+          }
+        } catch (_e) {}
+      });
+      row.appendChild(radio);
+      const main = document.createElement("div");
+      main.className = "aph-settings-main";
+      const lab = document.createElement("div");
+      lab.className = "aph-settings-label";
+      lab.textContent = o.label;
+      main.appendChild(lab);
+      const desc = document.createElement("div");
+      desc.className = "aph-settings-desc";
+      desc.textContent = o.desc;
+      main.appendChild(desc);
+      row.appendChild(main);
+      section.appendChild(row);
+    }
+    const hint = document.createElement("div");
+    hint.className = "aph-settings-hint";
+    hint.textContent = "Themes live in Firefox Settings too (Aph menu → Firefox Settings…).";
+    section.appendChild(hint);
+    return section;
+  }
+
+  // Radios resolve async (theme query) after the sync render: stamp the
+  // checked state in place, never a second full render (which would
+  // clobber an in-progress edit elsewhere on the page). Null (manager
+  // unreachable) stamps nothing — no radio claims a room it can't verify.
+  function refreshAppearanceRadios() {
+    try {
+      const p = readAppearance();
+      if (!p || typeof p.then !== "function") {
+        return;
+      }
+      p.then(
+        (sel) => {
+          try {
+            if (sel !== "system" && sel !== "dark" && sel !== "light") {
+              return;
+            }
+            const inputs = document.querySelectorAll
+              ? document.querySelectorAll('input[name="aph-appearance"]')
+              : [];
+            for (const r of Array.from(inputs || [])) {
+              try {
+                r.checked = r.value === sel;
+              } catch (_e) {}
+            }
+          } catch (_e) {}
+        },
+        () => {}
+      );
+    } catch (e) {}
   }
 
   function toast(msg) {
@@ -1041,6 +1582,9 @@ var AphSettingsLogic = (function () {
           if (e.ws && /^[1-9]$/.test(e.ws)) {
             tr.setAttribute("data-ws", e.ws);
           }
+          if (e._accent && /^(?:[1-9]|1[0-6])$/.test(e._accent)) {
+            tr.setAttribute("data-accent", e._accent);
+          }
         } catch (_e) {}
         if (o.editable && typeof o.renderEditor === "function") {
           for (const c of e.cells) {
@@ -1097,6 +1641,84 @@ var AphSettingsLogic = (function () {
 
   function makeTable(title, headers, entries, emptyText, hint) {
     return makeEditableTable({ title, headers, entries, emptyText, hint, editable: false });
+  }
+
+  // Accent hue names for the workspace accents table editor. Full
+  // 16-stop scale (theme.css §21); ws-7 is Purple 9 (true Violet 9
+  // lives at 14). Labels only, never hexes.
+  const WS_ACCENT_NAMES = {
+    1: "Ruby",
+    2: "Orange",
+    3: "Amber",
+    4: "Jade",
+    5: "Cyan",
+    6: "Blue",
+    7: "Purple",
+    8: "Pink",
+    9: "Slate",
+    10: "Tomato",
+    11: "Grass",
+    12: "Green",
+    13: "Indigo",
+    14: "Violet",
+    15: "Plum",
+    16: "Crimson",
+  };
+
+  function accentEditor(ws, currentHue) {
+    const sel = document.createElement("select");
+    sel.className = "aph-settings-edit";
+    sel.setAttribute("aria-label", `Accent for workspace ${ws}`);
+    try {
+      const follow = document.createElement("option");
+      follow.value = "";
+      follow.textContent = "Follow workspace";
+      sel.appendChild(follow);
+      for (let h = 1; h <= 16; h++) {
+        const hs = String(h);
+        const opt = document.createElement("option");
+        opt.value = hs;
+        opt.textContent = WS_ACCENT_NAMES[hs] || `Hue ${hs}`;
+        if (currentHue === hs) {
+          opt.selected = true;
+        }
+        sel.appendChild(opt);
+      }
+      if (!currentHue) {
+        sel.value = "";
+      }
+    } catch (_e) {}
+    sel.addEventListener("change", () => {
+      try {
+        const l = L();
+        const pref = l ? l.ACCENTS_PREF : "aph.workspaces.accents";
+        const accents = readJsonObject(pref);
+        const v = String(sel.value || "").trim();
+        if (/^(?:[1-9]|1[0-6])$/.test(v)) {
+          accents[ws] = v;
+          if (writeJsonObject(pref, accents)) {
+            toast("Accent saved");
+            refreshTables();
+          } else {
+            toast("Write failed");
+          }
+        } else if (!v) {
+          delete accents[ws];
+          if (writeJsonObject(pref, accents)) {
+            toast("Accent cleared");
+            refreshTables();
+          } else {
+            toast("Write failed");
+          }
+        } else {
+          toast("Pick a hue or Follow workspace");
+          sel.value = currentHue || "";
+        }
+      } catch (e) {
+        toast("Write failed");
+      }
+    });
+    return sel;
   }
 
   function nameEditor(ws, current) {
@@ -1178,10 +1800,12 @@ var AphSettingsLogic = (function () {
       const namesPref = l ? l.NAMES_PREF : "aph.workspaces.names";
       const bindPref = l ? l.BINDINGS_PREF : "aph.workspaces.containerBindings";
       const routesPref = l ? l.ROUTES_PREF : "aph.workspaces.domainRoutes";
+      const accentsPref = l && l.ACCENTS_PREF ? l.ACCENTS_PREF : "aph.workspaces.accents";
       const names = readJsonObject(namesPref);
       const bindings = readJsonObject(bindPref);
       const routes = readJsonObject(routesPref);
-      const n = archiveCount();
+      const accents = readJsonObject(accentsPref);
+      const n = stashCount();
 
       const nameEntries = Object.keys(names || {})
         .filter((k) => /^[1-9]$/.test(k))
@@ -1214,6 +1838,41 @@ var AphSettingsLogic = (function () {
               delete cur[key];
               if (writeJsonObject(namesPref, cur)) {
                 toast("Name cleared");
+                refreshTables();
+              }
+            } catch (_e) {}
+          },
+        })
+      );
+
+      // All 9 slots so accents are pickable inline even when unset.
+      const accentRows = [];
+      for (let i = 1; i <= 9; i++) {
+        const k = String(i);
+        const cur = /^(?:[1-9]|1[0-6])$/.test(accents[k] || "") ? String(accents[k]) : "";
+        accentRows.push({
+          ws: k,
+          key: k,
+          cells: [`WS ${k}`, cur ? WS_ACCENT_NAMES[cur] : "Follow workspace"],
+          _cur: cur,
+          _accent: cur,
+        });
+      }
+      out.push(
+        makeEditableTable({
+          title: "Workspace accents",
+          headers: ["Workspace", "Accent"],
+          entries: accentRows,
+          emptyText: "No accent overrides yet.",
+          hint: "Pick a hue per workspace — empty follows the workspace default. Also in the dock (right-click a pill → Accent).",
+          editable: true,
+          renderEditor: (e) => accentEditor(e.key, e._cur != null ? e._cur : ""),
+          onDelete: (key) => {
+            try {
+              const cur = readJsonObject(accentsPref);
+              delete cur[key];
+              if (writeJsonObject(accentsPref, cur)) {
+                toast("Accent cleared");
                 refreshTables();
               }
             } catch (_e) {}
@@ -1274,11 +1933,11 @@ var AphSettingsLogic = (function () {
 
       out.push(
         makeTable(
-          "Archive store",
+          "Stash store",
           ["Entries", ""],
-          n ? [{ ws: "", cells: [`${n}/300 archived`, "Browse via Open Archive below"] }] : [],
-          "Archive is empty.",
-          "Archive rows live in the Archive tab; this page never edits them."
+          n ? [{ ws: "", cells: [`${n}/300 stashed`, "Browse via Open Stash below"] }] : [],
+          "Stash is empty.",
+          "Stash rows live in the Stash tab; this page never edits them."
         )
       );
     } catch (e) {}
@@ -1318,6 +1977,11 @@ var AphSettingsLogic = (function () {
       list.removeChild(list.firstChild);
     }
     try {
+      if (!searchQuery || matchesSearch("Appearance System Dark Light theme room OS color scheme")) {
+        try {
+          list.appendChild(makeAppearanceSection());
+        } catch (_e) {}
+      }
       const l = L();
       const groups = (l && l.GROUPS) || [];
       for (const g of groups) {
@@ -1357,7 +2021,7 @@ var AphSettingsLogic = (function () {
       adv.appendChild(ah);
       const note = document.createElement("div");
       note.className = "aph-settings-hint";
-      note.textContent = "Workspace names and routes edit inline below; bindings clear here (set them from the palette).";
+      note.textContent = "Workspace names, accents and routes edit inline below; bindings clear here (set them from the palette).";
       adv.appendChild(note);
       list.appendChild(adv);
       for (const s of advancedSections()) {
@@ -1372,6 +2036,9 @@ var AphSettingsLogic = (function () {
         }
         list.appendChild(s);
       }
+      // Async theme query stamps the radio state in place (never a
+      // second render — see refreshAppearanceRadios).
+      refreshAppearanceRadios();
     } catch (e) {}
   }
 
@@ -1431,12 +2098,22 @@ var AphSettingsLogic = (function () {
         if (l && l.STALE_PREF) {
           stalePrefs.push(l.STALE_PREF);
         } else {
-          stalePrefs.push("aph.archive.autoStaleMin");
+          stalePrefs.push("aph.stash.autoStaleMin");
         }
         if (l && l.UNLOAD_STALE_PREF) {
           stalePrefs.push(l.UNLOAD_STALE_PREF);
         } else {
           stalePrefs.push("aph.unload.staleMin");
+        }
+        if (l && l.SNAP_INTERVAL_PREF) {
+          stalePrefs.push(l.SNAP_INTERVAL_PREF);
+        } else {
+          stalePrefs.push("aph.stash.snapshots.intervalMin");
+        }
+        if (l && l.SAFETY_PREF) {
+          stalePrefs.push(l.SAFETY_PREF);
+        } else {
+          stalePrefs.push("aph.stash.safetyMin");
         }
       } catch (e) {}
       for (const sp of stalePrefs) {
@@ -1465,8 +2142,8 @@ var AphSettingsLogic = (function () {
       }
       const data = l.buildBackup({
         bool: (k) => readBool(k),
-        int: (pref, d) => readIntPref(pref || (l && l.STALE_PREF) || "aph.archive.autoStaleMin"),
-        json: (k) => (k === l.ARCHIVE_PREF ? readJsonArray(k) : readJsonObject(k)),
+        int: (pref, d) => readIntPref(pref || (l && l.STALE_PREF) || "aph.stash.autoStaleMin"),
+        json: (k) => (k === l.STASH_PREF ? readJsonArray(k) : readJsonObject(k)),
       });
       const text = JSON.stringify(data, null, 2);
       const blob = new Blob([text], { type: "application/json" });
@@ -1666,7 +2343,8 @@ var AphSettingsLogic = (function () {
           watched.push(l ? l.NAMES_PREF : "aph.workspaces.names");
           watched.push(l ? l.BINDINGS_PREF : "aph.workspaces.containerBindings");
           watched.push(l ? l.ROUTES_PREF : "aph.workspaces.domainRoutes");
-          watched.push(l ? l.ARCHIVE_PREF : "aph.archive.tabs");
+          watched.push(l && l.ACCENTS_PREF ? l.ACCENTS_PREF : "aph.workspaces.accents");
+          watched.push(l ? l.STASH_PREF : "aph.stash.tabs");
         } catch (e) {}
         const obs = {
           observe(subj, topic, data) {

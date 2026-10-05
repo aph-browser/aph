@@ -19,9 +19,11 @@ EXPECTED_PREFS = {
     "aph.unload.staleMin",
     "aph.unload.onLowMemory",
     "browser.tabs.unloadOnLowMemory",
-    "aph.archive.autoEnabled",
-    "aph.archive.autoStaleMin",
-    "aph.addons.silenceFirstRun",
+    "aph.stash.autoEnabled",
+    "aph.stash.autoStaleMin",
+    "aph.stash.snapshots.autoEnabled",
+    "aph.stash.snapshots.intervalMin",
+    "aph.stash.safetyMin",
     "aph.pins.ctrlWUnloads",
     "aph.stars.ctrlWUnloads",
     "aph.sidebar.hideFooter",
@@ -33,7 +35,8 @@ READONLY_PREFS = {
     "aph.workspaces.names",
     "aph.workspaces.containerBindings",
     "aph.workspaces.domainRoutes",
-    "aph.archive.tabs",
+    "aph.workspaces.accents",
+    "aph.stash.tabs",
     "aph.palette.frecency",
 }
 
@@ -45,6 +48,48 @@ def _theme_css() -> str:
 def test_settings_sources_exist() -> None:
     for p in (HTML, CSS, PAGE_JS):
         assert p.is_file(), f"missing {p.name}"
+
+
+def test_settings_appearance_section_present() -> None:
+    """Appearance group: System/Dark/Light radios driving Firefox's own
+    built-in themes (never an Aph override, never a pinned default —
+    see test_no_default_theme_is_installed_or_pinned). Logic maps
+    selections to stable theme ids; the DOM bridges AddonManager with
+    fail-silent fallbacks; paint is one accent-color wash."""
+    js = PAGE_JS.read_text(encoding="utf-8")
+    assert "Appearance" in js
+    assert "aph-appearance" in js
+    for theme_id in (
+        "default-theme@mozilla.org",
+        "firefox-compact-dark@mozilla.org",
+        "firefox-compact-light@mozilla.org",
+    ):
+        assert theme_id in js, f"missing built-in theme: {theme_id}"
+    for token in (
+        "APPEARANCE_OPTIONS",
+        "themeIdForAppearance",
+        "appearanceForThemeId",
+        "getAddonManagerAsync",
+        "pickAddonManager",
+        "readAppearance",
+        "writeAppearance",
+        "openThemeManagerFallback",
+        "diagLog",
+        "makeAppearanceSection",
+        "refreshAppearanceRadios",
+        "AddonManager.sys.mjs",
+        "about:addons",
+    ):
+        assert token in js, f"appearance wiring missing: {token}"
+    # No theme pinned, no scheme override: runtime choice only.
+    assert "extensions.activeThemeID" not in js
+    assert "prefers-color-scheme.content-override" not in js
+    css = CSS.read_text(encoding="utf-8")
+    assert ".aph-settings-appearance" in css
+    assert ".aph-settings-radio" in css
+    assert "accent-color" in css
+    html = HTML.read_text(encoding="utf-8")
+    assert "Appearance" in html
 
 
 def test_settings_html_is_sane() -> None:
@@ -120,10 +165,10 @@ def test_settings_voice_parity() -> None:
     table outright, so parity is structural: the page spends the shared
     hues and carries no local copy."""
     css = CSS.read_text()
-    theme_hues = dict(re.findall(r"--aph-ws-([1-9]):\s*(#[0-9a-fA-F]{6})", _theme_css()))
-    assert len(theme_hues) == 9
+    theme_hues = dict(re.findall(r"--aph-ws-([0-9]{1,2}):\s*(#[0-9a-fA-F]{6})", _theme_css()))
+    assert len(theme_hues) == 16
     assert "--set-ws-" not in css
-    for n in "123456789":
+    for n in [str(i) for i in range(1, 17)]:
         assert f"var(--aph-ws-{n})" in css, n
 
 
@@ -133,6 +178,20 @@ def test_settings_identity_rows_carry_workspace() -> None:
     css = CSS.read_text(encoding="utf-8")
     assert ".aph-settings-table tr[data-ws]" in css
     assert "--aph-ws-now" in css
+
+
+def test_settings_accent_picker_present() -> None:
+    """Workspace accents table: per-WS hue picker writing
+    aph.workspaces.accents, rows stamped data-accent, no local hexes."""
+    js = PAGE_JS.read_text(encoding="utf-8")
+    assert "aph.workspaces.accents" in js
+    assert "Workspace accents" in js
+    assert 'setAttribute("data-accent"' in js
+    assert "Follow workspace" in js
+    css = CSS.read_text(encoding="utf-8")
+    assert ".aph-settings-table tr[data-accent" in css
+    for n in [str(i) for i in range(1, 17)]:
+        assert f"var(--aph-ws-{n})" in css, n
 
 
 def test_settings_stays_rtl_clean() -> None:
@@ -159,8 +218,8 @@ def test_settings_page_covers_every_pref() -> None:
         ('"aph.unload.autoEnabled": true', "unloadAuto"),
         ('"aph.unload.onLowMemory": true', "unloadLowMem"),
         ('"browser.tabs.unloadOnLowMemory": true', "nativeUnloadLowMem"),
-        ('"aph.archive.autoEnabled": false', "autoEnabled"),
-        ('"aph.addons.silenceFirstRun": true', "silenceFirstRun"),
+        ('"aph.stash.autoEnabled": false', "autoEnabled"),
+        ('"aph.stash.snapshots.autoEnabled": true', "snapshotAuto"),
         ('"aph.pins.ctrlWUnloads": true', "pins"),
         ('"aph.stars.ctrlWUnloads": true', "stars"),
         ('"aph.sidebar.hideFooter": true', "hideFooter"),
@@ -170,7 +229,23 @@ def test_settings_page_covers_every_pref() -> None:
         assert pref in js, f"wrong default for {val}"
     assert "STALE_DEFAULT = 5" in js
     assert "UNLOAD_STALE_DEFAULT = 30" in js
+    assert "SNAP_INTERVAL_DEFAULT = 30" in js
+    assert "SAFETY_DEFAULT = 3" in js
     assert '"aph.unload.staleMin", 30' in js or '"aph.unload.staleMin"' in js
+
+
+def test_snapshot_prefs_seeded_in_both_configs() -> None:
+    """Snapshot automation ships seeded in BOTH config files, like the
+    native unloader above (fresh profiles need all three lines)."""
+    overrides = (ROOT / "config" / "user-overrides.js").read_text(encoding="utf-8")
+    user_js = (ROOT / "config" / "user.js").read_text(encoding="utf-8")
+    for name, text in (("user-overrides.js", overrides), ("user.js", user_js)):
+        for line in (
+            'user_pref("aph.stash.snapshots.autoEnabled", true);',
+            'user_pref("aph.stash.snapshots.intervalMin", 30);',
+            'user_pref("aph.stash.safetyMin", 3);',
+        ):
+            assert line in text, f"config/{name} must seed {line}"
 
 
 def test_native_unload_pref_in_both_configs() -> None:
@@ -185,7 +260,7 @@ def test_native_unload_pref_in_both_configs() -> None:
 
 
 def test_settings_page_uses_services_directly() -> None:
-    """System-principal precedent (same as archive-page.js): the page
+    """System-principal precedent (same as stash-page.js): the page
     reads/writes prefs itself, observes them live, and never inlines."""
     js = PAGE_JS.read_text(encoding="utf-8")
     assert "Services" in js

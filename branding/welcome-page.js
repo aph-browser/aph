@@ -1,7 +1,7 @@
 /* Aph welcome page — runs inside aph-welcome.html (chrome:// page in a tab).
  *
  * System-principal chrome pages can use Services directly (same precedent
- * as about:config and aph-archive-page.js). The page is a static tour:
+ * as about:config and aph-stash-page.js). The page is a static tour:
  * the only pref it touches is aph.welcome.seen, flipped by the dismiss
  * button (the window trigger in 105-welcome.js owns the show-once check).
  * Classic script, external file only (no inline scripts — chrome pages
@@ -41,12 +41,12 @@ var AphWelcomeLogic = (function () {
         {
           keys: ["Ctrl+K"],
           title: "One overlay for everything",
-          desc: "Workspace actions, open tabs, bookmarks, history and the archive in one filterable list.",
+          desc: "Workspace actions, open tabs, bookmarks, history and the stash in one filterable list.",
         },
         {
           keys: ["?"],
           title: "Palette modes",
-          desc: "Type ? in the palette for the cheat-sheet: > commands, @ tabs, # workspaces, b: bookmarks, h: history, a: archive.",
+          desc: "Type ? in the palette for the cheat-sheet: > commands, @ tabs, # workspaces, b: bookmarks, h: history, s: stash.",
         },
       ],
     },
@@ -65,8 +65,8 @@ var AphWelcomeLogic = (function () {
         },
         {
           keys: [],
-          title: "Tab archive",
-          desc: "Park tabs away with workspace and container restore. Re-open them from the Aph menu or the palette.",
+          title: "Stash tabs and workspaces",
+          desc: "Park tabs away with workspace and container restore, or snapshot a whole workspace. Re-open them from the Aph menu, the palette, or the Stash page.",
         },
       ],
     },
@@ -167,7 +167,7 @@ var AphWelcomeLogic = (function () {
   }
 
   // Interactive demo row per card: opens the real surface so the tour
-  // teaches by doing (palette / settings / archive). Fail-silent.
+  // teaches by doing (palette / settings / stash). Fail-silent.
   function demoButtonsFor(c) {
     try {
       const title = String((c && c.title) || "");
@@ -189,17 +189,12 @@ var AphWelcomeLogic = (function () {
       };
       if (/overlay for everything/i.test(title)) {
         btn("Try Ctrl+K now", () => {
-          try {
-            if (window.parent && window.parent.AphPalette) {
-              window.parent.AphPalette.open();
-            }
-          } catch (e) {}
-          toastLike("Press Ctrl+K in the browser window");
+          if (!openBrowserPalette()) {
+            toastLike("Press Ctrl+K in the browser window");
+          }
         });
-      } else if (/modes/i.test(title)) {
-        btn("Open palette help (?)", () => openChrome("chrome://browser/content/aph-settings.html"));
-      } else if (/archive/i.test(title)) {
-        btn("Open Archive", () => openChrome("chrome://browser/content/aph-archive.html"));
+      } else if (/stash/i.test(title)) {
+        btn("Open Stash", () => openChrome("chrome://browser/content/aph-stash.html"));
       } else if (/Jump to/i.test(title)) {
         btn("Open Settings", () => openChrome("chrome://browser/content/aph-settings.html"));
       }
@@ -207,6 +202,28 @@ var AphWelcomeLogic = (function () {
     } catch (e) {
       return null;
     }
+  }
+
+  // Chrome tabs host no AphPalette of their own (window.parent is the
+  // tab browser, not chrome): reach the browser window through
+  // Services.wm and open its palette for real. Fail-silent with the
+  // key-hint fallback.
+  function openBrowserPalette() {
+    try {
+      const wm = Services && Services.wm;
+      const w =
+        wm && typeof wm.getMostRecentWindow === "function"
+          ? wm.getMostRecentWindow("navigator:browser")
+          : null;
+      if (w && w.AphPalette && typeof w.AphPalette.open === "function") {
+        w.AphPalette.open();
+        try {
+          w.focus();
+        } catch (_e) {}
+        return true;
+      }
+    } catch (e) {}
+    return false;
   }
 
   function openChrome(url) {
@@ -254,15 +271,10 @@ var AphWelcomeLogic = (function () {
     try {
       const l = L();
       const p = prefs();
-      // "Don't show again" and Get started both persist seen — the
-      // checkbox only makes the intent explicit on first run.
-      const skip = $("aph-welcome-skip");
-      const wantSeen = true;
-      if (skip && skip.checked !== undefined) {
-        void skip.checked;
-      }
+      // Show-once by design (re-openable from the Aph menu and the
+      // palette): Get started persists seen, no opt-out theater.
       if (p && typeof p.setBoolPref === "function") {
-        p.setBoolPref((l && l.SEEN_PREF) || "aph.welcome.seen", wantSeen);
+        p.setBoolPref((l && l.SEEN_PREF) || "aph.welcome.seen", true);
       }
     } catch (e) {}
     // Leave the tour: closing a chrome tab from its own page is allowed;

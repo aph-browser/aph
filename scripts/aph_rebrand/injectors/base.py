@@ -31,9 +31,9 @@ class PatchCounts:
     paljs: int = 0
     palcss: int = 0
     textpick: int = 0
-    archivejs: int = 0
-    archiveshared: int = 0
-    archivepage: int = 0
+    stashjs: int = 0
+    stashshared: int = 0
+    stashpage: int = 0
     settingspage: int = 0
     welcomepage: int = 0
     tabrenamejs: int = 0
@@ -54,9 +54,9 @@ class PatchCounts:
             self.paljs,
             self.palcss,
             self.textpick,
-            self.archivejs,
-            self.archiveshared,
-            self.archivepage,
+            self.stashjs,
+            self.stashshared,
+            self.stashpage,
             self.settingspage,
             self.welcomepage,
             self.tabrenamejs,

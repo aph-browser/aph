@@ -1,8 +1,8 @@
-/* Aph archive page — one product with the chrome (theme.css), not a
+/* Aph stash page — one product with the chrome (theme.css), not a
    guest skin. System: Inter, the Aph radius scale, neutral desk
    surfaces (#17181f desk / #202028 elevated / #2a2c3a raised), ink +
    muted text. Workspace color lives ONLY on the filter pills that
-   carry a workspace identity (data-ws, stamped by aph-archive-page.js
+   carry a workspace identity (data-ws, stamped by aph-stash-page.js
    renderPills) — the page itself is global surface, so search focus
    and rows stay neutral. Danger red survives solely as the delete
    signal (functional, never decorative). Every surface, radius, shadow,
@@ -61,13 +61,13 @@ html, body {
   letter-spacing: 0.015em;
 }
 
-#aph-archive {
+#aph-stash {
   max-width: 860px;
   margin: 0 auto;
   padding: 28px 24px 60px;
 }
 
-#aph-archive-head {
+#aph-stash-head {
   position: sticky;
   top: 0;
   background: color-mix(in srgb, var(--aph-base) 88%, transparent);
@@ -80,21 +80,21 @@ html, body {
   z-index: 2;
 }
 
-#aph-archive-title {
+#aph-stash-title {
   font-size: 22px;
   font-weight: 600;
   color: var(--aph-ink);
   margin-bottom: 12px;
 }
 
-#aph-archive-count {
+#aph-stash-count {
   font-size: 13px;
   font-weight: 400;
   color: var(--aph-ink-faint);
   margin-inline-start: 8px;
 }
 
-#aph-archive-search {
+#aph-stash-search {
   width: 100%;
   box-sizing: border-box;
   background: var(--aph-surface);
@@ -107,20 +107,20 @@ html, body {
   outline: none;
 }
 
-#aph-archive-search:focus {
+#aph-stash-search:focus {
   border-color: color-mix(in srgb, var(--aph-ink) 45%, transparent);
   box-shadow: var(--aph-focus-ring);
 }
 
-#aph-archive-search::placeholder {
+#aph-stash-search::placeholder {
   color: var(--aph-ink-faint);
 }
 
-#aph-archive-tools {
+#aph-stash-tools {
   margin-top: 4px;
 }
 
-#aph-archive-sortbar {
+#aph-stash-sortbar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -130,7 +130,7 @@ html, body {
   flex-wrap: wrap;
 }
 
-#aph-archive-sort {
+#aph-stash-sort {
   background: var(--aph-surface);
   color: var(--aph-ink);
   border: 1px solid var(--aph-line);
@@ -141,12 +141,12 @@ html, body {
   outline: none;
 }
 
-#aph-archive-sort:focus-visible {
+#aph-stash-sort:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--aph-ink) 45%, transparent);
   outline-offset: 1px;
 }
 
-#aph-archive-keep {
+#aph-stash-keep {
   margin-inline-start: auto;
   background: var(--aph-surface);
   border: 1px solid var(--aph-line);
@@ -155,7 +155,7 @@ html, body {
   white-space: nowrap;
 }
 
-#aph-archive-bulkbar {
+#aph-stash-bulkbar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -167,18 +167,18 @@ html, body {
   font-size: 13px;
 }
 
-#aph-archive-bulkbar[hidden] {
+#aph-stash-bulkbar[hidden] {
   display: none;
 }
 
-#aph-archive-bulkcount {
+#aph-stash-bulkcount {
   color: var(--aph-ink);
   font-weight: 600;
   margin-inline-end: auto;
 }
 
-#aph-archive-bulk-restore,
-#aph-archive-bulk-clear {
+#aph-stash-bulk-restore,
+#aph-stash-bulk-clear {
   background: transparent;
   color: var(--aph-ink-dim);
   border: 1px solid var(--aph-line);
@@ -189,13 +189,13 @@ html, body {
   cursor: pointer;
 }
 
-#aph-archive-bulk-restore:hover,
-#aph-archive-bulk-clear:hover {
+#aph-stash-bulk-restore:hover,
+#aph-stash-bulk-clear:hover {
   background: var(--aph-field);
   color: var(--aph-ink);
 }
 
-#aph-archive-bulk-delete {
+#aph-stash-bulk-delete {
   background: transparent;
   color: var(--aph-danger);
   border: 1px solid var(--aph-line);
@@ -206,18 +206,18 @@ html, body {
   cursor: pointer;
 }
 
-#aph-archive-bulk-delete:hover {
+#aph-stash-bulk-delete:hover {
   background: var(--aph-field);
 }
 
-#aph-archive-pills {
+#aph-stash-pills {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
 }
 
-.aph-archive-pill {
+.aph-stash-pill {
   background: color-mix(in srgb, var(--aph-ink) 10%, transparent);
   color: var(--aph-ink-dim);
   border: 1px solid transparent;
@@ -229,12 +229,12 @@ html, body {
   cursor: pointer;
 }
 
-.aph-archive-pill:hover {
+.aph-stash-pill:hover {
   color: var(--aph-ink);
   border-color: var(--aph-line);
 }
 
-.aph-archive-pill.on {
+.aph-stash-pill.on {
   color: var(--aph-ink);
   background: var(--aph-field);
   border-color: var(--aph-line);
@@ -243,26 +243,43 @@ html, body {
 /* Workspace filter pills: each wears its own hue when active (dock
    parity) — identity-correct with no protocol, since the page stamps
    data-ws itself at render. Rest pills stay neutral furniture. */
-.aph-archive-pill[data-ws="1"] { --aph-ws-now: var(--aph-ws-1); }
-.aph-archive-pill[data-ws="2"] { --aph-ws-now: var(--aph-ws-2); }
-.aph-archive-pill[data-ws="3"] { --aph-ws-now: var(--aph-ws-3); }
-.aph-archive-pill[data-ws="4"] { --aph-ws-now: var(--aph-ws-4); }
-.aph-archive-pill[data-ws="5"] { --aph-ws-now: var(--aph-ws-5); }
-.aph-archive-pill[data-ws="6"] { --aph-ws-now: var(--aph-ws-6); }
-.aph-archive-pill[data-ws="7"] { --aph-ws-now: var(--aph-ws-7); }
-.aph-archive-pill[data-ws="8"] { --aph-ws-now: var(--aph-ws-8); }
-.aph-archive-pill[data-ws="9"] { --aph-ws-now: var(--aph-ws-9); }
-.aph-archive-pill[data-ws].on {
+.aph-stash-pill[data-ws="1"] { --aph-ws-now: var(--aph-ws-1); }
+.aph-stash-pill[data-ws="2"] { --aph-ws-now: var(--aph-ws-2); }
+.aph-stash-pill[data-ws="3"] { --aph-ws-now: var(--aph-ws-3); }
+.aph-stash-pill[data-ws="4"] { --aph-ws-now: var(--aph-ws-4); }
+.aph-stash-pill[data-ws="5"] { --aph-ws-now: var(--aph-ws-5); }
+.aph-stash-pill[data-ws="6"] { --aph-ws-now: var(--aph-ws-6); }
+.aph-stash-pill[data-ws="7"] { --aph-ws-now: var(--aph-ws-7); }
+.aph-stash-pill[data-ws="8"] { --aph-ws-now: var(--aph-ws-8); }
+.aph-stash-pill[data-ws="9"] { --aph-ws-now: var(--aph-ws-9); }
+/* Per-WS accent override: data-accent="M" retunes the pill to hue M. */
+.aph-stash-pill[data-accent="1"] { --aph-ws-now: var(--aph-ws-1); }
+.aph-stash-pill[data-accent="2"] { --aph-ws-now: var(--aph-ws-2); }
+.aph-stash-pill[data-accent="3"] { --aph-ws-now: var(--aph-ws-3); }
+.aph-stash-pill[data-accent="4"] { --aph-ws-now: var(--aph-ws-4); }
+.aph-stash-pill[data-accent="5"] { --aph-ws-now: var(--aph-ws-5); }
+.aph-stash-pill[data-accent="6"] { --aph-ws-now: var(--aph-ws-6); }
+.aph-stash-pill[data-accent="7"] { --aph-ws-now: var(--aph-ws-7); }
+.aph-stash-pill[data-accent="8"] { --aph-ws-now: var(--aph-ws-8); }
+.aph-stash-pill[data-accent="9"] { --aph-ws-now: var(--aph-ws-9); }
+.aph-stash-pill[data-accent="10"] { --aph-ws-now: var(--aph-ws-10); }
+.aph-stash-pill[data-accent="11"] { --aph-ws-now: var(--aph-ws-11); }
+.aph-stash-pill[data-accent="12"] { --aph-ws-now: var(--aph-ws-12); }
+.aph-stash-pill[data-accent="13"] { --aph-ws-now: var(--aph-ws-13); }
+.aph-stash-pill[data-accent="14"] { --aph-ws-now: var(--aph-ws-14); }
+.aph-stash-pill[data-accent="15"] { --aph-ws-now: var(--aph-ws-15); }
+.aph-stash-pill[data-accent="16"] { --aph-ws-now: var(--aph-ws-16); }
+.aph-stash-pill[data-ws].on {
   background: color-mix(in srgb, var(--aph-ws-now) 45%, transparent);
   border-color: transparent;
   color: var(--aph-ink);
 }
 
-.aph-archive-group {
+.aph-stash-group {
   margin-top: 24px;
 }
 
-.aph-archive-group > h2 {
+.aph-stash-group > h2 {
   position: sticky;
   top: 118px;
   z-index: 1;
@@ -278,7 +295,7 @@ html, body {
   backdrop-filter: blur(8px);
 }
 
-.aph-archive-row {
+.aph-stash-row {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -288,21 +305,21 @@ html, body {
   border: 1px solid transparent;
 }
 
-.aph-archive-row:hover {
+.aph-stash-row:hover {
   background: var(--aph-surface);
 }
 
-.aph-archive-row:focus-visible {
+.aph-stash-row:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--aph-ink) 45%, transparent);
   outline-offset: -2px;
 }
 
-.aph-archive-row.selected {
+.aph-stash-row.selected {
   background: var(--aph-surface);
   border-color: var(--aph-line);
 }
 
-.aph-archive-fav {
+.aph-stash-fav {
   flex: 0 0 28px;
   width: 28px;
   height: 28px;
@@ -319,28 +336,28 @@ html, body {
 
 /* Real favicons float clean — the raised tile is only for the fallback
    letter. :has keeps letter rows untouched. */
-.aph-archive-fav:has(img) {
+.aph-stash-fav:has(img) {
   background: transparent;
 }
 
-.aph-archive-fav img {
+.aph-stash-fav img {
   width: 18px;
   height: 18px;
 }
 
-.aph-archive-main {
+.aph-stash-main {
   flex: 1;
   min-width: 0;
 }
 
-.aph-archive-title {
+.aph-stash-title {
   color: var(--aph-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.aph-archive-domain {
+.aph-stash-domain {
   font-size: 12px;
   color: var(--aph-ink-faint);
   white-space: nowrap;
@@ -348,7 +365,7 @@ html, body {
   text-overflow: ellipsis;
 }
 
-.aph-archive-tags {
+.aph-stash-tags {
   flex: 0 0 auto;
   display: flex;
   gap: 6px;
@@ -356,18 +373,18 @@ html, body {
   color: var(--aph-ink-dim);
 }
 
-.aph-archive-tag {
+.aph-stash-tag {
   background: var(--aph-surface);
   border-radius: var(--aph-radius-md);
   padding: 2px 8px;
   white-space: nowrap;
 }
 
-.aph-archive-row:hover .aph-archive-tag {
+.aph-stash-row:hover .aph-stash-tag {
   background: var(--aph-field);
 }
 
-.aph-archive-check {
+.aph-stash-check {
   flex: 0 0 auto;
   width: 18px;
   height: 18px;
@@ -375,7 +392,7 @@ html, body {
   cursor: pointer;
 }
 
-.aph-archive-mark {
+.aph-stash-mark {
   background: color-mix(in srgb, var(--aph-ink) 22%, transparent);
   border-radius: var(--aph-radius-xs);
   padding: 0 1px;
@@ -383,7 +400,7 @@ html, body {
   font-weight: 600;
 }
 
-.aph-archive-del {
+.aph-stash-del {
   flex: 0 0 auto;
   border: 1px solid transparent;
   background: transparent;
@@ -398,30 +415,30 @@ html, body {
   opacity: 0.45;
 }
 
-.aph-archive-row:hover .aph-archive-del,
-.aph-archive-del:focus-visible {
+.aph-stash-row:hover .aph-stash-del,
+.aph-stash-del:focus-visible {
   opacity: 1;
 }
 
-.aph-archive-del:hover {
+.aph-stash-del:hover {
   color: var(--aph-danger);
   background: var(--aph-field);
   border-color: var(--aph-line);
 }
 
-.aph-archive-del:focus-visible {
+.aph-stash-del:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--aph-danger) 60%, transparent);
   outline-offset: 1px;
   opacity: 1;
 }
 
 @media (hover: none) {
-  .aph-archive-row .aph-archive-del:not([hidden]) {
+  .aph-stash-row .aph-stash-del:not([hidden]) {
     opacity: 0.8;
   }
 }
 
-#aph-archive-empty {
+#aph-stash-empty {
   margin: 56px auto 0;
   max-width: 46ch;
   text-align: center;
@@ -430,7 +447,7 @@ html, body {
   line-height: 1.6;
 }
 
-#aph-archive-nobridge {
+#aph-stash-nobridge {
   margin-top: 12px;
   padding: 12px 16px;
   border-radius: var(--aph-radius-lg);
@@ -443,11 +460,11 @@ html, body {
   gap: 10px;
 }
 
-#aph-archive-nobridge[hidden] {
+#aph-stash-nobridge[hidden] {
   display: none;
 }
 
-#aph-archive-nobridge button {
+#aph-stash-nobridge button {
   margin-inline-start: auto;
   flex: none;
   background: transparent;
@@ -461,7 +478,7 @@ html, body {
   white-space: nowrap;
 }
 
-#aph-archive-toast {
+#aph-stash-toast {
   position: fixed;
   bottom: 24px;
   left: 50%;
@@ -478,7 +495,7 @@ html, body {
   pointer-events: none;
 }
 
-#aph-archive-toast.show {
+#aph-stash-toast.show {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
@@ -486,26 +503,149 @@ html, body {
 /* Motion language (§24 in theme.css, same dialect): hovers ease instead
    of snapping; the delete reveal fades. Paint-only throughout, and the
    reduced-motion block kills every transition including the toast's. */
-.aph-archive-pill {
+.aph-stash-pill {
   transition: color var(--aph-motion-hover), border-color var(--aph-motion-hover),
     background-color var(--aph-motion-hover);
 }
-.aph-archive-row {
+.aph-stash-row {
   transition: background-color var(--aph-motion-hover);
 }
-.aph-archive-tag {
+.aph-stash-tag {
   transition: background-color var(--aph-motion-hover);
 }
-.aph-archive-del {
+.aph-stash-del {
   transition: opacity var(--aph-motion-hover), color var(--aph-motion-hover),
     background-color var(--aph-motion-hover);
 }
 @media (prefers-reduced-motion: reduce) {
-  .aph-archive-pill,
-  .aph-archive-row,
-  .aph-archive-tag,
-  .aph-archive-del,
-  #aph-archive-toast {
+  .aph-stash-pill,
+  .aph-stash-row,
+  .aph-stash-tag,
+  .aph-stash-del,
+  #aph-stash-toast {
     transition: none;
   }
+}
+
+/* ==========================================================================
+   Stash views + workspace-stash cards.
+   The page is one surface with two views (Stashed tabs | Workspace
+   stashes), so the switch reuses the pill language rather than inventing a
+   second control: same radius, same voice, same hairline.
+   ========================================================================== */
+#aph-stash-views {
+  display: flex;
+  gap: var(--aph-space-2);
+  margin-block-end: var(--aph-space-3);
+}
+
+#aph-stash-views button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--aph-ink-dim);
+  background: transparent;
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-md);
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+#aph-stash-views button:hover {
+  color: var(--aph-ink);
+  background: var(--aph-surface);
+}
+
+#aph-stash-views button[aria-selected="true"] {
+  color: var(--aph-ink);
+  border-color: var(--aph-ink-faint);
+}
+
+/* Snapshot rows reuse the tab row paint above (.aph-stash-row and
+   friends) so both views read as one surface. Only the snapshot
+   extras live here: the wrapper, the disclosure chevron, the indented
+   member stack, and the expanded detail actions. */
+.aph-stash-snap {
+  margin-block-end: var(--aph-space-1);
+}
+
+.aph-stash-expand {
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--aph-ink-dim);
+  font-size: 13px;
+  line-height: 1;
+  border-radius: var(--aph-radius-md);
+  padding: 6px 8px;
+  min-width: 30px;
+  min-height: 32px;
+  cursor: pointer;
+}
+
+.aph-stash-expand:hover {
+  color: var(--aph-ink);
+  background: var(--aph-surface);
+}
+
+.aph-stash-expand:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--aph-ink) 45%, transparent);
+  outline-offset: -2px;
+}
+
+.aph-stash-detail {
+  padding-block-end: var(--aph-space-2);
+}
+
+.aph-stash-members {
+  display: flex;
+  flex-direction: column;
+}
+
+.aph-stash-row.aph-stash-member {
+  margin-inline-start: 42px;
+  padding-block: 6px;
+  cursor: pointer;
+}
+
+.aph-stash-card-rename {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--aph-ink);
+  background: var(--aph-surface);
+  border: 1px solid var(--aph-ink-faint);
+  border-radius: var(--aph-radius-md);
+  padding: 2px 8px;
+  min-inline-size: 12ch;
+  max-inline-size: 100%;
+}
+
+/* Workspace tag rides the same accent stop the dock pill uses, so a
+   snapshot reads as "that workspace" at a glance. */
+.aph-stash-tag {
+  color: var(--aph-ink);
+  border-inline-start: 2px solid var(--aph-ws-now, var(--aph-ink-faint));
+  padding-inline-start: var(--aph-space-2);
+}
+
+.aph-stash-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-block-start: var(--aph-space-2);
+  margin-inline-start: 42px;
+}
+
+.aph-stash-card-actions button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--aph-ink);
+  background: transparent;
+  border: 1px solid var(--aph-line);
+  border-radius: var(--aph-radius-md);
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.aph-stash-card-actions button:hover {
+  background: var(--aph-surface);
 }

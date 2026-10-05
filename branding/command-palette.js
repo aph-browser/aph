@@ -3,7 +3,7 @@
  * Commands + open tabs in one list, scored fuzzy matching with match
  * highlighting. Typed queries also search Places bookmarks and history
  * (frecency-ordered, history hidden in private windows) and saved
- * archive entries (restoring re-opens with workspace + container).
+ * stash entries (restoring re-opens with workspace + container).
  * Doubles as navigation: URL-like input offers "Go to …"
  * (opened in the current workspace's bound container), anything else falls
  * back to a DuckDuckGo search. Enter opens, Alt+Enter opens in a new
@@ -46,7 +46,7 @@
   let rowPool = [];
   let headerPool = [];
   let emptyEl = null;
-  const PLACEHOLDER = "Type a command, tab, bookmark, history, archive, URL, or search…";
+  const PLACEHOLDER = "Type a command, tab, bookmark, history, stash, URL, or search…";
   // Per-open caches: commands()/openTabs() are rebuilt once per open() so
   // per-keystroke work is scoring only (<50ms on huge sessions).
   let cachedCommands = null;
@@ -58,7 +58,7 @@
   let frecMap = null;
   // Section order for grouped rendering (Go first, Search last — matches
   // the old unshift/push navFallback contract).
-  const SECTION_ORDER = ["Go", "Tabs", "Commands", "Workspaces", "Bookmarks", "History", "Archive", "Help", "Search"];
+  const SECTION_ORDER = ["Go", "Tabs", "Commands", "Workspaces", "Bookmarks", "History", "Stash", "Help", "Search"];
   const SECTION_CAP = 15;
   const TOTAL_CAP = 100;
   // Kind -> icon glyph (text, no external assets in chrome context).
@@ -70,7 +70,7 @@
     workspace: "⬢",
     bookmark: "★",
     history: "◷",
-    archive: "▣",
+    stash: "▣",
     help: "?",
     search: "⌕",
     action: "⚡",
@@ -82,15 +82,16 @@
     workspaces: "Type a workspace, route, or bind…  (# workspaces only)",
     bookmarks: "Search bookmarks…  (b: prefix)",
     history: "Search history…  (h: prefix)",
-    archive: "Search archived tabs…  (a: prefix)",
+    stash: "Search stashed tabs…  (s: prefix)",
     help: "Pick a mode to learn…",
   };
 
   // --- Prefix modes (VSCode/Raycast style) -------------------------------
   // ">" commands · "@" tabs · "#" workspaces/routes/binds · "?" help ·
-  // "b:" bookmarks · "h:" history · "a:" archive. Bare text = unified
-  // search across everything. Single-char modes only trigger on the very
-  // first character so normal queries ("apple", "history of…") never break.
+  // "b:" bookmarks · "h:" history · "s:" stash ("a:" is the legacy alias).
+  // Bare text = unified search across everything. Single-char modes only
+  // trigger on the very first character so normal queries ("apple",
+  // "history of…") never break.
   // Returns {mode, q} where q is the de-prefixed query (trimmed).
   function parseMode(raw) {
     const s = (raw || "").trim();
@@ -111,8 +112,8 @@
       if (k === "h") {
         return { mode: "history", q: (m[2] || "").trim() };
       }
-      if (k === "a") {
-        return { mode: "archive", q: (m[2] || "").trim() };
+      if (k === "s" || k === "a") {
+        return { mode: "stash", q: (m[2] || "").trim() };
       }
     }
     return { mode: "all", q: s };
@@ -147,11 +148,11 @@
       ["#", "Workspaces", "Switch / send / routes / binds · e.g. #work, #route"],
       ["b:", "Bookmarks", "Bookmark search only · e.g. b:github"],
       ["h:", "History", "History search only · e.g. h:docs"],
-      ["a:", "Archive", "Archived tabs only · e.g. a:report · Enter restores"],
+      ["s:", "Stash", "Stashed tabs only · e.g. s:report · Enter restores"],
       ["?", "Help", "This cheat-sheet"],
       ["Tab", "Autocomplete", "Fills the selected row title into the input"],
       ["Alt+1–9", "Quick pick", "Runs the Nth visible row"],
-      ["Alt+Enter", "Temp container", "Opens URLs / restores archive without consuming"],
+      ["Alt+Enter", "Temp container", "Opens URLs / restores stashed tabs without consuming"],
       ["Ctrl+N/P", "Navigate", "Move selection up/down without arrow keys"],
       ["Ctrl+W", "Close tab", "Closes the highlighted tab · palette stays open"],
       ["Shift+Enter", "Temp alias", "Same as Alt+Enter"],
@@ -190,7 +191,7 @@
         return `${n} · Enter switch / send / apply route · Esc clear`;
       case "bookmarks":
       case "history":
-      case "archive":
+      case "stash":
         return `${n} · Enter open / restore · Alt+Enter temp · Esc clear`;
       case "help":
         return `Enter inserts prefix · Esc closes`;
@@ -264,7 +265,7 @@
   function frecIdFor(it) {
     try {
       // Stable enough: command titles are static except counts
-      // ("Archive N Tabs" normalizes to "Archive Tab").
+      // ("Stash N Tabs" normalizes to "Stash Tab").
       const t = String((it && it.title) || "");
       return t.replace(/\b\d+ Tabs\b/, "Tab").replace(/\b\d+\b/g, "#");
     } catch (e) {
@@ -273,7 +274,7 @@
   }
 
   // +0..150: 5 points per use (cap 100) + recency decay (50 max, halves
-  // after ~3 days). Tabs/places/archive get at most the usage part — the
+  // after ~3 days). Tabs/places/stash get at most the usage part — the
   // recency kick is commands-only so MRU tabs keep their own order.
   function frecBoost(it) {
     try {
@@ -353,28 +354,28 @@
 
   function arc() {
     try {
-      return window.AphArchive || null;
+      return window.AphStash || null;
     } catch (e) {
       return null;
     }
   }
 
-  // "Archive Current Tab", or "Archive N Tabs" when a multiselection is
-  // pending. Fully guarded: the archive controller may be absent (tests).
-  function archiveCmdTitle() {
+  // "Stash Current Tab", or "Stash N Tabs" when a multiselection is
+  // pending. Fully guarded: the stash controller may be absent (tests).
+  function stashCmdTitle() {
     try {
       const a = arc();
-      if (a && typeof a.pendingCount === "function" && a.pendingCount() > 1) {
-        return `Archive ${a.pendingCount()} Tabs`;
+      if (a && typeof a.pendingStashCount === "function" && a.pendingStashCount() > 1) {
+        return `Stash ${a.pendingStashCount()} Tabs`;
       }
     } catch (e) {}
     try {
       const n = (gBrowser.selectedTabs || gBrowser.multiselectedTabs || []).length;
       if (n > 1) {
-        return `Archive ${n} Tabs`;
+        return `Stash ${n} Tabs`;
       }
     } catch (e) {}
-    return "Archive Current Tab";
+    return "Stash Current Tab";
   }
 
   // "Send Active Tab to …", or "Send N Tabs to …" when a multiselection is
@@ -1203,20 +1204,20 @@
     }
     return out;
   }
-  // --- Saved archive search ---------------------------------------------
-  // Archived tabs join non-empty queries as fuzzy-pool items (newest-first,
+  // --- Saved stash search -----------------------------------------------
+  // Stashed tabs join non-empty queries as fuzzy-pool items (newest-first,
   // capped), so they rank alongside commands and open tabs with match
   // highlighting handled by the normal scoring path. Restoring re-opens
-  // with the saved workspace + container (restoreEntry owns the workspace
+  // with the saved workspace + container (restoreStashEntry owns the workspace
   // switch); Alt+Enter restores without consuming the entry (keep).
   // Hidden in private windows (bind parity): entries are non-private
   // pages whose restore retags into normal workspaces.
-  // Test seam: window.AphArchive = { getEntries() → [{id, title, url,
-  // ws, cname}], restoreEntry(id, opts?) } — the real controller shape.
-  var APH_ARCHIVE_MIN_QUERY = 2;
-  var APH_ARCHIVE_POOL_LIMIT = 50;
+  // Test seam: window.AphStash = { getStashEntries() → [{id, title, url,
+  // ws, cname}], restoreStashEntry(id, opts?) } — the real controller shape.
+  var APH_STASH_MIN_QUERY = 2;
+  var APH_STASH_POOL_LIMIT = 50;
 
-  function aphArchiveIsPrivate() {
+  function aphStashIsPrivate() {
     try {
       if (typeof isPrivatePaletteWindow === "function") {
         return !!isPrivatePaletteWindow();
@@ -1225,11 +1226,11 @@
     return false;
   }
 
-  function aphArchiveEntries() {
+  function aphStashEntries() {
     try {
       const a = typeof arc === "function" ? arc() : null;
-      if (a && typeof a.getEntries === "function") {
-        const r = a.getEntries();
+      if (a && typeof a.getStashEntries === "function") {
+        const r = a.getStashEntries();
         if (Array.isArray(r)) {
           return r;
         }
@@ -1238,14 +1239,14 @@
     return [];
   }
 
-  function aphArchivePoolItems(raw) {
+  function aphStashPoolItems(raw) {
     const out = [];
     try {
       const q = (raw || "").trim();
-      if (q.length < APH_ARCHIVE_MIN_QUERY) {
+      if (q.length < APH_STASH_MIN_QUERY) {
         return out;
       }
-      if (aphArchiveIsPrivate()) {
+      if (aphStashIsPrivate()) {
         return out;
       }
       let openUrls = null;
@@ -1256,8 +1257,8 @@
         openUrls = new Set();
       }
       let n = 0;
-      for (const e of aphArchiveEntries()) {
-        if (n >= APH_ARCHIVE_POOL_LIMIT) {
+      for (const e of aphStashEntries()) {
+        if (n >= APH_STASH_POOL_LIMIT) {
           break;
         }
         let url = "";
@@ -1286,20 +1287,20 @@
         out.push({
           title: String(title),
           sub,
-          hint: "Archive",
+          hint: "Stash",
           run: () => {
             try {
               const a = typeof arc === "function" ? arc() : null;
-              if (a && typeof a.restoreEntry === "function") {
-                a.restoreEntry(id);
+              if (a && typeof a.restoreStashEntry === "function") {
+                a.restoreStashEntry(id);
               }
             } catch (err) {}
           },
           runInTemp: () => {
             try {
               const a = typeof arc === "function" ? arc() : null;
-              if (a && typeof a.restoreEntry === "function") {
-                a.restoreEntry(id, { keep: true });
+              if (a && typeof a.restoreStashEntry === "function") {
+                a.restoreStashEntry(id, { keep: true });
               }
             } catch (err) {}
           },
@@ -1549,6 +1550,320 @@
     } catch (e) {
       return String(url || "");
     }
+  }
+
+  function tabUrlSpec(tab) {
+    try {
+      const spec =
+        tab && tab.linkedBrowser && tab.linkedBrowser.currentURI && tab.linkedBrowser.currentURI.spec;
+      return typeof spec === "string" ? spec : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function tabDisplayTitle(tab, url) {
+    try {
+      return (tab && tab.label) || url || "Untitled";
+    } catch (e) {
+      return url || "Untitled";
+    }
+  }
+
+  function isDupeRestoring(tab) {
+    try {
+      if (
+        typeof SessionStore !== "undefined" &&
+        SessionStore &&
+        typeof SessionStore.isTabRestoring === "function"
+      ) {
+        return !!SessionStore.isTabRestoring(tab);
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // Tabs in the current workspace in strip order (pinned tabs are
+  // global, hence visible in every workspace, so they ride along).
+  // Closing tabs and URL-less tabs never list. Read-only.
+  function workspaceTabs(api) {
+    const out = [];
+    try {
+      if (!api || typeof api.getCurrent !== "function") {
+        return out;
+      }
+      const cur = api.getCurrent();
+      if (!cur) {
+        return out;
+      }
+      const useWs = typeof api.getWs === "function";
+      let tabs = [];
+      try {
+        tabs = Array.from((gBrowser && gBrowser.tabs) || []);
+      } catch (e) {
+        return out;
+      }
+      for (const t of tabs) {
+        try {
+          if (!t || t.closing) {
+            continue;
+          }
+          const spec = tabUrlSpec(t);
+          if (!spec) {
+            continue;
+          }
+          if (useWs) {
+            let w = null;
+            try {
+              w = api.getWs(t);
+            } catch (e) {
+              continue;
+            }
+            let pinned = false;
+            try {
+              pinned = !!t.pinned;
+            } catch (e) {}
+            if (w !== cur && !pinned) {
+              continue;
+            }
+          }
+          out.push({ tab: t, url: spec, title: tabDisplayTitle(t, spec) });
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  // A tab that may be closed as a duplicate copy: exact-URL repeats
+  // inside the current workspace. Never pinned (global), never the
+  // selected tab, never restoring / audible / sharing / beforeunload
+  // tabs. about:/chrome: pages count — a spare blank is still a spare.
+  function isDupeClosable(tab, selected) {
+    try {
+      if (!tab || tab.closing || tab === selected) {
+        return false;
+      }
+    } catch (e) {
+      return false;
+    }
+    try {
+      if (tab.pinned) {
+        return false;
+      }
+    } catch (e) {}
+    try {
+      if (tab.soundPlaying || tab.audible) {
+        return false;
+      }
+    } catch (e) {}
+    try {
+      const parent =
+        tab.linkedBrowser &&
+        tab.linkedBrowser.frameLoader &&
+        tab.linkedBrowser.frameLoader.tabParent;
+      if (parent && parent.hasBeforeUnload) {
+        return false;
+      }
+    } catch (e) {}
+    try {
+      if (isDupeRestoring(tab)) {
+        return false;
+      }
+    } catch (e) {}
+    return !!tabUrlSpec(tab);
+  }
+
+  // Extra copies beyond the first of each exact URL in the current
+  // workspace (strip order keeps the oldest). Read-only; the command
+  // below closes the returned tabs.
+  function duplicateTabs(api) {
+    const out = [];
+    try {
+      if (!api || typeof api.getCurrent !== "function" || typeof api.getWs !== "function") {
+        return out;
+      }
+      const cur = api.getCurrent();
+      if (!cur) {
+        return out;
+      }
+      let tabs = [];
+      try {
+        tabs = Array.from((gBrowser && gBrowser.tabs) || []);
+      } catch (e) {
+        return out;
+      }
+      let selected = null;
+      try {
+        selected = (gBrowser && gBrowser.selectedTab) || null;
+      } catch (e) {}
+      const seen = new Map();
+      for (const t of tabs) {
+        try {
+          if (!isDupeClosable(t, selected)) {
+            continue;
+          }
+          let w = null;
+          try {
+            w = api.getWs(t);
+          } catch (e) {
+            continue;
+          }
+          if (w !== cur) {
+            continue;
+          }
+          const spec = tabUrlSpec(t);
+          if (seen.has(spec)) {
+            out.push(t);
+          } else {
+            seen.set(spec, t);
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  function workspaceMarkdownLines(api) {
+    try {
+      return workspaceTabs(api).map((e) => `- ${markdownForTab(e.title, e.url)}`);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function workspaceMarkdownSub(api) {
+    const base = "One - [title](url) per line, in tab order";
+    try {
+      const n = workspaceTabs(api).length;
+      if (n > 0) {
+        let label = "";
+        try {
+          label = wsFull(api, api.getCurrent());
+        } catch (e) {}
+        return `${n} tab${n === 1 ? "" : "s"}${label ? ` from ${label}` : ""} · ${base}`;
+      }
+    } catch (e) {}
+    return base;
+  }
+
+  // Rendered only when duplicates exist (same convention as
+  // "Close Other Tabs"): a bulk close that would no-op stays out of
+  // the list. Closed tabs remain undoable via Reopen Closed Tab.
+  function closeDupesRows(api) {
+    try {
+      const dupes = duplicateTabs(api);
+      if (!dupes.length) {
+        return [];
+      }
+      let label = "";
+      try {
+        label = wsFull(api, api.getCurrent());
+      } catch (e) {}
+      return [
+        {
+          title: `Close Duplicate Tabs (${dupes.length})`,
+          hint: "",
+          sub: `Keeps the first copy of each URL${label ? ` in ${label}` : ""} · current + pinned tabs never close`,
+          run: () => {
+            try {
+              for (const t of dupes) {
+                try {
+                  if (t && !t.closing && gBrowser.removeTab) {
+                    gBrowser.removeTab(t, { animate: false });
+                  }
+                } catch (_e) {}
+              }
+            } catch (e) {}
+            invalidatePaletteCache();
+          },
+        },
+      ];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Native dual split-view rows (Firefox 149+ engine, Aph guards in
+  // 78-split.js). Raw rows (global tagging happens in
+  // getCachedCommands); the workspaces API may be absent or partial.
+  function splitViewRows(api) {
+    const out = [];
+    try {
+      if (!api || typeof api.splitState !== "function") {
+        return out;
+      }
+      let st = null;
+      try {
+        st = api.splitState() || null;
+      } catch (e) {
+        return out;
+      }
+      if (!st) {
+        return out;
+      }
+      if (st.inSplit) {
+        out.push({
+          title: "Separate Split Tabs",
+          hint: "",
+          sub: "Breaks the pair apart · both tabs stay open",
+          run: () => {
+            try {
+              if (api.separateSplit) {
+                api.separateSplit();
+              }
+            } catch (e) {}
+            invalidatePaletteCache();
+          },
+        });
+        out.push({
+          title: "Reverse Split Panes",
+          hint: "",
+          sub: "Swaps the left and right panes",
+          run: () => {
+            try {
+              if (api.reverseSplit) {
+                api.reverseSplit();
+              }
+            } catch (e) {}
+            invalidatePaletteCache();
+          },
+        });
+        return out;
+      }
+      if (!st.canSplit) {
+        return out;
+      }
+      if (st.candidateTitle) {
+        out.push({
+          title: "Split with Last Tab",
+          hint: "Ctrl+Alt+\\",
+          sub: `Side-by-side with "${st.candidateTitle}" · same workspace`,
+          run: () => {
+            try {
+              if (api.splitToggle) {
+                api.splitToggle();
+              }
+            } catch (e) {}
+            invalidatePaletteCache();
+          },
+        });
+      } else {
+        out.push({
+          title: "Split View (Pick Tab…)",
+          hint: "Ctrl+Alt+\\",
+          sub: "Opens the tab picker in the right pane",
+          run: () => {
+            try {
+              if (api.splitToggle) {
+                api.splitToggle();
+              }
+            } catch (e) {}
+            invalidatePaletteCache();
+          },
+        });
+      }
+    } catch (e) {}
+    return out;
   }
 
   // Extra tab ops for the current tab (surfaced alongside commands).
@@ -1967,6 +2282,132 @@
     } catch (e) {}
   }
 
+  // Live counts for the Open Stash row (same dry-run-count idiom as
+  // the unload row): "3 stashed tabs · 2 workspace stashes". Any
+  // failure reads as the plain subtitle.
+  function openStashSub() {
+    const base = "Browse and restore stashed tabs + workspace stashes";
+    try {
+      const a = typeof arc === "function" ? arc() : null;
+      if (!a) {
+        return base;
+      }
+      let tabs = -1;
+      let stashes = -1;
+      try {
+        if (typeof a.getStashEntries === "function") {
+          const e = a.getStashEntries();
+          tabs = Array.isArray(e) ? e.length : -1;
+        }
+      } catch (e) {}
+      try {
+        if (typeof a.listStashes === "function") {
+          const s = a.listStashes();
+          stashes = Array.isArray(s) ? s.length : -1;
+        }
+      } catch (e) {}
+      if (tabs < 0 && stashes < 0) {
+        return base;
+      }
+      const bits = [];
+      if (tabs >= 0) {
+        bits.push(`${tabs} stashed tab${tabs === 1 ? "" : "s"}`);
+      }
+      if (stashes >= 0) {
+        bits.push(`${stashes} workspace stash${stashes === 1 ? "" : "es"}`);
+      }
+      return bits.length ? bits.join(" · ") : base;
+    } catch (e) {}
+    return base;
+  }
+
+  // One row per saved workspace stash, fuzzy-findable by name AND by
+  // what it contains (member hosts ride the sub line, so the normal
+  // title/sub scorer matches them). Kept out of the empty-query path
+  // (see commands()'s "pool" mode below) so the home list stays curated
+  // — they only surface once you type. Restore is append-only: it opens
+  // alongside whatever you have now.
+  // Host of one stashed URL for the restore-row sub line. Prefers the
+  // URL constructor, falls back to a scheme://host grab (same shape as
+  // the stash shared logic) — and never throws, so one junk URL can't
+  // hide every restore row. `typeof URL` guards node:vm test sandboxes,
+  // where the constructor doesn't exist.
+  function hostOfTabUrl(url) {
+    try {
+      const spec = String(url || "");
+      if (typeof URL === "function") {
+        try {
+          const h = (new URL(spec).hostname || "").toLowerCase().replace(/\.$/, "");
+          if (h) {
+            return h;
+          }
+        } catch (e) {}
+      }
+      const m = spec.match(/^[a-z]+:\/\/([^/:?#]+)/i);
+      return m ? m[1].toLowerCase().replace(/\.$/, "") : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function stashHosts(s) {
+    const out = [];
+    try {
+      const seen = new Set();
+      for (const t of (s && s.tabs) || []) {
+        let h = "";
+        try {
+          h = hostOfTabUrl((t && t.url) || "");
+        } catch (e) {}
+        if (h && !seen.has(h)) {
+          seen.add(h);
+          out.push(h);
+        }
+        if (out.length >= 3) {
+          break;
+        }
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  function stashRestoreRows() {
+    const out = [];
+    try {
+      const a = arc();
+      if (!a || typeof a.listStashes !== "function") {
+        return out;
+      }
+      const list = a.listStashes();
+      if (!Array.isArray(list)) {
+        return out;
+      }
+      for (const s of list.slice(0, 20)) {
+        try {
+          if (!s || !s.id || !Array.isArray(s.tabs) || !s.tabs.length) {
+            continue;
+          }
+          const n = s.tabs.length;
+          const hosts = stashHosts(s);
+          out.push({
+            title: `Restore ${s.name || "stash"}`,
+            hint: "",
+            sub: `WS ${s.ws || "1"} · ${n} tab${n === 1 ? "" : "s"}${hosts.length ? ` · ${hosts.join(" · ")}` : ""} · opens alongside current tabs`,
+            run: () => {
+              try {
+                const c = arc();
+                if (c && typeof c.restoreStash === "function") {
+                  c.restoreStash(s.id);
+                }
+              } catch (e) {}
+            },
+          });
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return out;
+  }
+
   function commands() {
     const api = ws();
     const cmds = [];
@@ -2099,6 +2540,8 @@
           } catch (e) {}
         },
       },
+      ...closeDupesRows(api),
+      ...splitViewRows(api),
       {
         title: "Unload Inactive Tabs",
         hint: "",
@@ -2122,30 +2565,47 @@
         },
       },
       {
-        title: archiveCmdTitle(),
+        title: stashCmdTitle(),
         hint: "",
         sub: "Saves workspace + container, closes the tab · restorable",
         run: () => {
           try {
-            if (arc() && arc().archiveCurrent) {
-              arc().archiveCurrent();
+            if (arc() && arc().stashCurrent) {
+              arc().stashCurrent();
             }
           } catch (e) {}
         },
       },
       {
-        title: "Open Archive",
+        title: "Stash Current Workspace…",
         hint: "",
-        sub: "Browse and restore archived tabs with full context",
+        sub: "Saves every tab in this workspace as one named snapshot · nothing is closed",
         run: () => {
           try {
-            if (arc() && arc().openArchive && arc().openArchive()) {
+            const a = arc();
+            if (a && typeof a.saveStash === "function") {
+              const n = a.saveStash();
+              if (!n) {
+                return;
+              }
+            }
+          } catch (e) {}
+        },
+      },
+      ...stashRestoreRows(),
+      {
+        title: "Open Stash",
+        hint: "",
+        sub: openStashSub(),
+        run: () => {
+          try {
+            if (arc() && arc().openStash && arc().openStash()) {
               return;
             }
           } catch (e) {}
           try {
             const t = gBrowser.addTrustedTab(
-              "chrome://browser/content/aph-archive.html"
+              "chrome://browser/content/aph-stash.html"
             );
             try {
               gBrowser.selectedTab = t;
@@ -2156,7 +2616,7 @@
       {
         title: "Open Aph Settings",
         hint: "",
-        sub: "Toggles for workspaces, archive, tabs, add-ons and sidebar",
+        sub: "Toggles for workspaces, stash, tabs and sidebar",
         run: () => {
           try {
             const url = "chrome://browser/content/aph-settings.html";
@@ -2217,6 +2677,19 @@
           try {
             if (window.AphTextPick) {
               window.AphTextPick.arm();
+            }
+          } catch (e) {}
+        },
+      },
+      {
+        title: "Copy Workspace Tabs as Markdown",
+        hint: "",
+        sub: workspaceMarkdownSub(api),
+        run: () => {
+          try {
+            const lines = workspaceMarkdownLines(api);
+            if (lines.length) {
+              copyStringToClipboard(lines.join("\n"));
             }
           } catch (e) {}
         },
@@ -2305,6 +2778,37 @@
           } catch (e) {}
           // Repaint so the row title flips Show ↔ Hide (otherwise the
           // toggle looks dead: palette stays open with a stale title).
+          try {
+            if (typeof render === "function" && input) {
+              render(input.value);
+            }
+          } catch (e) {}
+        },
+      },
+      {
+        // Same ✓/○ convention as above; state reads live from the
+        // window API (session-only, per-window — no pref behind it).
+        // keepOpen + repaint, like the sibling toggle: the row flips
+        // in place instead of looking dead.
+        title: (() => {
+          try {
+            const w = ws();
+            if (w && typeof w.getFocusMode === "function" && w.getFocusMode()) {
+              return "✓ Focus Mode (On)";
+            }
+          } catch (e) {}
+          return "○ Focus Mode (Off)";
+        })(),
+        hint: "Ctrl+Alt+F",
+        sub: "Hide every chrome surface, page only · session-only, this window",
+        keepOpen: true,
+        run: () => {
+          try {
+            const w = ws();
+            if (w && typeof w.toggleFocusMode === "function") {
+              w.toggleFocusMode();
+            }
+          } catch (e) {}
           try {
             if (typeof render === "function" && input) {
               render(input.value);
@@ -2726,8 +3230,8 @@
           tag(r, "bookmark", "Bookmarks");
         } else if (r.hint === "History") {
           tag(r, "history", "History");
-        } else if (r.hint === "Archive") {
-          tag(r, "archive", "Archive");
+        } else if (r.hint === "Stash") {
+          tag(r, "stash", "Stash");
         }
         if (!r.icon) {
           try {
@@ -2786,7 +3290,7 @@
       return scoreAndGroup(all, q);
     }
 
-    // Empty query: curated home per mode (stays clean, no places/archive).
+    // Empty query: curated home per mode (stays clean, no places/stash).
     // Commands float by frecency so the home view learns your habits;
     // tabs stay MRU-first from openTabs().
     if (!raw) {
@@ -2833,7 +3337,7 @@
         }
         return out;
       }
-      // bookmarks/history/archive with no query: nothing (needs 2+ chars).
+      // bookmarks/history/stash with no query: nothing (needs 2+ chars).
       return [];
     }
 
@@ -2857,10 +3361,10 @@
       } catch (e) {}
       return [];
     }
-    if (mode === "archive") {
+    if (mode === "stash") {
       try {
-        if (typeof aphArchivePoolItems === "function") {
-          const pool = tagPlacesRows(aphArchivePoolItems(raw));
+        if (typeof aphStashPoolItems === "function") {
+          const pool = tagPlacesRows(aphStashPoolItems(raw));
           return scoreAndGroup(pool, q);
         }
       } catch (e) {}
@@ -2885,9 +3389,9 @@
       }
     } catch (e) {}
     try {
-      if (typeof aphArchivePoolItems === "function") {
-        for (const r of aphArchivePoolItems(raw)) {
-          pool.push(tag(r, "archive", "Archive"));
+      if (typeof aphStashPoolItems === "function") {
+        for (const r of aphStashPoolItems(raw)) {
+          pool.push(tag(r, "stash", "Stash"));
         }
       }
     } catch (e) {}
@@ -3047,8 +3551,8 @@
     if (mode === "history") {
       return q.length < 2 ? "Type 2+ characters to search history" : `No history matches “${q}”`;
     }
-    if (mode === "archive") {
-      return q.length < 2 ? "Type 2+ characters to search the archive" : `Nothing archived matches “${q}”`;
+    if (mode === "stash") {
+      return q.length < 2 ? "Type 2+ characters to search the stash" : `Nothing stashed matches “${q}”`;
     }
     return `No results for “${q}” — Enter searches DuckDuckGo`;
   }
@@ -3849,6 +4353,41 @@
     }
   }
 
+  // True when focus sits in the browser's own search-entry fields
+  // (urlbar / searchbar). The stock Ctrl+K binding lives exactly there
+  // (focus-search), and hijacking it is the toggle's whole job — fresh
+  // tabs focus the urlbar, so treating those fields as blockers would
+  // surrender Ctrl+K to the search engine on every new tab.
+  function isSearchFieldFocused() {
+    try {
+      const ae = document.activeElement;
+      if (!ae || typeof ae.closest !== "function") {
+        return false;
+      }
+      return !!ae.closest("#urlbar, #searchbar");
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Whether focus blocks the Ctrl+K toggle: editable text keeps its
+  // keystrokes, except the browser's own search fields (see above).
+  // Our own field never blocks (ae === input reads as non-editable),
+  // so Ctrl+K still closes an open palette.
+  function ctrlKBlockedByFocus() {
+    try {
+      if (isOpen()) {
+        return false;
+      }
+      if (!isEditableFocused()) {
+        return false;
+      }
+      return !isSearchFieldFocused();
+    } catch (e) {
+      return false;
+    }
+  }
+
   function moveSelection(delta) {
     if (!items.length) {
       return;
@@ -3871,7 +4410,7 @@
       if (it.kind === "help") {
         return "Insert prefix";
       }
-      if (it.kind === "archive") {
+      if (it.kind === "stash") {
         return "Restore entry";
       }
       if (it.kind === "go" || it.kind === "bookmark" || it.kind === "history") {
@@ -4061,10 +4600,10 @@
     const mod = e.ctrlKey || e.metaKey;
     // Toggle on Ctrl/⌘+K (hijack Firefox's search-focus binding).
     if (mod && !e.altKey && !e.shiftKey && e.code === "KeyK") {
-      // Never steal keystrokes from editable text (urlbar, sidebar
-      // inputs, devtools, page editors). Our own field is exempt so
-      // Ctrl+K still closes an open palette.
-      if (!isOpen() && isEditableFocused()) {
+      // Never steal keystrokes from editable text (page editors,
+      // sidebar inputs, devtools) — except the browser's own search
+      // fields, which is where the hijacked binding lives.
+      if (ctrlKBlockedByFocus()) {
         return;
       }
       e.preventDefault();

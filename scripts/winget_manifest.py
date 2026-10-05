@@ -40,7 +40,7 @@ MINIMUM_OS = "10.0.0.0"
 SHORT_DESCRIPTION = "Firefox-based, workspaces-first web browser"
 DESCRIPTION = (
     "Aph is a Firefox-based, workspaces-first web browser: stock Firefox "
-    "with native workspace management, a command palette, tab archiving, "
+    "with native workspace management, a command palette, tab stashing, "
     "and hardened privacy defaults. Per-user install, no admin rights needed."
 )
 TAGS = ["browser", "firefox", "workspaces", "privacy"]

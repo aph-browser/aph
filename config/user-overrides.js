@@ -83,7 +83,7 @@ user_pref("aph.unload.autoEnabled", true);
 // 12b. Auto-unload staleness: tabs viewed within this many minutes are
 // spared when the sweep fires (default 30). Read live — about:config flips
 // apply to the next sweep. Tabs with no recorded view time count as stale.
-// Keep this below aph.archive.autoStaleMin so tabs discard before they close.
+// Keep this below aph.stash.autoStaleMin so tabs discard before they close.
 user_pref("aph.unload.staleMin", 30);
 
 // 12c. Unload on low memory: when Firefox reports memory pressure,
@@ -92,22 +92,24 @@ user_pref("aph.unload.staleMin", 30);
 // safe anywhere.
 user_pref("aph.unload.onLowMemory", true);
 
-// 12d. Automatic tab archiving: set true to archive (close + store in the
-// tab archive) every eligible hidden-workspace tab — 15 s after you stop
+// 12d. Automatic tab stashing: set true to stash (close + store in the
+// tab stash) every eligible hidden-workspace tab — 15 s after you stop
 // switching (each switch re-arms the settle timer; sitting still fires it).
 // Selected, pinned, starred, audible, loading and unsaved-form tabs never
 // auto-close.
-user_pref("aph.archive.autoEnabled", false);
+user_pref("aph.stash.autoEnabled", false);
 
-// 12e. Auto-archive staleness: tabs viewed within this many minutes are
+// 12e. Auto-stash staleness: tabs viewed within this many minutes are
 // spared when the sweep fires (default 5). Read live — about:config flips
 // apply to the next sweep. Tabs with no recorded view time count as stale.
-user_pref("aph.archive.autoStaleMin", 5);
+user_pref("aph.stash.autoStaleMin", 5);
 
-// 14. Silence extension first-run/welcome tabs (e.g. SponsorBlock help page).
-// Managed extensions can't take 3rdparty policy, so noisy install tabs are
-// closed pre-paint instead. Set false to keep them.
-user_pref("aph.addons.silenceFirstRun", true);
+// 12f. Workspace snapshots: periodic + safety auto-stash of workspaces
+// whose tabs changed (snapshots = workspace stashes). Toggle, cadence
+// and bulk-close threshold live in Aph Settings under Stash.
+user_pref("aph.stash.snapshots.autoEnabled", true);
+user_pref("aph.stash.snapshots.intervalMin", 30);
+user_pref("aph.stash.safetyMin", 3);
 
 // 15. Ctrl/Cmd+W on a selected pinned tab keeps it open instead of
 // closing — a drifted pin resets to its pinned base URL in place, a pin

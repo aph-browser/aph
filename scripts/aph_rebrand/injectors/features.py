@@ -2,23 +2,23 @@
 
 Each injector appends its files only to the browser omni (the caller gates
 on ``browser.xhtml`` presence) and only when the entry does not exist yet,
-so upgrades never duplicate entries. ``textpick`` / ``archivepage`` cover
+so upgrades never duplicate entries. ``textpick`` / ``stashpage`` cover
 their multi-file groups under a single counter, matching historical logs.
 """
 
 from __future__ import annotations
 
 from ..constants import (
-    ARCHIVE_CSS_JA_PATH,
-    ARCHIVE_HTML_JA_PATH,
-    ARCHIVE_JA_PATH,
-    ARCHIVE_PAGE_JA_PATH,
-    ARCHIVE_SHARED_JA_PATH,
     PALETTE_CSS_JA_PATH,
     PALETTE_JA_PATH,
     SETTINGS_CSS_JA_PATH,
     SETTINGS_HTML_JA_PATH,
     SETTINGS_PAGE_JA_PATH,
+    STASH_CSS_JA_PATH,
+    STASH_HTML_JA_PATH,
+    STASH_JA_PATH,
+    STASH_PAGE_JA_PATH,
+    STASH_SHARED_JA_PATH,
     TABRENAME_JA_PATH,
     TEXTPICK_CHILD_JA_PATH,
     TEXTPICK_JA_PATH,
@@ -145,18 +145,18 @@ class TextpickInjector:
         return out
 
 
-class ArchiveInjector:
-    """Window controllers (xhtml tags) + tag-less archive page files."""
+class StashInjector:
+    """Window controllers (xhtml tags) + tag-less stash page files."""
 
-    name = "archive"
+    name = "stash"
 
     def __init__(
         self,
-        archive_js: bytes | None,
+        stash_js: bytes | None,
         shared_js: bytes | None,
         page_files: dict[str, bytes],
     ) -> None:
-        self._archive_js = archive_js
+        self._stash_js = stash_js
         self._shared_js = shared_js
         self._page_files = page_files
 
@@ -165,20 +165,20 @@ class ArchiveInjector:
 
     def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
         out: list[tuple[str, bytes]] = []
-        if self._shared_js is not None and ARCHIVE_SHARED_JA_PATH not in existing:
-            counts.archiveshared += 1
-            out.append((ARCHIVE_SHARED_JA_PATH, self._shared_js))
-        if self._archive_js is not None and ARCHIVE_JA_PATH not in existing:
-            counts.archivejs += 1
-            out.append((ARCHIVE_JA_PATH, self._archive_js))
+        if self._shared_js is not None and STASH_SHARED_JA_PATH not in existing:
+            counts.stashshared += 1
+            out.append((STASH_SHARED_JA_PATH, self._shared_js))
+        if self._stash_js is not None and STASH_JA_PATH not in existing:
+            counts.stashjs += 1
+            out.append((STASH_JA_PATH, self._stash_js))
         for key in (
-            ARCHIVE_HTML_JA_PATH,
-            ARCHIVE_CSS_JA_PATH,
-            ARCHIVE_PAGE_JA_PATH,
+            STASH_HTML_JA_PATH,
+            STASH_CSS_JA_PATH,
+            STASH_PAGE_JA_PATH,
         ):
             data = self._page_files.get(key)
             if data is not None and key not in existing:
-                counts.archivepage += 1
+                counts.stashpage += 1
                 out.append((key, data))
         return out
 
@@ -202,7 +202,7 @@ class TabrenameInjector:
 class SettingsInjector:
     """Tag-less settings page files (HTML/CSS/page script).
 
-    Mirrors ArchiveInjector's page group: loads by chrome:// URL in its
+    Mirrors StashInjector's page group: loads by chrome:// URL in its
     own tab, never via browser.xhtml, so no tag work is needed.
     """
 
