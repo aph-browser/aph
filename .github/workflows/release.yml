@@ -309,39 +309,54 @@ jobs:
 
            ### What's new in __VER__
 
-           Command palette (`Ctrl+K`)
-           - Bold Raycast-style restyle with no open-flash-reopen
-             stutter, fuzzy stash search, and frecency ranking.
-           - Workspace icon picker is reachable from the palette and
-             from the dock menu.
+           Stash (was Archive)
+           - Renamed across UI, prefs (`aph.stash.*`), and pages
+             (`aph-stash.html`); existing stashes migrate
+             automatically and old keys are cleared.
+           - Workspace snapshots: periodic + safety auto-stash of
+             changed workspaces, with cadence and bulk-close
+             threshold in Settings under Stash.
+           - Stash search stays fuzzy with workspace + container
+             restore and staleness control.
 
-           Settings, welcome & stash
-           - Settings page is editable in place; welcome page has a
-             new hero tour (both re-openable from the Aph menu and
-             the palette).
-           - Stash search is fuzzy with workspace + container
-             restore and staleness control intact.
+           Split view & focus mode
+           - Split view (`Ctrl+Alt+\` or palette): native
+             side-by-side panes with the most-recently-viewed
+             same-workspace tab; switching workspaces separates
+             the pair, both tabs stay open.
+           - Focus mode (`Ctrl+Alt+F` or palette): hides all
+             chrome and leaves only the page; session-only and
+             per-window, palette stays reachable.
 
-           Workspaces
-           - Ten new workspace marks (research to fitness) with Lucide
-             icons; top-left pill renames on left-click and opens the
-             icon picker on right-click.
-           - Workspace switch now staggers tab arrival (calm cascade
-             for the first tabs, flat fade beyond) and respects
+           Workspaces & settings
+           - Per-workspace accent overrides (16 hues) alongside
+             names, tags, and Lucide icons.
+           - Switch keeps the staggered arrival plus the
+             directional rim-bloom glide and respects
              reduced-motion.
-           - Shared `aph-tokens.css` theme payload for palette,
-             settings, welcome, and stash.
+           - Auto-unload is on by default and workspace-agnostic;
+             Settings gains Accounts & Passwords toggles (off by
+             default) and persists through profile/user.js.
+           - Sync and the password manager are re-enabled;
+             removed policies are pruned via last-applied
+             snapshot; single POSIX seed-once implementation.
 
            Upstream robustness
            - Drift detector pins every stock selector/token/pref Aph
              depends on against the packaged Firefox (fails loud on
              upstream removal).
+           - Firefox base stays at 157.0 (current at release time,
+             recorded from application.ini during the build).
 
-           ### Heads-up upgrading from 0.2.x
+           ### Heads-up upgrading from 0.3.x
 
-           - No profile migration, no shortcut changes — drop-in
-             re-download over 0.2.0.
-           - For the 0.1.x notes (profile move, `Alt+1..9` shortcut,
+           - Drop-in re-download: no profile move, no shortcut
+             changes. Stash migration is automatic.
+           - Removed: the extension first-run silencer
+             (`aph.addons.silenceFirstRun`) — extension welcome
+             tabs will open again.
+           - For the 0.2.x notes, see the 0.3.0 release; for the
+             0.1.x notes (profile move, `Alt+1..9` shortcut,
              tree-style tabs removal), see the 0.2.0 release.
 
            ### Install
