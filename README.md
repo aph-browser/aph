@@ -15,6 +15,8 @@ Website: <https://aph-browser.github.io/> · [Releases](https://github.com/aph-b
 - **Stash** for tabs and whole workspaces: auto-sweep, workspace snapshots, container + workspace restore, and staleness tracking.
 - **Native tab groups** inside workspaces, **per-workspace container bindings**, **starred tabs**, and **tab unloading**.
 - **Split view** (`Ctrl+Alt+\` or palette): native side-by-side panes with the most-recently-viewed same-workspace tab; switching workspaces separates the pair, both tabs stay open.
+- **Focus mode** (`Ctrl+Alt+F` or palette): hides every chrome surface and leaves only the page; session-only and per-window, palette stays reachable.
+- **Workspace accents**: per-workspace hue overrides (16 hues) alongside names, tags, and icons.
 - **Privacy defaults**: telemetry, health reports, Normandy, and activity-stream telemetry off (see `config/user.js`); your edits persist (seed-once, below).
 - **First-run welcome** tour (workspaces, palette, tabs) plus an **Aph Settings** page — both re-openable from the Aph menu and the command palette.
 
