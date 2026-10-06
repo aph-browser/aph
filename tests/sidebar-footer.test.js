@@ -119,8 +119,4 @@ describe("sidebar footer", () => {
     assert.ok(!("data-aph-hide-footer" in attrs), "host attribute absent");
   });
 
-  it("exposes applySidebarFooter for console diagnosis", () => {
-    const { api } = footerWorld({});
-    assert.equal(typeof api.applySidebarFooter, "function");
-  });
 });

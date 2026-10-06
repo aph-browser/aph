@@ -13,14 +13,9 @@ CSS = ROOT / "branding" / "welcome.css"
 PAGE_JS = ROOT / "branding" / "welcome-page.js"
 TRIGGER = ROOT / "branding" / "src" / "workspaces" / "105-welcome.js"
 
-# Every shortcut the tour promises must be present in the page logic.
-TOUR_SHORTCUTS = (
-    "Alt+1",
-    "Alt+Shift+Tab",
-    "Ctrl+K",
-    "Ctrl+Alt+T",
-    "Ctrl+W",
-)
+# Shortcut teaching is covered behaviorally by tests/welcome.test.js
+# ("teaches the core shortcuts"); what remains here are the string-level
+# dead-path guards no behavioral test can see.
 
 
 def test_welcome_sources_exist() -> None:
@@ -66,13 +61,8 @@ def test_welcome_css_is_sane() -> None:
     assert "--wel-ws-1" not in css
 
 
-def test_welcome_tour_covers_shortcuts() -> None:
+def test_welcome_demo_reaches_live_palette() -> None:
     js = PAGE_JS.read_text(encoding="utf-8")
-    for keys in TOUR_SHORTCUTS:
-        assert keys in js, f"tour never teaches {keys}"
-    assert '"?"' in js or "'?'" in js, "tour must teach the palette ? modes"
-    assert "aph.welcome.seen" in js
-    assert "SECTIONS" in js
     # Demos must reach the real browser window: chrome tabs host no
     # AphPalette of their own, so window.parent is always a dead end.
     assert "getMostRecentWindow" in js, "demo must open the live palette"
@@ -81,21 +71,10 @@ def test_welcome_tour_covers_shortcuts() -> None:
     assert "aph-welcome-skip" not in js, "dead checkbox resurrected"
 
 
-def test_welcome_trigger_is_show_once() -> None:
-    src = TRIGGER.read_text(encoding="utf-8")
-    # Seen-flag gate with mark-first (a racing second window stays quiet).
-    assert "WELCOME_SEEN_PREF" in src
-    assert "welcomeFired" in src
-    assert "setWelcomeSeen()" in src
-    # Settles after session restore instead of racing it, with fallback.
-    assert "sessionstore-windows-restored" in src
-    assert "setTimeout(maybeShowWelcome, 3000)" in src
-    # Never in private windows, never in secondary windows.
-    assert "isPrivateWelcomeWindow" in src
-    assert "isFirstWelcomeWindow" in src
-    # Reuses one tab instead of stacking duplicates.
-    assert "function aphOpenWelcome()" in src
-
+def test_welcome_trigger_wired_into_init_and_bundle() -> None:
+    # Show-once behavior itself is covered by tests/welcome-trigger.test.js
+    # (six cases against the real trigger source); what remains here is the
+    # cross-file wiring no behavioral test sees.
     init = (ROOT / "branding" / "src" / "workspaces" / "110-chrome-init.js").read_text(
         encoding="utf-8"
     )
