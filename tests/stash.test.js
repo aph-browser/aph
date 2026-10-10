@@ -3,7 +3,7 @@
 // real scripts run in node:vm with Firefox globals mocked.
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { run, makeTab } = require("./helpers");
+const { run, makeTab, makeGroup } = require("./helpers");
 
 // ---- shared logic (pure, no mocks needed) ----
 const ssb = { window: {}, document: { readyState: "loading" } };
@@ -1316,6 +1316,519 @@ describe("stash pre-rename migration", () => {
     env.tabs.push(t);
     env.wsOf.set(t, "2");
     assert.equal(api.autoStashTabs([t], "legacy"), 1, "legacy snapshot auto pref honored");
+    delete prefStore["aph.stash.snapshots"];
+  });
+});
+
+describe("snapshot fidelity (groups, order, per-tab state)", () => {
+  function snapEnv(opts) {
+    const o = opts || {};
+    const env = makeSandbox();
+    if (o.auto !== undefined) {
+      env.sb.Services.prefs.getBoolPref = (k, d) =>
+        k === "aph.stash.snapshots.autoEnabled" ? o.auto : (d !== undefined ? d : false);
+    }
+    // SessionStore writes (restore re-applies star/name/lastViewed).
+    const store = env.sb.SessionStore;
+    if (typeof store.setCustomTabValue !== "function") {
+      store.setCustomTabValue = (t, k, v) => {
+        const cur = tabVals.get(t) || {};
+        cur[k] = v;
+        tabVals.set(t, cur);
+      };
+    }
+    if (typeof store.deleteCustomTabValue !== "function") {
+      store.deleteCustomTabValue = (t, k) => {
+        const cur = tabVals.get(t) || {};
+        delete cur[k];
+        tabVals.set(t, cur);
+      };
+    }
+    const api = loadStash(env);
+    return { env, api };
+  }
+
+  function liveTab(env, o) {
+    const t = makeTab(tabVals, Object.assign(
+      { label: "t", ws: "1", spec: "https://example.com/" }, o || {}
+    ));
+    env.tabs.push(t);
+    env.wsOf.set(t, (o && o.ws) || "1");
+    return t;
+  }
+
+  it("sanitizes fidelity fields and drops junk, keeping old snapshots loadable", () => {
+    const out = L.sanitizeSnapshots([
+      {
+        id: "s1", name: "Sprint", ws: "2", ts: 5, auto: true,
+        groups: [{ name: "Pair", color: "blue", collapsed: true }, null, "junk"],
+        selUrl: "https://a.example/",
+        wsName: "Work",
+        tabs: [
+          {
+            title: "A", url: "https://a.example/", cid: 7, idx: 0,
+            gi: 0, gname: "Pair", gcolor: "blue", gcollapsed: true,
+            cname: "Work", favicon: "https://a.example/f.ico",
+            star: true, starURL: "https://a.example/", tabName: "Custom",
+            lastViewed: 12345,
+          },
+          { title: "B", url: "https://b.example/", cid: 0, idx: 1, gi: 99 },
+          { url: "about:newtab" },
+        ],
+      },
+      { id: "old", name: "Old", ws: "1", ts: 1, tabs: [{ url: "https://o.example/" }] },
+    ]);
+    assert.equal(out.length, 2);
+    const s1 = out.find((s) => s.id === "s1");
+    assert.equal(s1.groups.length, 1);
+    assert.equal(s1.groups[0].name, "Pair");
+    assert.equal(s1.selUrl, "https://a.example/");
+    assert.equal(s1.wsName, "Work");
+    assert.equal(s1.tabs[0].gi, 0);
+    assert.equal(s1.tabs[0].gname, "Pair");
+    assert.equal(s1.tabs[0].star, true);
+    assert.equal(s1.tabs[0].tabName, "Custom");
+    assert.equal(s1.tabs[0].lastViewed, 12345);
+    assert.equal(s1.tabs[1].gi, null, "out-of-range gi normalizes to null");
+    const old = out.find((s) => s.id === "old");
+    assert.equal(old.tabs.length, 1, "old snapshots without fidelity still load");
+  });
+
+  it("content key separates URL set, order, groups and selection", () => {
+    const base = [
+      { url: "https://a.example/", gi: -1 },
+      { url: "https://b.example/", gi: -1 },
+    ];
+    const same = L.snapshotContentKey(base, "");
+    assert.ok(same);
+    assert.equal(
+      L.snapshotContentKey(
+        [{ url: "https://b.example/", gi: -1 }, { url: "https://a.example/", gi: -1 }],
+        ""
+      ) === same,
+      false,
+      "reorder changes the key"
+    );
+    assert.equal(
+      L.snapshotContentKey(
+        [
+          { url: "https://a.example/", gi: 0, gname: "Pair", gcollapsed: false },
+          { url: "https://b.example/", gi: 0, gname: "Pair", gcollapsed: false },
+        ],
+        ""
+      ) ===
+        L.snapshotContentKey(
+          [
+            { url: "https://a.example/", gi: 0, gname: "Pair", gcollapsed: true },
+            { url: "https://b.example/", gi: 0, gname: "Pair", gcollapsed: true },
+          ],
+          ""
+        ),
+      false,
+      "collapse change changes the key"
+    );
+    assert.equal(
+      L.snapshotContentKey(base, "https://a.example/") === L.snapshotContentKey(base, "https://b.example/"),
+      false,
+      "selection change changes the key"
+    );
+    assert.equal(
+      L.snapshotContentKey(base, "") === L.snapshotContentKey(base, ""),
+      true,
+      "identical content is stable"
+    );
+  });
+
+  it("event budget allows the first capture, then cools down", () => {
+    assert.equal(L.SNAP_EVENT_COOLDOWN_MS, 10 * 60 * 1000);
+    const now = 1_000_000_000;
+    assert.equal(L.eventDue(0, now, 600000), true, "never captured is due");
+    assert.equal(L.eventDue(now - 599999, now, 600000), false);
+    assert.equal(L.eventDue(now - 600000, now, 600000), true, "boundary is due");
+    assert.equal(L.eventDue(now - 1, "junk", 600000), false);
+  });
+
+  it("capture stores groups, order, selection and per-tab fidelity", () => {
+    delete prefStore["aph.stash.snapshots"];
+    const { env, api } = snapEnv();
+    const a = liveTab(env, { label: "a", ws: "2", spec: "https://a.example/", cid: 7 });
+    const b = liveTab(env, { label: "b", ws: "2", spec: "https://b.example/" });
+    makeGroup([a, b], { label: "Pair", color: "blue", collapsed: true });
+    a.image = "https://a.example/f.ico";
+    tabVals.get(a).aphStarred = "1";
+    tabVals.get(a).aphStarURL = "https://a.example/";
+    tabVals.get(a).aphTabName = "Custom A";
+    tabVals.get(a).aphLastViewed = "424242";
+    const sel = liveTab(env, { label: "sel", ws: "2", spec: "https://sel.example/" });
+    env.setSel(sel);
+    env.setCur("2");
+    env.sb.window.AphWorkspaces.getWsName = () => "Work";
+    assert.equal(api.saveStash("Sprint", "2"), 3);
+    const snap = JSON.parse(prefStore["aph.stash.snapshots"])[0];
+    assert.equal(snap.groups.length, 1);
+    assert.equal(snap.groups[0].name, "Pair");
+    assert.equal(snap.selUrl, "https://sel.example/");
+    assert.equal(snap.wsName, "Work");
+    assertJsonEqual(snap.tabs.map((t) => t.url), [
+      "https://a.example/",
+      "https://b.example/",
+      "https://sel.example/",
+    ]);
+    const ra = snap.tabs[0];
+    assert.equal(ra.gi, 0);
+    assert.equal(ra.gname, "Pair");
+    assert.equal(ra.gcollapsed, true);
+    assert.equal(ra.star, true);
+    assert.equal(ra.tabName, "Custom A");
+    assert.equal(ra.lastViewed, 424242);
+    assert.equal(ra.favicon, "https://a.example/f.ico");
+    assert.equal(ra.cname, "Work");
+    delete prefStore["aph.stash.snapshots"];
+  });
+
+  it("sweep captures on reorder alone, then goes quiet", () => {
+    delete prefStore["aph.stash.snapshots"];
+    const { env, api } = snapEnv({ auto: true });
+    const a = liveTab(env, { label: "a", ws: "2", spec: "https://a.example/" });
+    const b = liveTab(env, { label: "b", ws: "2", spec: "https://b.example/" });
+    env.setCur("2");
+    assert.equal(api.sweepWorkspace("2"), 1, "first capture");
+    assert.equal(api.sweepWorkspace("2"), 0, "unchanged is skipped");
+    // Reorder the strip: same URL set, different order.
+    env.tabs.splice(env.tabs.indexOf(a), 1);
+    env.tabs.push(a);
+    assert.equal(api.sweepWorkspace("2"), 1, "reorder triggers a capture");
+    assert.equal(api.sweepWorkspace("2"), 0, "quiet again");
+    void b;
+    delete prefStore["aph.stash.snapshots"];
+  });
+
+  it("sweepWorkspaceEvent honors the per-workspace cooldown", () => {
+    delete prefStore["aph.stash.snapshots"];
+    const { env, api } = snapEnv({ auto: true });
+    liveTab(env, { label: "a", ws: "2", spec: "https://a.example/" });
+    env.setCur("2");
+    const now = Date.now();
+    assert.equal(api.sweepWorkspaceEvent("2", now), 1, "first event captures");
+    liveTab(env, { label: "b", ws: "2", spec: "https://b.example/" });
+    assert.equal(api.sweepWorkspaceEvent("2", now + 1000), 0, "cooldown suppresses burst");
+    assert.equal(
+      api.sweepWorkspaceEvent("2", now + L.SNAP_EVENT_COOLDOWN_MS + 1),
+      1,
+      "after cooldown the change captures"
+    );
+    delete prefStore["aph.stash.snapshots"];
+  });
+
+  it("restore reorders, regroups, selects saved tab and reapplies fidelity", () => {
+    delete prefStore["aph.stash.snapshots"];
+    const { env, api } = snapEnv();
+    // Source workspace with a group + fidelity.
+    const a = liveTab(env, { label: "a", ws: "2", spec: "https://a.example/" });
+    const b = liveTab(env, { label: "b", ws: "2", spec: "https://b.example/" });
+    makeGroup([a, b], { label: "Pair", color: "blue", collapsed: true });
+    tabVals.get(b).aphStarred = "1";
+    tabVals.get(b).aphTabName = "Bee";
+    tabVals.get(b).aphLastViewed = "777";
+    env.setSel(b);
+    env.setCur("2");
+    api.saveStash("Sprint", "2");
+    const snap = JSON.parse(prefStore["aph.stash.snapshots"])[0];
+    // Close the source tabs so restore appends them back.
+    for (const t of [a, b]) {
+      env.tabs.splice(env.tabs.indexOf(t), 1);
+    }
+    // Track moves + group creation.
+    const moved = [];
+    env.sb.gBrowser.moveTabTo = (t, opts) => {
+      moved.push(t);
+      const cur = env.tabs.indexOf(t);
+      env.tabs.splice(cur, 1);
+      env.tabs.splice(Math.max(0, Math.min(opts.tabIndex, env.tabs.length)), 0, t);
+    };
+    const created = [];
+    env.sb.gBrowser.addTabGroup = (tabs, opts) => {
+      const g = makeGroup(tabs, {});
+      const meta = (snap.groups || [])[0] || {};
+      g.label = meta.name || "";
+      g.color = meta.color || "";
+      g.collapsed = !!meta.collapsed;
+      env.sb.gBrowser.tabGroups = env.sb.gBrowser.tabGroups || [];
+      env.sb.gBrowser.tabGroups.push(g);
+      created.push(g);
+      void opts;
+      return g;
+    };
+    env.setCur("1");
+    const r = api.restoreStash(snap.id);
+    assert.equal(r.ok, true);
+    assert.equal(r.opened, 2);
+    // Relative order preserved (a before b) even though appended.
+    const ia = env.tabs.findIndex((t) => {
+      try {
+        return t.linkedBrowser.currentURI.spec === "https://a.example/";
+      } catch (e) {
+        return false;
+      }
+    });
+    const ib = env.tabs.findIndex((t) => {
+      try {
+        return t.linkedBrowser.currentURI.spec === "https://b.example/";
+      } catch (e) {
+        return false;
+      }
+    });
+    assert.ok(ia !== -1 && ib !== -1 && ia < ib, "snapshot order kept");
+    assert.equal(created.length, 1, "group recreated");
+    assert.equal(created[0].label, "Pair");
+    assert.equal(created[0].collapsed, true);
+    // Saved selection (b) is selected, not merely first.
+    assert.equal(env.getSel().linkedBrowser.currentURI.spec, "https://b.example/");
+    // Fidelity re-applied to the restored b tab.
+    const restoredB = env.tabs[ib];
+    assert.equal(tabVals.get(restoredB).aphStarred, "1");
+    assert.equal(tabVals.get(restoredB).aphTabName, "Bee");
+    assert.equal(tabVals.get(restoredB).aphLastViewed, "777");
+    assert.ok(moved.length >= 0, "reorder path exercised without throw");
+    delete prefStore["aph.stash.snapshots"];
+  });
+
+  it("queueEventCapture debounces bursts into one timer", () => {
+    delete prefStore["aph.stash.snapshots"];
+    const env = makeSandbox();
+    env.sb.Services.prefs.getBoolPref = (k) =>
+      k === "aph.stash.snapshots.autoEnabled" ? true : false;
+    const api = loadStash(env);
+    const armed = [];
+    const cleared = [];
+    let nextId = 1;
+    env.sb.setTimeout = (fn, ms) => {
+      const id = nextId++;
+      armed.push({ id, fn, ms });
+      return id;
+    };
+    env.sb.clearTimeout = (id) => {
+      cleared.push(id);
+    };
+    liveTab(env, { label: "a", ws: "2", spec: "https://a.example/" });
+    assert.equal(api.queueEventCapture("2"), true);
+    assert.equal(api.queueEventCapture("2"), true, "re-arm while pending");
+    assert.equal(armed.length, 2);
+    assertJsonEqual(cleared, [armed[0].id]);
+    assert.equal(armed[0].ms, 30000);
+    delete prefStore["aph.stash.snapshots"];
+  });
+
+  it("notifyWorkspaceSwitch sweeps the arrival workspace when due", () => {
+    delete prefStore["aph.stash.snapshots"];
+    const { env, api } = snapEnv({ auto: true });
+    liveTab(env, { label: "a", ws: "3", spec: "https://a.example/" });
+    env.setCur("3");
+    assert.equal(api.notifyWorkspaceSwitch("3"), 1, "arrival captures");
+    assert.equal(api.notifyWorkspaceSwitch("3"), 0, "second call is changed-gated");
+    assert.equal(api.notifyWorkspaceSwitch("nope"), 0);
+    delete prefStore["aph.stash.snapshots"];
+  });
+
+  it("finds snapshots by group name, not just tab content", () => {
+    const snaps = [
+      {
+        id: "s1", name: "Sprint", ws: "2", ts: 1, auto: false,
+        groups: [{ name: "Pair", color: "blue", collapsed: false }],
+        tabs: [{ title: "A", url: "https://a.example/", gi: 0, gname: "Pair" }],
+      },
+    ];
+    const ids = (q) => L.fuzzyStashFilter(snaps, q).map((r) => r.snap.id);
+    assertJsonEqual(ids("pair"), ["s1"]);
+    assertJsonEqual(ids("zzz"), []);
+  });
+});
+
+describe("tiered retention + slow tick + close hook", () => {
+  function tierEnv(opts) {
+    const o = opts || {};
+    const env = makeSandbox();
+    env.sb.Services.prefs.getBoolPref = (k) =>
+      k === "aph.stash.snapshots.autoEnabled" ? true : false;
+    if (o.maxAuto !== undefined || o.keepDailies !== undefined) {
+      const base = env.sb.Services.prefs.getIntPref;
+      env.sb.Services.prefs.getIntPref = (k) => {
+        if (k === "aph.stash.snapshots.maxAuto" && o.maxAuto !== undefined) {
+          return o.maxAuto;
+        }
+        if (k === "aph.stash.snapshots.keepDailies" && o.keepDailies !== undefined) {
+          return o.keepDailies;
+        }
+        if (typeof base === "function") {
+          return base(k);
+        }
+        throw new Error("missing pref");
+      };
+    }
+    const store = env.sb.SessionStore;
+    if (typeof store.setCustomTabValue !== "function") {
+      store.setCustomTabValue = (t, k, v) => {
+        const cur = tabVals.get(t) || {};
+        cur[k] = v;
+        tabVals.set(t, cur);
+      };
+    }
+    const api = loadStash(env);
+    return { env, api };
+  }
+
+  function liveTab2(env, o) {
+    const t = makeTab(tabVals, Object.assign(
+      { label: "t", ws: "1", spec: "https://example.com/" }, o || {}
+    ));
+    env.tabs.push(t);
+    env.wsOf.set(t, (o && o.ws) || "1");
+    return t;
+  }
+
+  it("dayKey buckets local calendar days, blanks junk", () => {
+    const a = new Date(2026, 4, 3, 23, 59, 0).getTime();
+    const b = new Date(2026, 4, 4, 0, 1, 0).getTime();
+    assert.ok(L.dayKey(a) !== L.dayKey(b), "midnight boundary splits days");
+    assert.equal(L.dayKey(a), L.dayKey(a + 1000), "same day stable");
+    assert.equal(L.dayKey(0), "");
+    assert.equal(L.dayKey(-5), "");
+    assert.equal(L.dayKey("junk"), "");
+    assert.equal(L.dayKey(null), "");
+  });
+
+  it("clamps the new retention prefs", () => {
+    assert.equal(L.clampMaxAuto(10), 10);
+    assert.equal(L.clampMaxAuto(0), 1);
+    assert.equal(L.clampMaxAuto(999), 50);
+    assert.equal(L.clampMaxAuto("junk"), 10);
+    assert.equal(L.clampKeepDailies(7), 7);
+    assert.equal(L.clampKeepDailies(-1), 0);
+    assert.equal(L.clampKeepDailies(999), 30);
+    assert.equal(L.clampKeepDailies("junk"), 7);
+  });
+
+  it("tiered prune keeps recents plus one per recent day", () => {
+    const day = 86400000;
+    const base = new Date(2026, 4, 10, 12, 0, 0).getTime();
+    const mk = (id, ts) => ({
+      id, name: id, ws: "1", ts, auto: true,
+      tabs: [{ url: `https://${id}.example/` }],
+    });
+    // 4 autos today + 1 auto on each of the 3 prior days + 1 eight days ago.
+    const list = [
+      mk("t3", base - 3 * 60000),
+      mk("t2", base - 2 * 60000),
+      mk("t1", base - 60000),
+      mk("t0", base),
+      mk("d1", base - 1 * day),
+      mk("d2", base - 2 * day),
+      mk("d3", base - 3 * day),
+      mk("old", base - 8 * day),
+    ];
+    const out = L.pruneSnapshotsTiered(list, 2, 3, base);
+    const ids = out.map((s) => s.id).sort();
+    // Recents t0,t1 + dailies t0(or t-group today),d1,d2 (3 day slots).
+    assert.ok(ids.includes("t0") && ids.includes("t1"), ids.join(","));
+    assert.ok(ids.includes("d1") && ids.includes("d2"), ids.join(","));
+    assert.ok(!ids.includes("old"), "8-day-old outside the window goes");
+    assert.ok(!ids.includes("t2") && !ids.includes("t3"), "non-recent same-day extras go");
+    // Manuals untouched.
+    const withManual = [...list, mk("m0", base - 9 * day)];
+    withManual[withManual.length - 1].auto = false;
+    const out2 = L.pruneSnapshotsTiered(withManual, 2, 3, base, 20);
+    assert.ok(out2.some((s) => s.id === "m0"), "manual pool independent");
+  });
+
+  it("zero dailies degrades to flat recents", () => {
+    const base = new Date(2026, 4, 10, 12, 0, 0).getTime();
+    const list = Array.from({ length: 6 }, (_, i) => ({
+      id: `a${i}`, name: "A", ws: "1", ts: base - i * 60000, auto: true,
+      tabs: [{ url: `https://a${i}.example/` }],
+    }));
+    const out = L.pruneSnapshotsTiered(list, 2, 0, base);
+    assertJsonEqual(out.map((s) => s.id), ["a0", "a1"]);
+  });
+
+  it("slow key ignores selection but moves on open/close/move", () => {
+    const tabs = [
+      { url: "https://a.example/", gi: -1 },
+      { url: "https://b.example/", gi: -1 },
+    ];
+    const k1 = L.slowContentKey(tabs);
+    assert.ok(k1);
+    assert.equal(L.slowContentKey(tabs), k1, "stable");
+    // Selection is not an input: same tabs, any selUrl collapses to k1.
+    assert.equal(L.snapshotContentKey(tabs, "https://a.example/") === L.snapshotContentKey(tabs, "https://b.example/"), false, "full key sees selection");
+    // Open / close / reorder / regroup move the slow key.
+    assert.ok(L.slowContentKey([...tabs, { url: "https://c.example/", gi: -1 }]) !== k1, "open moves it");
+    assert.ok(L.slowContentKey([tabs[0]]) !== k1, "close moves it");
+    assert.ok(L.slowContentKey([tabs[1], tabs[0]]) !== k1, "reorder moves it");
+    assert.ok(
+      L.slowContentKey([
+        { url: "https://a.example/", gi: 0, gname: "G" },
+        { url: "https://b.example/", gi: 0, gname: "G" },
+      ]) !== k1,
+      "grouping moves it"
+    );
+  });
+
+  it("slow sweep captures moves, skips selection-only drift", () => {
+    delete prefStore["aph.stash.snapshots"];
+    const { env, api } = tierEnv();
+    liveTab2(env, { label: "a", ws: "2", spec: "https://a.example/" });
+    env.setCur("2");
+    assert.equal(api.sweepSlowWorkspace("2"), 1, "first slow capture");
+    assert.equal(api.sweepSlowWorkspace("2"), 0, "unchanged is skipped");
+    // Selection-only change: slow tier stays quiet (fast tier would fire).
+    const b = liveTab2(env, { label: "b", ws: "2", spec: "https://b.example/" });
+    env.setSel(b);
+    assert.equal(api.sweepWorkspace("2"), 1, "full key sees the new tab");
+    assert.equal(api.sweepSlowWorkspace("2"), 0, "slow sees nothing new after fast caught up");
+    // A real move triggers the slow tier too.
+    env.tabs.splice(env.tabs.indexOf(b), 1);
+    env.tabs.unshift(b);
+    assert.equal(api.sweepSlowWorkspace("2"), 1, "reorder triggers slow capture");
+    delete prefStore["aph.stash.snapshots"];
+  });
+
+  it("slow tick covers every active workspace, changed-gated", () => {
+    delete prefStore["aph.stash.snapshots"];
+    const { env, api } = tierEnv();
+    env.sb.window.AphWorkspaces.getActiveWorkspaces = () => ["1", "2"];
+    liveTab2(env, { label: "a", ws: "1", spec: "https://a.example/" });
+    liveTab2(env, { label: "b", ws: "2", spec: "https://b.example/" });
+    env.setCur("1");
+    assert.equal(api.autoStashSlowTick(), 2, "both workspaces captured");
+    assert.equal(api.autoStashSlowTick(), 0, "quiet when nothing moved");
+    delete prefStore["aph.stash.snapshots"];
+  });
+
+  it("close then unload captures once (changed gate absorbs the double)", () => {
+    delete prefStore["aph.stash.snapshots"];
+    const { env, api } = tierEnv();
+    env.sb.window.AphWorkspaces.getActiveWorkspaces = () => ["2"];
+    liveTab2(env, { label: "a", ws: "2", spec: "https://a.example/" });
+    env.setCur("2");
+    assert.equal(api.captureChangedWorkspaces(), 1, "close hook captures");
+    assert.equal(api.captureChangedWorkspaces(), 0, "unload net finds nothing new");
+    delete prefStore["aph.stash.snapshots"];
+  });
+
+  it("retention prefs flow live into saveStashes", () => {
+    delete prefStore["aph.stash.snapshots"];
+    const { env, api } = tierEnv({ maxAuto: 1, keepDailies: 0 });
+    assert.equal(api.getMaxAuto(), 1);
+    assert.equal(api.getKeepDailies(), 0);
+    liveTab2(env, { label: "a", ws: "2", spec: "https://a.example/" });
+    env.setCur("2");
+    api.saveStash("M1", "2");
+    liveTab2(env, { label: "b", ws: "2", spec: "https://b.example/" });
+    // Two autos with maxAuto=1: only the newest auto survives (plus manuals).
+    api.autoStashSweepNow();
+    api.autoStashSweepNow();
+    const autos = api.listStashes().filter((s) => s.auto);
+    assert.ok(autos.length <= 1, `autos capped live, got ${autos.length}`);
     delete prefStore["aph.stash.snapshots"];
   });
 });

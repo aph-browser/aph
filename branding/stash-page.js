@@ -630,6 +630,19 @@
       const n = (snap.tabs || []).length;
       bits.push(`${n} tab${n === 1 ? "" : "s"}`);
       try {
+        const gs = Array.isArray(snap.groups) ? snap.groups : [];
+        const withMembers = new Set();
+        for (const t of snap.tabs || []) {
+          if (t && Number.isInteger(t.gi) && t.gi >= 0) {
+            withMembers.add(t.gi);
+          }
+        }
+        const gc = withMembers.size || gs.length;
+        if (gc > 0) {
+          bits.push(`${gc} group${gc === 1 ? "" : "s"}`);
+        }
+      } catch (e) {}
+      try {
         const when = l && l.dayLabel ? l.dayLabel(snap.ts, Date.now()) : "";
         if (when) {
           bits.push(when);
@@ -734,12 +747,34 @@
     main.className = "aph-stash-main";
     const title = document.createElement("div");
     title.className = "aph-stash-title";
-    title.textContent = t.title || t.url;
+    let label = t.tabName || t.title || t.url;
+    if (t.star) {
+      label = `★ ${label}`;
+    }
+    title.textContent = label;
     title.title = t.url || "";
     main.appendChild(title);
     const dom = document.createElement("div");
     dom.className = "aph-stash-domain";
-    dom.textContent = memberHost(t);
+    const bits = [memberHost(t)];
+    try {
+      const gname =
+        (t.gname && String(t.gname)) ||
+        (Number.isInteger(t.gi) &&
+          snap.groups &&
+          snap.groups[t.gi] &&
+          snap.groups[t.gi].name) ||
+        "";
+      if (gname) {
+        bits.push(`▣ ${gname}`);
+      } else if (Number.isInteger(t.gi) && t.gi >= 0) {
+        bits.push("▣ grouped");
+      }
+    } catch (e) {}
+    if (t.cname) {
+      bits.push(t.cname);
+    }
+    dom.textContent = bits.filter(Boolean).join(" · ");
     main.appendChild(dom);
     row.appendChild(main);
     const del = document.createElement("button");

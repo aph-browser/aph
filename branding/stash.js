@@ -686,6 +686,10 @@
   const SNAP_SAFETY_DEFAULT_MIN = 3;
   const SNAP_SAFETY_MIN_MIN = 1;
   const SNAP_SAFETY_MAX_MIN = 9;
+  // Tiered autos retention (global): newest maxAuto recents plus newest
+  // one per calendar day for keepDailies days. Manuals stay flat 20.
+  const SNAP_MAX_AUTO_PREF = "aph.stash.snapshots.maxAuto";
+  const SNAP_DAILIES_PREF = "aph.stash.snapshots.keepDailies";
   // Sweeper heartbeat. Short enough that cadence flips apply within
   // minutes without timer surgery; each fire is a cheap URL-set compare
   // and captures only due-and-changed workspaces (often nothing).
@@ -743,6 +747,38 @@
     }
   }
 
+  function getMaxAuto() {
+    const L = logic();
+    const fallback = L && Number.isInteger(L.SNAP_MAX_AUTO) ? L.SNAP_MAX_AUTO : 10;
+    try {
+      const v = readIntPref(SNAP_MAX_AUTO_PREF, "", fallback);
+      if (L && typeof L.clampMaxAuto === "function") {
+        return L.clampMaxAuto(v);
+      }
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(50, Math.max(1, Math.floor(n))) : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  function getKeepDailies() {
+    const L = logic();
+    const fallback = L && Number.isInteger(L.SNAP_KEEP_DAILIES_DEFAULT)
+      ? L.SNAP_KEEP_DAILIES_DEFAULT
+      : 7;
+    try {
+      const v = readIntPref(SNAP_DAILIES_PREF, "", fallback);
+      if (L && typeof L.clampKeepDailies === "function") {
+        return L.clampKeepDailies(v);
+      }
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(30, Math.max(0, Math.floor(n))) : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+
   function loadStashes() {
     if (snapCache) {
       return snapCache;
@@ -784,7 +820,25 @@
 
   function saveStashes(list) {
     const L = logic();
-    const pruned = L ? L.pruneSnapshots(list) : (list || []).slice(0, 20);
+    let pruned = null;
+    try {
+      if (L && typeof L.pruneSnapshotsTiered === "function") {
+        pruned = L.pruneSnapshotsTiered(list, getMaxAuto(), getKeepDailies(), Date.now());
+      } else if (L) {
+        pruned = L.pruneSnapshots(list);
+      } else {
+        pruned = (list || []).slice(0, 20);
+      }
+    } catch (e) {
+      pruned = null;
+    }
+    if (!Array.isArray(pruned)) {
+      try {
+        pruned = L ? L.pruneSnapshots(list) : (list || []).slice(0, 20);
+      } catch (_e) {
+        pruned = (list || []).slice(0, 20);
+      }
+    }
     snapCache = pruned;
     try {
       Services.prefs.setStringPref(SNAP_PREF, JSON.stringify(pruned));
@@ -800,8 +854,155 @@
     }
   }
 
+  // SessionStore custom-value read (fail-safe: missing service or key
+  // reads as empty). Keys duplicated here by design — same pattern as
+  // aphLastViewed / aphStarred elsewhere in this file.
+  function readTabValue(tab, key) {
+    try {
+      if (
+        typeof SessionStore !== "undefined" &&
+        SessionStore &&
+        typeof SessionStore.getCustomTabValue === "function"
+      ) {
+        const v = SessionStore.getCustomTabValue(tab, key);
+        return typeof v === "string" || typeof v === "number" ? v : "";
+      }
+    } catch (e) {}
+    return "";
+  }
+
+  function writeTabValue(tab, key, value) {
+    try {
+      if (
+        typeof SessionStore !== "undefined" &&
+        SessionStore &&
+        typeof SessionStore.setCustomTabValue === "function"
+      ) {
+        SessionStore.setCustomTabValue(tab, key, String(value));
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // Native group state off a live tab. Reads label/color/collapsed
+  // defensively — stock shapes vary by Firefox version (label vs name vs
+  // title) and tests only model a subset. Returns null when ungrouped.
+  function groupInfoOf(tab) {
+    try {
+      const g = tab && tab.group;
+      if (!g || typeof g !== "object") {
+        return null;
+      }
+      let name = "";
+      try {
+        name =
+          (typeof g.label === "string" && g.label) ||
+          (typeof g.name === "string" && g.name) ||
+          (typeof g.title === "string" && g.title) ||
+          "";
+      } catch (e) {}
+      let color = "";
+      try {
+        color = typeof g.color === "string" ? g.color : "";
+      } catch (e) {}
+      let collapsed = false;
+      try {
+        collapsed = g.collapsed === true || g.collapsed === 1;
+      } catch (e) {}
+      return { name: String(name || ""), color: String(color || ""), collapsed };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function fidelityOf(tab, cid) {
+    const out = {};
+    try {
+      let star = false;
+      try {
+        if (readTabValue(tab, "aphStarred") === "1") {
+          star = true;
+        } else if (
+          typeof tab.hasAttribute === "function" &&
+          tab.hasAttribute("data-aph-starred")
+        ) {
+          star = true;
+        }
+      } catch (e) {}
+      if (star) {
+        out.star = true;
+      }
+      try {
+        const su = readTabValue(tab, "aphStarURL");
+        if (su && String(su).length <= 2048) {
+          out.starURL = String(su);
+        }
+      } catch (e) {}
+      try {
+        const nm = readTabValue(tab, "aphTabName");
+        if (nm && String(nm).trim()) {
+          out.tabName = String(nm).trim().slice(0, 100);
+        }
+      } catch (e) {}
+      try {
+        const lv = Number(readTabValue(tab, "aphLastViewed"));
+        if (Number.isFinite(lv) && lv > 0) {
+          out.lastViewed = Math.floor(lv);
+        }
+      } catch (e) {}
+      try {
+        if (typeof tab.image === "string" && tab.image && tab.image.length <= 8192) {
+          out.favicon = tab.image;
+        }
+      } catch (e) {}
+      try {
+        const w = ws();
+        if (cid && w && typeof w.describeContainer === "function") {
+          const d = w.describeContainer(cid);
+          if (d && d.name) {
+            out.cname = String(d.name).slice(0, 80);
+          }
+        }
+      } catch (e) {}
+    } catch (e) {}
+    return out;
+  }
+
+  function selectedUrlOf(target) {
+    try {
+      const sel = gBrowser.selectedTab;
+      if (!sel || sel.closing) {
+        return "";
+      }
+      const w = ws();
+      try {
+        if (w && typeof w.getWs === "function" && w.getWs(sel) !== target) {
+          return "";
+        }
+      } catch (e) {}
+      return tabUrl(sel) || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function wsNameOf(target) {
+    try {
+      const w = ws();
+      if (w && typeof w.getWsName === "function") {
+        const n = w.getWsName(target);
+        if (n && String(n).trim()) {
+          return String(n).trim().slice(0, 40);
+        }
+      }
+    } catch (e) {}
+    return "";
+  }
+
   // Live tabs that a stash of `target` would capture: untagged-ish pages
   // only, pins and internal pages excluded, de-duplicated by URL.
+  // Strip order is preserved (callers store idx for reorder + display).
   function stashedTabsIn(target) {
     const out = [];
     const seen = new Set();
@@ -848,6 +1049,12 @@
   // Same capture, but also reporting the new stash id so safety-net
   // callers can offer an undo. Internal: saveStash keeps the plain
   // count contract the palette relies on.
+  //
+  // Fidelity: per-tab strip order (idx), native group membership (gi +
+  // denormalized gname/gcolor/gcollapsed + envelope groups[]), selected
+  // URL, workspace name, starred state + base URL, custom tab name,
+  // last-viewed, favicon and container display name. All optional —
+  // old snapshots without them still restore.
   function captureStashEx(tabs, wsArg, name, auto) {
     const none = { count: 0, id: "" };
     try {
@@ -865,6 +1072,8 @@
       const live = Array.isArray(tabs) ? tabs : stashedTabsIn(target);
       const picked = [];
       const seen = new Set();
+      const groupObjs = [];
+      const groupIndex = new Map();
       for (const t of live) {
         try {
           if (!t || t.closing || t.pinned) {
@@ -875,11 +1084,66 @@
             continue;
           }
           seen.add(url);
-          picked.push({
+          const cid = Number(t.userContextId) || 0;
+          const rec = {
             title: String(t.label || "") || url,
             url,
-            cid: Number(t.userContextId) || 0,
-          });
+            cid,
+            idx: picked.length,
+          };
+          try {
+            const gi0 = groupInfoOf(t);
+            if (gi0 && t.group && typeof t.group === "object") {
+              let gi = groupIndex.get(t.group);
+              if (gi === undefined) {
+                gi = groupObjs.length;
+                groupObjs.push({
+                  name: String(gi0.name || "").slice(0, 80),
+                  color: String(gi0.color || "").slice(0, 32),
+                  collapsed: !!gi0.collapsed,
+                });
+                groupIndex.set(t.group, gi);
+              }
+              rec.gi = gi;
+              if (gi0.name) {
+                rec.gname = String(gi0.name).slice(0, 80);
+              }
+              if (gi0.color) {
+                rec.gcolor = String(gi0.color).slice(0, 32);
+              }
+              if (gi0.collapsed) {
+                rec.gcollapsed = true;
+              }
+            } else {
+              rec.gi = null;
+            }
+          } catch (e) {
+            try {
+              rec.gi = null;
+            } catch (_e) {}
+          }
+          try {
+            const f = fidelityOf(t, cid) || {};
+            if (f.star) {
+              rec.star = true;
+            }
+            if (f.starURL) {
+              rec.starURL = f.starURL;
+            }
+            if (f.tabName) {
+              rec.tabName = f.tabName;
+            }
+            if (f.lastViewed) {
+              rec.lastViewed = f.lastViewed;
+            }
+            if (f.favicon) {
+              rec.favicon = f.favicon;
+            }
+            if (f.cname) {
+              rec.cname = f.cname;
+            }
+          } catch (e) {}
+          picked.push(rec);
         } catch (e) {}
       }
       if (!picked.length) {
@@ -893,6 +1157,21 @@
         auto: !!auto,
         tabs: picked,
       };
+      if (groupObjs.length) {
+        entry.groups = groupObjs;
+      }
+      try {
+        const su = selectedUrlOf(target);
+        if (su) {
+          entry.selUrl = su;
+        }
+      } catch (e) {}
+      try {
+        const wn = wsNameOf(target);
+        if (wn) {
+          entry.wsName = wn;
+        }
+      } catch (e) {}
       const L = logic();
       const list = L ? L.sanitizeSnapshots([entry]) : [entry];
       if (!list.length) {
@@ -1008,12 +1287,157 @@
 
   // Restore is append-only: every tab is opened into its own workspace
   // with its container intact, unselected; then the window lands on that
-  // workspace once with the first tab selected. Nothing is ever closed,
-  // so a stale stash can only ever add tabs, never lose work. URLs
-  // already open in the target workspace are skipped (counted, never
-  // duplicated); containers that no longer exist fall back to unbound
-  // and are counted. Result: {ok, opened, skipped, unbound} (+reason
-  // when !ok). A short summary toast confirms what landed.
+  // workspace once with the saved selected tab (or first) selected.
+  // Ordering is best-effort restored (relative order of the snapshot),
+  // native groups are recreated when the stock API exists, and per-tab
+  // fidelity (starred, custom name, last-viewed) is re-applied. Nothing
+  // is ever closed, so a stale stash can only ever add tabs, never lose
+  // work. URLs already open in the target workspace are skipped (counted,
+  // never duplicated); containers that no longer exist fall back to
+  // unbound and are counted. Result: {ok, opened, skipped, unbound}
+  // (+reason when !ok). A short summary toast confirms what landed.
+  function applyFidelityToTab(tab, rec) {
+    try {
+      if (!tab || !rec) {
+        return;
+      }
+      if (rec.star) {
+        writeTabValue(tab, "aphStarred", "1");
+        try {
+          if (typeof tab.setAttribute === "function") {
+            tab.setAttribute("data-aph-starred", "1");
+          }
+        } catch (e) {}
+      }
+      if (typeof rec.starURL === "string" && rec.starURL) {
+        writeTabValue(tab, "aphStarURL", rec.starURL);
+      }
+      if (typeof rec.tabName === "string" && rec.tabName.trim()) {
+        const nm = rec.tabName.trim().slice(0, 100);
+        writeTabValue(tab, "aphTabName", nm);
+        try {
+          if (typeof tab.setAttribute === "function") {
+            tab.setAttribute("label", nm);
+          }
+        } catch (e) {}
+        try {
+          if (typeof tab.setAttribute === "function") {
+            tab.setAttribute("data-aph-renamed", "1");
+          }
+        } catch (e) {}
+      }
+      if (typeof rec.lastViewed === "number" && rec.lastViewed > 0) {
+        writeTabValue(tab, "aphLastViewed", String(Math.floor(rec.lastViewed)));
+      }
+    } catch (e) {}
+  }
+
+  // Best-effort relative reorder: walk snapshot order and place each tab
+  // right after its predecessor. Absolute indices are intentionally not
+  // restored (existing tabs stay where they are) — only the restored run
+  // keeps its internal order. All fail-silent.
+  function reorderRestored(openedTabs) {
+    try {
+      if (!Array.isArray(openedTabs) || openedTabs.length < 2) {
+        return;
+      }
+      if (!gBrowser || typeof gBrowser.moveTabTo !== "function") {
+        return;
+      }
+      let tabs = null;
+      try {
+        tabs = Array.from(gBrowser.tabs || []);
+      } catch (e) {
+        return;
+      }
+      for (let i = 1; i < openedTabs.length; i++) {
+        try {
+          const prev = openedTabs[i - 1] && openedTabs[i - 1].tab;
+          const cur = openedTabs[i] && openedTabs[i].tab;
+          if (!prev || !cur || prev.closing || cur.closing) {
+            continue;
+          }
+          const pi = tabs.indexOf(prev);
+          const ci = tabs.indexOf(cur);
+          if (pi === -1 || ci === -1) {
+            continue;
+          }
+          if (ci === pi + 1) {
+            continue;
+          }
+          gBrowser.moveTabTo(cur, { tabIndex: pi + 1 });
+          try {
+            tabs = Array.from(gBrowser.tabs || []);
+          } catch (e) {}
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
+  // Best-effort regroup: recreate each snapshot group with 2+ newly
+  // opened tabs via the stock addTabGroup API when present, then re-apply
+  // label/color/collapsed. Singletons are skipped (no need for a
+  // one-tab group). Unknown group APIs fail silent — tabs stay ungrouped.
+  function regroupRestored(entry, openedByGi) {
+    try {
+      if (!openedByGi || typeof openedByGi.size !== "number" || !openedByGi.size) {
+        return;
+      }
+      const groups = (entry && Array.isArray(entry.groups)) ? entry.groups : [];
+      const canGroup =
+        gBrowser && typeof gBrowser.addTabGroup === "function";
+      if (!canGroup) {
+        return;
+      }
+      const gis = Array.from(openedByGi.keys()).sort((a, b) => a - b);
+      for (const gi of gis) {
+        try {
+          const members = openedByGi.get(gi) || [];
+          const live = members.filter((t) => t && !t.closing);
+          if (live.length < 2) {
+            continue;
+          }
+          let g = null;
+          try {
+            g = gBrowser.addTabGroup(live, { insertBefore: live[0] });
+          } catch (e) {
+            g = null;
+          }
+          if (!g) {
+            continue;
+          }
+          const meta = groups[gi] || {};
+          try {
+            const nm =
+              (meta.name && String(meta.name)) ||
+              (live[0] && live[0].group ? "" : "");
+            if (meta.name && typeof g.label !== "undefined") {
+              try {
+                g.label = String(meta.name).slice(0, 80);
+              } catch (e) {}
+            }
+            if (meta.name && typeof g.name !== "undefined" && !g.label) {
+              try {
+                g.name = String(meta.name).slice(0, 80);
+              } catch (e) {}
+            }
+            void nm;
+          } catch (e) {}
+          try {
+            if (meta.color && typeof g.color !== "undefined") {
+              g.color = String(meta.color).slice(0, 32);
+            }
+          } catch (e) {}
+          try {
+            if (typeof g.collapsed !== "undefined") {
+              g.collapsed = !!meta.collapsed;
+            }
+          } catch (e) {}
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
   function openUrlsIn(target) {
     const out = new Set();
     try {
@@ -1068,7 +1492,14 @@
       let skipped = 0;
       let unbound = 0;
       let first = null;
-      for (const t of entry.tabs || []) {
+      const openedTabs = [];
+      const openedByGi = new Map();
+      const ordered = (entry.tabs || []).slice().sort((a, b) => {
+        const ai = a && Number.isInteger(a.idx) ? a.idx : 1e9;
+        const bi = b && Number.isInteger(b.idx) ? b.idx : 1e9;
+        return ai - bi;
+      });
+      for (const t of ordered) {
         try {
           const url = t && typeof t.url === "string" ? t.url : "";
           if (!url) {
@@ -1090,25 +1521,60 @@
           if (!tab) {
             continue;
           }
+          try {
+            applyFidelityToTab(tab, t);
+          } catch (e) {}
           present.add(url);
           opened++;
+          openedTabs.push({ tab, rec: t });
           if (!first) {
             first = tab;
           }
+          try {
+            const gi = t && Number.isInteger(t.gi) && t.gi >= 0 ? t.gi : -1;
+            if (gi >= 0) {
+              if (!openedByGi.has(gi)) {
+                openedByGi.set(gi, []);
+              }
+              openedByGi.get(gi).push(tab);
+            }
+          } catch (e) {}
         } catch (e) {}
       }
       if (!opened && !skipped) {
         return { ok: false, reason: "open-failed", opened: 0, skipped: 0, unbound: 0 };
       }
       try {
+        reorderRestored(openedTabs);
+      } catch (e) {}
+      try {
+        regroupRestored(entry, openedByGi);
+      } catch (e) {}
+      // Prefer the saved selected tab; fall back to first opened.
+      let selTab = null;
+      try {
+        const want = entry && typeof entry.selUrl === "string" ? entry.selUrl : "";
+        if (want) {
+          for (const o of openedTabs) {
+            try {
+              if (o && o.rec && o.rec.url === want) {
+                selTab = o.tab;
+                break;
+              }
+            } catch (e) {}
+          }
+        }
+      } catch (e) {}
+      try {
         if (w && typeof w.switchTo === "function" && w.getCurrent && w.getCurrent() !== target) {
           w.switchTo(target);
         }
       } catch (e) {}
       try {
-        if (first) {
-          gBrowser.showTab(first);
-          gBrowser.selectedTab = first;
+        const pick = selTab || first;
+        if (pick) {
+          gBrowser.showTab(pick);
+          gBrowser.selectedTab = pick;
         }
       } catch (e) {}
       const msg = restoreSummaryText(target, opened, skipped, unbound);
@@ -1150,6 +1616,9 @@
       if (!tab) {
         return { ok: false, reason: "open-failed" };
       }
+      try {
+        applyFidelityToTab(tab, rec);
+      } catch (e) {}
       try {
         if (w && typeof w.switchTo === "function" && w.getCurrent && w.getCurrent() !== target) {
           w.switchTo(target);
@@ -1198,6 +1667,8 @@
       const live = stashedTabsIn(target);
       const picked = [];
       const seen = new Set();
+      const groupObjs = [];
+      const groupIndex = new Map();
       for (const t of live) {
         try {
           if (!t || t.closing || t.pinned) {
@@ -1208,11 +1679,66 @@
             continue;
           }
           seen.add(url);
-          picked.push({
+          const cid = Number(t.userContextId) || 0;
+          const rec = {
             title: String(t.label || "") || url,
             url,
-            cid: Number(t.userContextId) || 0,
-          });
+            cid,
+            idx: picked.length,
+          };
+          try {
+            const gi0 = groupInfoOf(t);
+            if (gi0 && t.group && typeof t.group === "object") {
+              let gi = groupIndex.get(t.group);
+              if (gi === undefined) {
+                gi = groupObjs.length;
+                groupObjs.push({
+                  name: String(gi0.name || "").slice(0, 80),
+                  color: String(gi0.color || "").slice(0, 32),
+                  collapsed: !!gi0.collapsed,
+                });
+                groupIndex.set(t.group, gi);
+              }
+              rec.gi = gi;
+              if (gi0.name) {
+                rec.gname = String(gi0.name).slice(0, 80);
+              }
+              if (gi0.color) {
+                rec.gcolor = String(gi0.color).slice(0, 32);
+              }
+              if (gi0.collapsed) {
+                rec.gcollapsed = true;
+              }
+            } else {
+              rec.gi = null;
+            }
+          } catch (e) {
+            try {
+              rec.gi = null;
+            } catch (_e) {}
+          }
+          try {
+            const f = fidelityOf(t, cid) || {};
+            if (f.star) {
+              rec.star = true;
+            }
+            if (f.starURL) {
+              rec.starURL = f.starURL;
+            }
+            if (f.tabName) {
+              rec.tabName = f.tabName;
+            }
+            if (f.lastViewed) {
+              rec.lastViewed = f.lastViewed;
+            }
+            if (f.favicon) {
+              rec.favicon = f.favicon;
+            }
+            if (f.cname) {
+              rec.cname = f.cname;
+            }
+          } catch (e) {}
+          picked.push(rec);
         } catch (e) {}
       }
       if (!picked.length) {
@@ -1220,6 +1746,29 @@
       }
       entry.tabs = picked;
       entry.ts = Date.now();
+      if (groupObjs.length) {
+        entry.groups = groupObjs;
+      } else {
+        try {
+          delete entry.groups;
+        } catch (e) {}
+      }
+      try {
+        const su = selectedUrlOf(target);
+        if (su) {
+          entry.selUrl = su;
+        } else {
+          try {
+            delete entry.selUrl;
+          } catch (_e) {}
+        }
+      } catch (e) {}
+      try {
+        const wn = wsNameOf(target);
+        if (wn) {
+          entry.wsName = wn;
+        }
+      } catch (e) {}
       saveStashes(list);
       return { ok: true, count: picked.length };
     } catch (e) {
@@ -1252,6 +1801,10 @@
   // Periodic capture of the current workspace, skipped when nothing moved
   // since the last auto capture. Pure comparison extracted so tests can
   // drive it without timers.
+  //
+  // Legacy URL-set helpers stay for compat; sweepWorkspace now compares
+  // the richer content key (URLs + order + groups + selected URL) so
+  // regroups/reorders/selects also trigger a new auto snapshot.
   function urlSetOf(tabs) {
     const out = new Set();
     for (const t of tabs || []) {
@@ -1304,9 +1857,180 @@
     return out;
   }
 
-  // Capture one workspace when its live URL set moved since its newest
+  // Rich content key for live tabs: URL set + strip order + group
+  // signature + selected URL. Falls back to the legacy URL set when the
+  // shared logic is unavailable (tests, old bundles).
+  function liveContentKey(tabs, target) {
+    try {
+      const L = logic();
+      const recs = [];
+      try {
+        for (const t of tabs || []) {
+          if (!t || t.closing || t.pinned) {
+            continue;
+          }
+          const url = tabUrl(t);
+          if (!url || !isStashable(t)) {
+            continue;
+          }
+          const r = { url };
+          try {
+            const gi0 = groupInfoOf(t);
+            if (gi0 && t.group && typeof t.group === "object") {
+              r.gi = groupSlotOf(t.group, tabs);
+              if (gi0.name) {
+                r.gname = gi0.name;
+              }
+              if (gi0.color) {
+                r.gcolor = gi0.color;
+              }
+              if (gi0.collapsed) {
+                r.gcollapsed = true;
+              }
+            } else {
+              r.gi = -1;
+            }
+          } catch (e) {
+            r.gi = -1;
+          }
+          recs.push(r);
+        }
+      } catch (e) {}
+      if (!recs.length) {
+        return "";
+      }
+      let sel = "";
+      try {
+        sel = selectedUrlOf(target) || "";
+      } catch (e) {}
+      if (L && typeof L.snapshotContentKey === "function") {
+        return L.snapshotContentKey(recs, sel);
+      }
+      return `${urlSetOf(tabs)}\n---sel---\n${sel}`;
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Stable per-strip group slot: first-seen group object order. Matches
+  // the capture-time gi assignment so live vs saved keys agree.
+  function groupSlotOf(group, tabs) {
+    try {
+      let slot = -1;
+      let next = 0;
+      const seen = new Map();
+      for (const t of tabs || []) {
+        try {
+          const g = t && t.group;
+          if (!g || typeof g !== "object") {
+            continue;
+          }
+          if (!seen.has(g)) {
+            seen.set(g, next++);
+          }
+          if (g === group) {
+            slot = seen.get(g);
+            break;
+          }
+        } catch (e) {}
+      }
+      return slot;
+    } catch (e) {
+      return -1;
+    }
+  }
+
+  function savedContentKey(snap) {
+    try {
+      const L = logic();
+      if (L && typeof L.savedContentKey === "function") {
+        const k = L.savedContentKey(snap);
+        if (k) {
+          return k;
+        }
+      }
+    } catch (e) {}
+    return savedUrlSet(snap);
+  }
+
+  // Slow-tier keys: selection-blind so selection-only drift never mints
+  // a 6h/daily snapshot. Opened / closed / moved (URLs + order + groups
+  // incl. collapsed) still move the key.
+  function liveSlowKey(tabs) {
+    try {
+      const L = logic();
+      const recs = [];
+      try {
+        for (const t of tabs || []) {
+          if (!t || t.closing || t.pinned) {
+            continue;
+          }
+          const url = tabUrl(t);
+          if (!url || !isStashable(t)) {
+            continue;
+          }
+          const r = { url };
+          try {
+            const gi0 = groupInfoOf(t);
+            if (gi0 && t.group && typeof t.group === "object") {
+              r.gi = groupSlotOf(t.group, tabs);
+              if (gi0.name) {
+                r.gname = gi0.name;
+              }
+              if (gi0.color) {
+                r.gcolor = gi0.color;
+              }
+              if (gi0.collapsed) {
+                r.gcollapsed = true;
+              }
+            } else {
+              r.gi = -1;
+            }
+          } catch (e) {
+            r.gi = -1;
+          }
+          recs.push(r);
+        }
+      } catch (e) {}
+      if (!recs.length) {
+        return "";
+      }
+      if (L) {
+        if (typeof L.slowContentKey === "function") {
+          return L.slowContentKey(recs);
+        }
+        if (typeof L.snapshotContentKey === "function") {
+          return L.snapshotContentKey(recs, "");
+        }
+      }
+      return urlSetOf(tabs);
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function savedSlowKey(snap) {
+    try {
+      const L = logic();
+      if (L && typeof L.savedSlowKey === "function") {
+        const k = L.savedSlowKey(snap);
+        if (k) {
+          return k;
+        }
+      }
+      if (L && typeof L.snapshotContentKey === "function") {
+        const k = L.snapshotContentKey((snap && snap.tabs) || [], "");
+        if (k) {
+          return k;
+        }
+      }
+    } catch (e) {}
+    return savedUrlSet(snap);
+  }
+
+  // Capture one workspace when its live content moved since its newest
   // auto capture. 1 = captured, 0 = nothing to do. No due-check here:
-  // callers layer cadence (tick) or urgency (quit) on top.
+  // callers layer cadence (tick), budget (events) or urgency (quit) on top.
   function sweepWorkspace(wsId) {
     try {
       if (!getSnapAutoEnabled()) {
@@ -1319,15 +2043,13 @@
       // change check and the capture can never disagree about what
       // "unchanged" means (a whole-window set would always look changed).
       const tabs = stashedTabsIn(wsId);
-      const now = urlSetOf(tabs);
+      const now = liveContentKey(tabs, wsId) || urlSetOf(tabs);
       if (!now) {
         return 0;
       }
       const last = newestAutoStashFor(wsId);
       if (last) {
-        // Stored tabs are plain {title,url,cid} records, so compare the
-        // saved URL set directly rather than re-deriving it from live tabs.
-        const prev = savedUrlSet(last);
+        const prev = savedContentKey(last) || savedUrlSet(last);
         if (prev && prev === now) {
           return 0;
         }
@@ -1442,7 +2164,7 @@
     }
   }
 
-  // Shutdown net (window unload): capture every workspace whose URL set
+  // Shutdown net (window unload): capture every workspace whose content
   // moved, regardless of cadence — quitting is the last chance. Changed
   // gating still applies, so a quiet shutdown writes nothing.
   function captureChangedWorkspaces() {
@@ -1467,6 +2189,313 @@
       return n;
     } catch (e) {
       return 0;
+    }
+  }
+
+  // Slow-tier sweep (fixed 6h heartbeat + daily): selection-blind
+  // changed gate — opened / closed / moved only. No due-check and no
+  // event cooldown: the 6h cadence IS the budget, and the narrowed key
+  // keeps selection-only drift from minting snapshots.
+  function sweepSlowWorkspace(wsId) {
+    try {
+      if (!getSnapAutoEnabled()) {
+        return 0;
+      }
+      if (!/^[1-9]$/.test(String(wsId || ""))) {
+        return 0;
+      }
+      const tabs = stashedTabsIn(wsId);
+      const now = liveSlowKey(tabs) || urlSetOf(tabs);
+      if (!now) {
+        return 0;
+      }
+      const last = newestAutoStashFor(wsId);
+      if (last) {
+        const prev = savedSlowKey(last) || savedUrlSet(last);
+        if (prev && prev === now) {
+          return 0;
+        }
+      }
+      return captureStash(tabs, wsId, "", true) > 0 ? 1 : 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  // Slow heartbeat body (every SLOW_TICK_MS): same workspace set as the
+  // fast tick, each selection-blind changed-gated. Returns capture count.
+  function autoStashSlowTick(nowMs) {
+    try {
+      if (!getSnapAutoEnabled()) {
+        return 0;
+      }
+      const w = ws();
+      if (!w) {
+        return 0;
+      }
+      let cur = null;
+      try {
+        cur = typeof w.getCurrent === "function" ? w.getCurrent() : null;
+      } catch (e) {}
+      void nowMs;
+      let n = 0;
+      const ids = activeWorkspaceIds(cur);
+      if (!ids.length) {
+        return 0;
+      }
+      for (const id of ids) {
+        try {
+          n += sweepSlowWorkspace(id);
+        } catch (e) {}
+      }
+      return n;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  // Event-driven captures (hybrid timing): time ticks stay the backstop,
+  // but closes / group edits / workspace switches capture promptly when
+  // content actually moved. Bursts coalesce via debounce + per-workspace
+  // cooldown so a 10-close burst or a drag storm stores one snapshot.
+  const EVENT_COOLDOWN_DEFAULT_MS = 10 * 60 * 1000;
+  const CLOSE_DEBOUNCE_MS = 30000;
+  const STARTUP_CAPTURE_DELAY_MS = 45000;
+  // Slow backstop: fixed 6h heartbeat for idle workspaces + the daily
+  // tier in retention. Still changed-gated (selection-blind), so quiet
+  // 6h windows write nothing.
+  const SLOW_TICK_MS = 6 * 60 * 60 * 1000;
+  let lastEventCapture = null; // {wsId: ts} | null
+  let eventTimers = null; // {wsId: timeoutId} | null
+  let startupTimer = null;
+  let tabCloseHook = null;
+  let groupHook = null;
+  let startupObserver = null;
+  let slowIntervalId = null;
+  let closeHook = null;
+  let quitObserver = null;
+
+  function eventCooldownMs() {
+    try {
+      const L = logic();
+      if (L && Number.isFinite(Number(L.SNAP_EVENT_COOLDOWN_MS))) {
+        return Number(L.SNAP_EVENT_COOLDOWN_MS);
+      }
+    } catch (e) {}
+    return EVENT_COOLDOWN_DEFAULT_MS;
+  }
+
+  function eventDueAt(wsId, nowMs) {
+    try {
+      const L = logic();
+      const cd = eventCooldownMs();
+      const last = lastEventCapture ? lastEventCapture[String(wsId)] || 0 : 0;
+      if (L && typeof L.eventDue === "function") {
+        return L.eventDue(last, nowMs, cd);
+      }
+      const now = Number(nowMs);
+      if (!Number.isFinite(now) || now < 0) {
+        return false;
+      }
+      if (!(Number(last) > 0)) {
+        return true;
+      }
+      return now - Number(last) >= cd;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Changed-gated + cooldown-gated capture for one workspace. 1 =
+  // captured, 0 = nothing to do (disabled, cooling down, unchanged or
+  // empty). No due-check: events are urgent, the cooldown is the budget.
+  function sweepWorkspaceEvent(wsId, nowMs) {
+    try {
+      if (!getSnapAutoEnabled()) {
+        return 0;
+      }
+      if (!/^[1-9]$/.test(String(wsId || ""))) {
+        return 0;
+      }
+      const now = nowMs == null ? Date.now() : nowMs;
+      if (!eventDueAt(wsId, now)) {
+        return 0;
+      }
+      const r = sweepWorkspace(wsId);
+      if (r > 0) {
+        try {
+          if (!lastEventCapture) {
+            lastEventCapture = {};
+          }
+          lastEventCapture[String(wsId)] = now;
+        } catch (e) {}
+      }
+      return r;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  // Debounced wrapper: rapid closes collapse to one capture per workspace.
+  function queueEventCapture(wsId) {
+    try {
+      if (!getSnapAutoEnabled()) {
+        return false;
+      }
+      if (!/^[1-9]$/.test(String(wsId || ""))) {
+        return false;
+      }
+      if (typeof setTimeout !== "function") {
+        return false;
+      }
+      if (!eventTimers) {
+        eventTimers = {};
+      }
+      const key = String(wsId);
+      try {
+        if (eventTimers[key]) {
+          try {
+            clearTimeout(eventTimers[key]);
+          } catch (e) {}
+        }
+      } catch (e) {}
+      const id = setTimeout(() => {
+        try {
+          delete eventTimers[key];
+        } catch (e) {}
+        try {
+          sweepWorkspaceEvent(key);
+        } catch (e) {}
+      }, CLOSE_DEBOUNCE_MS);
+      if (!id) {
+        try {
+          delete eventTimers[key];
+        } catch (e) {}
+        return false;
+      }
+      eventTimers[key] = id;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Called by the workspaces bundle right after a switch settles (and
+  // directly testable): immediate due-gated sweep of the arrival
+  // workspace — no extra timer, the changed-gate keeps it quiet when
+  // nothing moved.
+  function notifyWorkspaceSwitch(wsId) {
+    try {
+      if (!getSnapAutoEnabled()) {
+        return 0;
+      }
+      const target =
+        /^[1-9]$/.test(String(wsId || "")) ?
+          String(wsId) :
+          (() => {
+            try {
+              const w = ws();
+              return w && typeof w.getCurrent === "function" ? w.getCurrent() : null;
+            } catch (e) {
+              return null;
+            }
+          })();
+      if (!/^[1-9]$/.test(String(target || ""))) {
+        return 0;
+      }
+      return sweepDueWorkspace(target, Date.now());
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function wsIdOfTab(tab) {
+    try {
+      const w = ws();
+      if (w && typeof w.getWs === "function") {
+        const v = w.getWs(tab);
+        if (/^[1-9]$/.test(String(v || ""))) {
+          return v;
+        }
+      }
+    } catch (e) {}
+    try {
+      const w = ws();
+      if (w && typeof w.getCurrent === "function") {
+        return w.getCurrent();
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function onStashTabClose(e) {
+    try {
+      if (!getSnapAutoEnabled()) {
+        return;
+      }
+      let tab = null;
+      try {
+        tab = e && e.target;
+      } catch (err) {}
+      const id = wsIdOfTab(tab);
+      if (/^[1-9]$/.test(String(id || ""))) {
+        queueEventCapture(id);
+      }
+    } catch (e) {}
+  }
+
+  function onStashGroupChange(e) {
+    try {
+      if (!getSnapAutoEnabled()) {
+        return;
+      }
+      let tab = null;
+      try {
+        const t = e && e.target;
+        if (t && typeof t.closest === "function") {
+          const g = t.closest("tab-group");
+          if (g) {
+            const members = Array.from(g.tabs || []);
+            tab = members[0] || null;
+          }
+        }
+        if (!tab && t && t.group) {
+          const members = Array.from((t.group && t.group.tabs) || []);
+          tab = members[0] || t;
+        }
+        if (!tab) {
+          tab = t;
+        }
+      } catch (err) {}
+      const id = wsIdOfTab(tab);
+      if (/^[1-9]$/.test(String(id || ""))) {
+        queueEventCapture(id);
+      }
+    } catch (e) {}
+  }
+
+  function scheduleStartupCapture() {
+    try {
+      if (typeof setTimeout !== "function") {
+        return false;
+      }
+      if (startupTimer) {
+        return true;
+      }
+      const id = setTimeout(() => {
+        startupTimer = null;
+        try {
+          captureChangedWorkspaces();
+        } catch (e) {}
+      }, STARTUP_CAPTURE_DELAY_MS);
+      if (!id) {
+        startupTimer = null;
+        return false;
+      }
+      startupTimer = id;
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 
@@ -1496,6 +2525,48 @@
       }
     } catch (e) {}
     snapIntervalId = null;
+  }
+
+  function startSlowSweeper() {
+    try {
+      if (slowIntervalId) {
+        return true;
+      }
+      if (typeof setInterval !== "function") {
+        return false;
+      }
+      const id = setInterval(() => {
+        try {
+          autoStashSlowTick();
+        } catch (e) {}
+      }, SLOW_TICK_MS);
+      if (!id) {
+        slowIntervalId = null;
+        return false;
+      }
+      slowIntervalId = id;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function stopSlowSweeper() {
+    try {
+      if (slowIntervalId) {
+        clearInterval(slowIntervalId);
+      }
+    } catch (e) {}
+    slowIntervalId = null;
+  }
+
+  // Dedicated window-close net, in addition to the unload net in
+  // cleanup(): fires earlier (close/quit), still changed-gated, so the
+  // later unload pass finds nothing moved and stays quiet.
+  function onStashWindowClose() {
+    try {
+      captureChangedWorkspaces();
+    } catch (e) {}
   }
 
   function contextIdOf(tab) {
@@ -1736,6 +2807,58 @@
     } catch (e) {}
     autoTimer = null;
     try {
+      if (eventTimers) {
+        for (const k of Object.keys(eventTimers)) {
+          try {
+            if (eventTimers[k]) {
+              clearTimeout(eventTimers[k]);
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    eventTimers = null;
+    try {
+      if (startupTimer) {
+        clearTimeout(startupTimer);
+      }
+    } catch (e) {}
+    startupTimer = null;
+    try {
+      if (gBrowser && gBrowser.tabContainer) {
+        if (tabCloseHook) {
+          try {
+            gBrowser.tabContainer.removeEventListener("TabClose", tabCloseHook);
+          } catch (e) {}
+        }
+        if (groupHook) {
+          for (const t of [
+            "TabGroupCreate",
+            "TabGroupUpdate",
+            "TabGroupRemoved",
+            "TabGroupCollapse",
+            "TabGroupExpand",
+            "TabGroupMoved",
+          ]) {
+            try {
+              gBrowser.tabContainer.removeEventListener(t, groupHook);
+            } catch (e) {}
+          }
+        }
+      }
+    } catch (e) {}
+    tabCloseHook = null;
+    groupHook = null;
+    try {
+      if (startupObserver && Services.obs) {
+        Services.obs.removeObserver(
+          startupObserver,
+          "sessionstore-windows-restored"
+        );
+      }
+    } catch (e) {}
+    startupObserver = null;
+    try {
       if (prefsObserver) {
         Services.prefs.removeObserver(PREF, prefsObserver);
       }
@@ -1750,6 +2873,28 @@
     try {
       stopStashSweeper();
     } catch (e) {}
+    try {
+      stopSlowSweeper();
+    } catch (e) {}
+    try {
+      if (closeHook && window) {
+        try {
+          window.removeEventListener("close", closeHook);
+        } catch (e) {}
+      }
+    } catch (e) {}
+    closeHook = null;
+    try {
+      if (quitObserver && Services.obs) {
+        try {
+          Services.obs.removeObserver(quitObserver, "quit-application");
+        } catch (e) {}
+        try {
+          Services.obs.removeObserver(quitObserver, "browser-window-before-close");
+        } catch (e) {}
+      }
+    } catch (e) {}
+    quitObserver = null;
     try {
       Services.obs.removeObserver(restoreObserver, OBS_RESTORE);
     } catch (e) {}
@@ -1800,8 +2945,30 @@
         renameStash,
         updateStash,
         safetyThreshold,
+        getMaxAuto,
+        getKeepDailies,
         autoStashTick,
+        autoStashSlowTick,
         captureChangedWorkspaces,
+        sweepWorkspace,
+        sweepDueWorkspace,
+        sweepSlowWorkspace,
+        sweepWorkspaceEvent,
+        queueEventCapture,
+        notifyWorkspaceSwitch,
+        // Test + diagnosis surface (not user-facing).
+        debugSnapshots: () => {
+          try {
+            return {
+              lastEventCapture: lastEventCapture
+                ? JSON.parse(JSON.stringify(lastEventCapture))
+                : {},
+              eventCooldownMs: eventCooldownMs(),
+            };
+          } catch (e) {
+            return { lastEventCapture: {}, eventCooldownMs: 0 };
+          }
+        },
       };
     } catch (e) {}
     try {
@@ -1833,8 +3000,89 @@
     try {
       startStashSweeper();
     } catch (e) {}
+    // Slow backstop (fixed 6h, selection-blind changed gate).
+    try {
+      startSlowSweeper();
+    } catch (e) {}
+    // Dedicated window-close net (earlier than unload; changed-gated so
+    // the later unload pass stays quiet when close already captured).
+    try {
+      closeHook = onStashWindowClose;
+      if (window && typeof window.addEventListener === "function") {
+        window.addEventListener("close", closeHook);
+      }
+    } catch (e) {}
+    try {
+      if (Services.obs) {
+        quitObserver = {
+          observe() {
+            try {
+              onStashWindowClose();
+            } catch (e) {}
+          },
+        };
+        try {
+          Services.obs.addObserver(quitObserver, "quit-application", false);
+        } catch (e) {}
+        try {
+          Services.obs.addObserver(quitObserver, "browser-window-before-close", false);
+        } catch (e) {}
+      }
+    } catch (e) {
+      quitObserver = null;
+    }
     try {
       Services.obs.addObserver(restoreObserver, OBS_RESTORE, false);
+    } catch (e) {}
+    // Event-driven captures: closes + group edits queue a debounced
+    // changed-gated capture; startup schedules one delayed safety net.
+    // All fail-silent when containers/observers are missing (tests).
+    try {
+      if (gBrowser && gBrowser.tabContainer) {
+        tabCloseHook = onStashTabClose;
+        try {
+          gBrowser.tabContainer.addEventListener("TabClose", tabCloseHook);
+        } catch (e) {}
+        groupHook = onStashGroupChange;
+        for (const t of [
+          "TabGroupCreate",
+          "TabGroupUpdate",
+          "TabGroupRemoved",
+          "TabGroupCollapse",
+          "TabGroupExpand",
+          "TabGroupMoved",
+        ]) {
+          try {
+            gBrowser.tabContainer.addEventListener(t, groupHook);
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    try {
+      if (Services.obs) {
+        startupObserver = {
+          observe() {
+            try {
+              Services.obs.removeObserver(
+                startupObserver,
+                "sessionstore-windows-restored"
+              );
+            } catch (e) {}
+            startupObserver = null;
+            scheduleStartupCapture();
+          },
+        };
+        Services.obs.addObserver(
+          startupObserver,
+          "sessionstore-windows-restored",
+          false
+        );
+      }
+    } catch (e) {
+      startupObserver = null;
+    }
+    try {
+      scheduleStartupCapture();
     } catch (e) {}
     try {
       const menu = document.getElementById("tabContextMenu");

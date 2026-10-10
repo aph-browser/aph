@@ -298,12 +298,100 @@ var AphStashLogic = (function () {
   // make room for auto captures — auto ones prune first (oldest), then manual
   // oldest-first once the manual cap is exceeded. Two separate caps (not one)
   // so an auto capture storm can never evict every manual stash.
+  //
+  // Autos use tiered retention: newest N recents plus newest one per
+  // calendar day for the last D days (global, deduped). Manuals stay a
+  // flat newest-N pool.
   const SNAP_MAX_MANUAL = 20;
-  const SNAP_MAX_AUTO = 5;
+  const SNAP_MAX_AUTO = 10;
+  const SNAP_MAX_AUTO_MIN = 1;
+  const SNAP_MAX_AUTO_MAX = 50;
+  const SNAP_KEEP_DAILIES_DEFAULT = 7;
+  const SNAP_KEEP_DAILIES_MIN = 0;
+  const SNAP_KEEP_DAILIES_MAX = 30;
 
   // Validate + normalize raw snapshot objects. Keeps well-formed entries
   // only: a real id/name, a 1-9 workspace, http(s) tabs, sane cid/ts/auto.
   // A snapshot with zero surviving tabs is dropped (nothing to restore).
+  //
+  // Fidelity fields (all optional, old snapshots load fine without them):
+  // per-tab idx (strip order), gi (index into groups[] or null), gname /
+  // gcolor / gcollapsed (denormalized group state for display + regroup),
+  // cname + favicon (display), star + starURL + tabName + lastViewed
+  // (re-applied on restore). Envelope groups[] + selUrl + wsName power
+  // the stash page and best-effort reorder/regroup.
+  function sanitizeSnapTab(t) {
+    if (!t || typeof t !== "object") {
+      return null;
+    }
+    const url = typeof t.url === "string" ? t.url : "";
+    if (!isArchivableUrl(url)) {
+      return null;
+    }
+    const rec = {
+      title: typeof t.title === "string" && t.title ? t.title : url,
+      url,
+      cid: Number.isInteger(t.cid) && t.cid > 0 ? t.cid : 0,
+    };
+    if (Number.isInteger(t.idx) && t.idx >= 0 && t.idx <= 10000) {
+      rec.idx = t.idx;
+    }
+    if (Number.isInteger(t.gi) && t.gi >= 0 && t.gi <= 64) {
+      rec.gi = t.gi;
+    } else {
+      rec.gi = null;
+    }
+    if (typeof t.gname === "string" && t.gname.trim()) {
+      rec.gname = t.gname.trim().slice(0, 80);
+    }
+    if (typeof t.gcolor === "string" && t.gcolor.trim()) {
+      rec.gcolor = t.gcolor.trim().slice(0, 32);
+    }
+    if (t.gcollapsed === true || t.gcollapsed === 1) {
+      rec.gcollapsed = true;
+    }
+    if (typeof t.cname === "string" && t.cname) {
+      rec.cname = t.cname.slice(0, 80);
+    }
+    if (typeof t.favicon === "string" && t.favicon && t.favicon.length <= 8192) {
+      rec.favicon = t.favicon;
+    }
+    if (t.star === true || t.star === 1) {
+      rec.star = true;
+    }
+    if (typeof t.starURL === "string" && t.starURL && t.starURL.length <= 2048) {
+      rec.starURL = t.starURL;
+    }
+    if (typeof t.tabName === "string" && t.tabName.trim()) {
+      rec.tabName = t.tabName.trim().slice(0, 100);
+    }
+    if (typeof t.lastViewed === "number" && t.lastViewed > 0) {
+      rec.lastViewed = Math.floor(t.lastViewed);
+    }
+    return rec;
+  }
+
+  function sanitizeSnapshotGroups(raw) {
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    const out = [];
+    for (const g of raw) {
+      if (!g || typeof g !== "object") {
+        continue;
+      }
+      out.push({
+        name: typeof g.name === "string" ? g.name.slice(0, 80) : "",
+        color: typeof g.color === "string" ? g.color.slice(0, 32) : "",
+        collapsed: g.collapsed === true || g.collapsed === 1,
+      });
+      if (out.length >= 64) {
+        break;
+      }
+    }
+    return out;
+  }
+
   function sanitizeSnapshots(raw) {
     if (!Array.isArray(raw)) {
       return [];
@@ -319,24 +407,20 @@ var AphStashLogic = (function () {
       const tabs = [];
       const seen = new Set();
       for (const t of Array.isArray(s.tabs) ? s.tabs : []) {
-        if (!t || typeof t !== "object") {
+        const rec = sanitizeSnapTab(t);
+        if (!rec) {
           continue;
         }
-        const url = typeof t.url === "string" ? t.url : "";
-        if (!isArchivableUrl(url) || seen.has(url)) {
+        if (seen.has(rec.url)) {
           continue;
         }
-        seen.add(url);
-        tabs.push({
-          title: typeof t.title === "string" && t.title ? t.title : url,
-          url,
-          cid: Number.isInteger(t.cid) && t.cid > 0 ? t.cid : 0,
-        });
+        seen.add(rec.url);
+        tabs.push(rec);
       }
       if (!tabs.length) {
         continue;
       }
-      out.push({
+      const entry = {
         id: s.id,
         name: typeof s.name === "string" && s.name.trim()
           ? s.name.trim().slice(0, 80)
@@ -345,7 +429,18 @@ var AphStashLogic = (function () {
         ts: typeof s.ts === "number" && s.ts > 0 ? s.ts : 0,
         auto: !!s.auto,
         tabs,
-      });
+      };
+      const groups = sanitizeSnapshotGroups(s.groups);
+      if (groups.length) {
+        entry.groups = groups;
+      }
+      if (typeof s.selUrl === "string" && s.selUrl && s.selUrl.length <= 2048) {
+        entry.selUrl = s.selUrl;
+      }
+      if (typeof s.wsName === "string" && s.wsName.trim()) {
+        entry.wsName = s.wsName.trim().slice(0, 40);
+      }
+      out.push(entry);
     }
     return out;
   }
@@ -388,6 +483,9 @@ var AphStashLogic = (function () {
   }
 
   // Trim to the caps: auto first (oldest auto goes), then manual oldest-first.
+  // Legacy flat form: newest aCap autos + newest mCap manuals. Tiered
+  // retention lives in pruneSnapshotsTiered below; this stays for callers
+  // and tests that pass explicit caps.
   function pruneSnapshots(list, manualCap, autoCap) {
     const src = Array.isArray(list) ? list : [];
     const mCap = Number.isInteger(manualCap) && manualCap > 0
@@ -400,9 +498,141 @@ var AphStashLogic = (function () {
     return [...autos, ...manual].sort((a, b) => (b.ts || 0) - (a.ts || 0));
   }
 
+  function clampMaxAuto(m) {
+    try {
+      const n = Number(m);
+      if (Number.isFinite(n)) {
+        return Math.min(SNAP_MAX_AUTO_MAX, Math.max(SNAP_MAX_AUTO_MIN, Math.floor(n)));
+      }
+    } catch (e) {}
+    return SNAP_MAX_AUTO;
+  }
+
+  function clampKeepDailies(m) {
+    try {
+      const n = Number(m);
+      if (Number.isFinite(n)) {
+        return Math.min(
+          SNAP_KEEP_DAILIES_MAX,
+          Math.max(SNAP_KEEP_DAILIES_MIN, Math.floor(n))
+        );
+      }
+    } catch (e) {}
+    return SNAP_KEEP_DAILIES_DEFAULT;
+  }
+
+  // Local calendar day slot (YYYY-MM-DD) for the daily tier. Empty for
+  // missing/non-finite timestamps so undated snapshots never win a day.
+  function dayKey(ts) {
+    try {
+      const n = Number(ts);
+      if (!Number.isFinite(n) || n <= 0) {
+        return "";
+      }
+      const d = new Date(n);
+      if (isNaN(d.getTime())) {
+        return "";
+      }
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${d.getFullYear()}-${mm}-${dd}`;
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function startOfDay(ts) {
+    try {
+      const n = Number(ts);
+      if (!Number.isFinite(n) || n <= 0) {
+        return 0;
+      }
+      const d = new Date(n);
+      if (isNaN(d.getTime())) {
+        return 0;
+      }
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  // Tiered autos retention: newest maxAuto recents UNION newest one per
+  // calendar day for the last keepDailies days (global, deduped by id).
+  // Manuals stay a flat newest-mCap pool. nowMs injectable for tests;
+  // defaults to Date.now(). Never throws.
+  function pruneSnapshotsTiered(list, maxAuto, keepDailies, nowMs, manualCap) {
+    try {
+      const src = Array.isArray(list) ? list : [];
+      const mCap = Number.isInteger(manualCap) && manualCap > 0
+        ? manualCap
+        : SNAP_MAX_MANUAL;
+      const aCap = clampMaxAuto(maxAuto);
+      const dKeep = clampKeepDailies(keepDailies);
+      const byAge = (a, b) => (a.ts || 0) - (b.ts || 0);
+      const byNewest = (a, b) => (b.ts || 0) - (a.ts || 0);
+      const manual = src.filter((s) => s && !s.auto).sort(byAge).slice(-mCap);
+      const autos = src.filter((s) => s && s.auto).sort(byNewest);
+      const recents = autos.slice(0, aCap);
+      const keep = new Map();
+      for (const s of recents) {
+        if (s && typeof s.id === "string" && s.id) {
+          keep.set(s.id, s);
+        }
+      }
+      if (dKeep > 0) {
+        let now = Number(nowMs);
+        if (!Number.isFinite(now) || now <= 0) {
+          try {
+            now = Date.now();
+          } catch (e) {
+            now = 0;
+          }
+        }
+        if (now > 0) {
+          const todayStart = startOfDay(now);
+          const wanted = new Set();
+          for (let i = 0; i < dKeep; i++) {
+            const dk = dayKey(todayStart - i * 86400000);
+            if (dk) {
+              wanted.add(dk);
+            }
+          }
+          const bestByDay = new Map();
+          for (const s of autos) {
+            try {
+              if (!s || typeof s.id !== "string" || !s.id) {
+                continue;
+              }
+              const dk = dayKey(s.ts);
+              if (!dk || !wanted.has(dk) || bestByDay.has(dk)) {
+                continue;
+              }
+              bestByDay.set(dk, s);
+            } catch (e) {}
+          }
+          for (const s of bestByDay.values()) {
+            if (s && typeof s.id === "string" && s.id) {
+              keep.set(s.id, s);
+            }
+          }
+        }
+      }
+      const keptAutos = [...keep.values()].sort(byNewest);
+      return [...keptAutos, ...manual].sort(byNewest);
+    } catch (e) {
+      try {
+        return pruneSnapshots(list, manualCap, maxAuto);
+      } catch (_e) {
+        return [];
+      }
+    }
+  }
+
   // Search haystack for one snapshot: name, workspace ("2", "ws 2",
-  // "workspace 2") and every member tab's title, host and URL — so a
-  // snapshot is findable by what it contains, not just what it's called.
+  // "workspace 2"), group names and every member tab's title, host and
+  // URL — so a snapshot is findable by what it contains, not just what
+  // it's called.
   function stashHay(snap) {
     try {
       if (!snap) {
@@ -414,12 +644,25 @@ var AphStashLogic = (function () {
         `workspace ${snap.ws || ""}`,
         snap.auto ? "auto" : "manual",
       ];
+      for (const g of Array.isArray(snap.groups) ? snap.groups : []) {
+        try {
+          if (g && g.name) {
+            parts.push(g.name);
+          }
+        } catch (_e) {}
+      }
       for (const t of Array.isArray(snap.tabs) ? snap.tabs : []) {
         try {
           if (!t) {
             continue;
           }
           parts.push(t.title || "", hostOfUrl(t.url || ""), t.url || "");
+          if (t.gname) {
+            parts.push(t.gname);
+          }
+          if (t.tabName) {
+            parts.push(t.tabName);
+          }
         } catch (_e) {}
       }
       return parts.join(" ");
@@ -486,15 +729,113 @@ var AphStashLogic = (function () {
     return list;
   }
 
+  // Content key for change detection: sorted URLs (what's open) + strip
+  // order (how it's arranged) + group signature (who's grouped with whom,
+  // incl. collapsed) + selected URL (where you are). Pure so both the
+  // live-tab path and the saved-snapshot path share one definition.
+  // tabs: [{url, gi, gname, gcolor, gcollapsed}] in strip order.
+  function snapshotContentKey(tabs, selUrl) {
+    try {
+      const list = Array.isArray(tabs) ? tabs : [];
+      const urls = [];
+      const order = [];
+      const gs = [];
+      for (const t of list) {
+        try {
+          const url = t && typeof t.url === "string" ? t.url : "";
+          if (!url) {
+            continue;
+          }
+          urls.push(url);
+          order.push(url);
+          const gi = t && Number.isInteger(t.gi) && t.gi >= 0 ? t.gi : -1;
+          const gn = t && typeof t.gname === "string" ? t.gname : "";
+          const gc = t && typeof t.gcolor === "string" ? t.gcolor : "";
+          const gx = t && t.gcollapsed ? "1" : "0";
+          gs.push(`${url}#${gi}:${gn}:${gc}:${gx}`);
+        } catch (_e) {}
+      }
+      urls.sort();
+      gs.sort();
+      return `${urls.join("\n")}\n---order---\n${order.join("\n")}\n---groups---\n${gs.join("\n")}\n---sel---\n${typeof selUrl === "string" ? selUrl : ""}`;
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function savedContentKey(snap) {
+    try {
+      if (!snap) {
+        return "";
+      }
+      return snapshotContentKey(snap.tabs || [], snap.selUrl || "");
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Slow-tier key: same shape as snapshotContentKey but selection-blind,
+  // so selection-only drift never mints a 6h/daily snapshot. Covers
+  // opened / closed / moved (URLs + order + groups incl. collapsed).
+  function slowContentKey(tabs) {
+    try {
+      return snapshotContentKey(Array.isArray(tabs) ? tabs : [], "");
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function savedSlowKey(snap) {
+    try {
+      if (!snap) {
+        return "";
+      }
+      return snapshotContentKey(snap.tabs || [], "");
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Event-driven capture budget: at most one event capture per workspace
+  // per cooldown even if closes/groups/switches fire in bursts. Time ticks
+  // stay due-gated separately — this only throttles the event path.
+  const SNAP_EVENT_COOLDOWN_MS = 10 * 60 * 1000;
+
+  function eventDue(lastTs, nowMs, cooldownMs) {
+    try {
+      const cd = Number.isFinite(Number(cooldownMs)) && Number(cooldownMs) > 0
+        ? Number(cooldownMs)
+        : SNAP_EVENT_COOLDOWN_MS;
+      const now = Number(nowMs);
+      if (!Number.isFinite(now) || now < 0) {
+        return false;
+      }
+      const last = Number(lastTs) || 0;
+      if (!(last > 0)) {
+        return true;
+      }
+      return now - last >= cd;
+    } catch (e) {
+      return false;
+    }
+  }
+
   return {
     MAX_ENTRIES,
     SNAP_MAX_MANUAL,
     SNAP_MAX_AUTO,
+    SNAP_MAX_AUTO_MIN,
+    SNAP_MAX_AUTO_MAX,
+    SNAP_KEEP_DAILIES_DEFAULT,
+    SNAP_KEEP_DAILIES_MIN,
+    SNAP_KEEP_DAILIES_MAX,
     SNAP_INTERVAL_DEFAULT_MIN,
     SNAP_INTERVAL_MIN_MIN,
     SNAP_INTERVAL_MAX_MIN,
+    SNAP_EVENT_COOLDOWN_MS,
     clampSnapIntervalMin,
     snapshotDue,
+    eventDue,
     isArchivableUrl,
     hostOfUrl,
     sanitizeEntries,
@@ -505,8 +846,18 @@ var AphStashLogic = (function () {
     fuzzyEntry,
     fuzzyFilter,
     sortEntries,
+    sanitizeSnapTab,
+    sanitizeSnapshotGroups,
     sanitizeSnapshots,
+    snapshotContentKey,
+    savedContentKey,
+    slowContentKey,
+    savedSlowKey,
+    dayKey,
+    clampMaxAuto,
+    clampKeepDailies,
     pruneSnapshots,
+    pruneSnapshotsTiered,
     stashHay,
     fuzzyStashFilter,
     sortStashes,
