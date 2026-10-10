@@ -8,18 +8,34 @@ const { run, makeTab, makeFakeNode: fakeNode } = require("./helpers");
 
 const tabVals = new WeakMap();
 
-function makeEnv() {
+function makeEnv(opts) {
   const home = makeTab(tabVals, {
     label: "home", ws: "1", selected: true, spec: "https://start.example.com/",
   });
   let wsel = home;
   const keyHandlers = [];
+  const pokeHandlers = [];
   const rootAttrs = {};
   const rootChildren = [];
   let browserFocused = false;
   const sb = {
     window: {
-      addEventListener(type, fn) { if (type === "keydown") keyHandlers.push(fn); },
+      addEventListener(type, fn) {
+        // The window key handler registers first (bundle init); the focus
+        // poke listeners arm later, on entry — keep them separate so the
+        // hotkey driver always hits the real handler at index 0.
+        if (type === "keydown" && keyHandlers.length === 0) {
+          keyHandlers.push(fn);
+        } else {
+          pokeHandlers.push({ type, fn });
+        }
+      },
+      removeEventListener(type, fn) {
+        for (const arr of [keyHandlers, pokeHandlers]) {
+          const i = arr.findIndex((h) => (h.fn || h) === fn);
+          if (i !== -1) arr.splice(i, 1);
+        }
+      },
       opener: null,
     },
     navigator: { onLine: true },
@@ -122,6 +138,12 @@ function makeEnv() {
     },
   };
   sb.window.window = sb.window;
+  if (opts && typeof opts.idleMs === "number") {
+    sb.window.__aphFocusExitIdleMs = opts.idleMs;
+    // helpers.run() pins setTimeout to a no-op by default (deterministic
+    // suites); the idle-fade tests need the real clock.
+    sb.__aphRealTimers = true;
+  }
   run("workspaces.js", sb);
   assert.equal(keyHandlers.length, 1, "expected one window keydown handler");
   const api = sb.window.AphWorkspaces;
@@ -152,9 +174,38 @@ function makeEnv() {
     api, fireKey, rootAttrs,
     wasBrowserFocused: () => browserFocused,
     exitPill: () => rootChildren.find((c) => c.id === "aph-focus-exit") || null,
+    isIdle: () => rootAttrs["data-aph-focus-idle"] === "1",
+    // Only the focus module pokes on window pointer events — the keydown
+    // poke shares its type with the window hotkey handler, so arming is
+    // tracked through the two pointer registrations.
+    pokeCount: () => pokeHandlers.filter((h) => h.type === "pointermove" || h.type === "pointerdown").length,
+    firePoke: (type) => {
+      for (const h of pokeHandlers.filter((h) => h.type === type)) h.fn({});
+    },
+    // Plant a stray pill node (desync harness): the resync tests verify
+    // a redundant disable still removes it and a redundant enable still
+    // restores a missing one.
+    plantStrayPill: () => {
+      const n = fakeNode("button");
+      n.id = "aph-focus-exit";
+      // Wire a real parent link like appendChild does: the resync path
+      // removes through parentNode, with btn.remove() as fallback.
+      n.parentNode = {
+        removeChild(c) {
+          const i = rootChildren.indexOf(c);
+          if (i !== -1) rootChildren.splice(i, 1);
+          c.parentNode = null;
+          return c;
+        },
+      };
+      rootChildren.push(n);
+      return n;
+    },
     home,
   };
 }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 describe("focus mode", () => {
   it("toggle flips state and stamps the root attribute", () => {
@@ -230,5 +281,67 @@ describe("focus mode", () => {
     env.exitPill().fire("click", {});
     assert.equal(env.api.getFocusMode(), false, "mouse users can always leave");
     assert.equal(env.exitPill(), null);
+  });
+
+  it("exit hint fades after idle, poke restores it", async () => {
+    const env = makeEnv({ idleMs: 20 });
+    env.api.setFocusMode(true);
+    assert.ok(env.exitPill(), "pill mounted on enter");
+    assert.equal(env.isIdle(), false, "hint starts visible");
+    assert.ok(env.pokeCount() > 0, "poke listeners armed while focused");
+    await sleep(60);
+    assert.equal(env.isIdle(), true, "hint fades after idle seconds");
+    assert.ok(env.exitPill(), "faded pill keeps its node (and its click)");
+    env.firePoke("pointermove");
+    assert.equal(env.isIdle(), false, "activity restores the hint");
+    assert.ok(env.exitPill(), "pill survives the poke");
+    await sleep(60);
+    assert.equal(env.isIdle(), true, "hint fades again when quiet returns");
+    env.api.setFocusMode(false);
+    assert.equal(env.exitPill(), null);
+  });
+
+  it("exit clears the idle marker and disarms pokes", async () => {
+    const env = makeEnv({ idleMs: 20 });
+    env.api.setFocusMode(true);
+    await sleep(60);
+    assert.equal(env.isIdle(), true);
+    env.api.setFocusMode(false);
+    assert.ok(!("data-aph-focus-idle" in env.rootAttrs), "no stale idle marker");
+    assert.equal(env.exitPill(), null);
+    assert.equal(env.pokeCount(), 0, "poke listeners removed on exit");
+  });
+
+  it("redundant enable re-arms a faded hint", async () => {
+    const env = makeEnv({ idleMs: 20 });
+    env.api.setFocusMode(true);
+    await sleep(60);
+    assert.equal(env.isIdle(), true);
+    const pill = env.exitPill();
+    env.api.setFocusMode(true);
+    assert.equal(env.exitPill(), pill, "re-enter reuses the pill");
+    assert.equal(env.isIdle(), false, "re-enter reshows the hint");
+    env.api.setFocusMode(false);
+  });
+
+  it("redundant disable removes a stray pill", () => {
+    const env = makeEnv();
+    const stray = env.plantStrayPill();
+    assert.ok(env.exitPill(), "stray node present");
+    env.api.setFocusMode(false);
+    assert.equal(env.exitPill(), null, "stray pill cannot outlive the mode");
+  });
+
+  it("redundant enable restores a missing pill", () => {
+    const env = makeEnv();
+    env.api.setFocusMode(true);
+    const pill = env.exitPill();
+    assert.ok(pill);
+    // Simulate an externally removed node: the mode still claims focus.
+    pill.parentNode.removeChild(pill);
+    assert.equal(env.exitPill(), null, "pill externally gone");
+    env.api.setFocusMode(true);
+    assert.ok(env.exitPill(), "re-entry remounts the missing pill");
+    env.api.setFocusMode(false);
   });
 });

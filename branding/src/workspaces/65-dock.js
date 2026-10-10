@@ -1180,6 +1180,22 @@
           menu.appendChild(pal);
         } catch (err) {}
       }
+      // In-place new tab (current workspace, bound container): the stock
+      // full-width strip row retired into the dock toolbar (§26e), so this
+      // row is the mouse path that stays — no ellipsis, it acts at once.
+      const newTab = makeDockMenuItem("aph-aph-new-tab", "New Tab", () => {
+        try {
+          aphOpenTab("about:newtab");
+        } catch (err) {}
+      }, false, "new-tab");
+      if (newTab) {
+        try {
+          newTab.setAttribute("shortcut", "Ctrl+T");
+        } catch (err) {}
+        try {
+          menu.appendChild(newTab);
+        } catch (err) {}
+      }
       try {
         const sep =
           typeof document.createXULElement === "function"
@@ -1488,49 +1504,37 @@
     } catch (_e) {}
   }
 
-  // Aph mark: the capital A from branding/aph.svg, scaled to the dock's
-  // 16px slot. Same construction (silhouette + counter, evenodd) so the
-  // dock mark and the app icon are one mark, not two. The letter wears
-  // the same flat purple as the master; ghosts ride currentColor and
-  // home keeps its brand purple at every state (logos don't dim).
+  // Aph mark: the plain Inter Bold A from branding/aph.svg, scaled to
+  // the dock's 16px slot. Same construction (real glyph + flat purple,
+  // never a hand-drawn polygon) so the dock mark and the app icon are
+  // one mark, not two. The letter wears flat #8e4ec6 at full strength;
+  // the button wash behind it provides the surface (no tile here —
+  // a tile inside the wash would double the surface). Logos don't dim.
   // Namespaced construction (never innerHTML) so the XUL/XHTML host
-  // gets real SVG either way.
+  // gets real SVG either way. NOTE: chrome SVGs don't get page
+  // @font-face, so systems without Inter fall back to system bold —
+  // still centered via text-anchor, same fallback as aph.svg.
   function makeDockAphMark() {
     try {
       const NS = "http://www.w3.org/2000/svg";
       const svg = document.createElementNS(NS, "svg");
-      svg.setAttribute("viewBox", "0 0 14 14");
+      svg.setAttribute("viewBox", "0 0 16 16");
       svg.setAttribute("width", "16");
       svg.setAttribute("height", "16");
       svg.setAttribute("aria-hidden", "true");
-      const defs = document.createElementNS(NS, "defs");
-      const grad = document.createElementNS(NS, "linearGradient");
-      grad.setAttribute("id", "aph-dock-mark");
-      grad.setAttribute("x1", "0");
-      grad.setAttribute("y1", "2.4");
-      grad.setAttribute("x2", "0");
-      grad.setAttribute("y2", "11.4");
-      grad.setAttribute("gradientUnits", "userSpaceOnUse");
-      for (const [stop, color] of [
-        ["0", "#8e4ec6"],
-        ["1", "#8e4ec6"],
-      ]) {
-        const s = document.createElementNS(NS, "stop");
-        s.setAttribute("offset", stop);
-        s.setAttribute("stop-color", color);
-        grad.appendChild(s);
-      }
-      defs.appendChild(grad);
-      svg.appendChild(defs);
-      const mark = document.createElementNS(NS, "path");
-      mark.setAttribute("fill-rule", "evenodd");
-      mark.setAttribute("fill", "url(#aph-dock-mark)");
-      mark.setAttribute(
-        "d",
-        "M 7,2.4 L 10.6,11.4 L 9.6,11.4 L 7.8,7 L 7,5.3 L 6.2,7 L 4.5,11.4 L 3.4,11.4 Z" +
-          " M 7,5.3 L 7.4,5.9 L 6.6,5.9 Z",
-      );
-      svg.appendChild(mark);
+      const letter = document.createElementNS(NS, "text");
+      letter.setAttribute("x", "8");
+      letter.setAttribute("y", "8.4");
+      letter.setAttribute("text-anchor", "middle");
+      letter.setAttribute("dominant-baseline", "central");
+      letter.setAttribute("font-family", "Inter, system-ui, -apple-system, sans-serif");
+      letter.setAttribute("font-size", "12");
+      letter.setAttribute("font-weight", "700");
+      letter.setAttribute("fill", "#8e4ec6");
+      try {
+        letter.textContent = "A";
+      } catch (e) {}
+      svg.appendChild(letter);
       return svg;
     } catch (e) {
       return null;

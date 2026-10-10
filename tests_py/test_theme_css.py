@@ -1295,6 +1295,7 @@ def test_aph_menu_glyphs_use_menuitem_icon_var() -> None:
     css = _css()
     rows = (
         "palette",
+        "new-tab",
         "rename",
         "set-icon",
         "bind",

@@ -861,10 +861,16 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
      trailing dock squeezes in beside the tab list instead of settling
      underneath it. Both properties: -moz-box for XUL box layout, flex
      direction in case the box ever renders as flex. Ink is Aph's, so
-     stock strip icons match the room, not the theme. */
+     stock strip icons match the room, not the theme. Gutter: the strip
+     floats off the rail edge (pad token) with a 4px crown so the first
+     row never kisses the launcher top — proximity over boxes. */
   -moz-box-orient: vertical !important;
   flex-direction: column !important;
   color: var(--aph-ink, #e8e8ec) !important;
+  padding-inline: var(--aph-sidebar-pad, 6px) !important;
+  padding-block-start: var(--aph-space-1, 4px) !important;
+  padding-block-end: 0 !important;
+  box-sizing: border-box !important;
 }
 
 #aph-ws-dock {
@@ -872,28 +878,27 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
   display: flex !important;
   flex-wrap: wrap !important;
   align-items: center !important;
+  align-content: center !important;
   justify-content: center !important;
-  gap: var(--aph-space-1, 4px) !important;
-  /* Footer card: the dock reads as one segmented tray instead of loose
-     chips — 6% ink wash + hairline ring + specular + short contact, the
-     bar's material at strip scale. Ring via shadow (never border), so the
-     flex row never shifts; logical margins keep LTR/RTL mirrored. */
-  border-top: none !important;
-  margin-inline: var(--aph-space-1, 4px) !important;
-  margin-block: 2px var(--aph-space-2, 8px) !important;
-  padding: 6px var(--aph-space-1, 4px) !important;
-  background: color-mix(in oklab, var(--aph-ink, #e8e8ec) 6%, transparent) !important;
-  border-radius: var(--aph-radius-md, 8px) !important;
-  box-shadow:
-    0 0 0 1px var(
-      --aph-hairline,
-      color-mix(in oklab, var(--aph-ink, #e8e8ec) 12%, transparent)
-    ),
-    var(
-      --aph-specular,
-      inset 0 1px 0 rgba(255, 255, 255, 0.08)
-    ),
-    0 2px 8px rgba(0, 0, 0, 0.35) !important;
+  row-gap: var(--aph-sidebar-dock-gap, 6px) !important;
+  column-gap: var(--aph-sidebar-dock-gap, 6px) !important;
+  /* Bottom toolbar, not a card: transparent field with a 1px hairline
+     divider above (proximity over boxes). The rail gutter lives on
+     #vertical-tabs, so inline margins stay 0 — no double gutter.
+     8px above the divider separates tabs from tools, 8px below it
+     separates divider from the grid; the grid breathes 6px below its
+     last row, so a wrapped second row packs as a centered grid instead
+     of an orphan — depth lives on the pills, never here. */
+  border-top: 1px solid var(
+    --aph-hairline,
+    color-mix(in oklab, var(--aph-ink, #e8e8ec) 12%, transparent)
+  ) !important;
+  margin-inline: 0 !important;
+  margin-block: var(--aph-space-2, 8px) var(--aph-space-1, 4px) !important;
+  padding: var(--aph-space-2, 8px) 2px 6px !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 
 #aph-ws-dock[hidden] {
@@ -932,7 +937,7 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
   opacity: 1 !important;
   /* Hover spend (30%) stays visibly quieter than current (45%, §21).
      Opaque over base in oklab (never translucent film). Wash only:
-     the tray card owns depth now, so pills never lift on their own. */
+     the toolbar owns no depth, so pills never lift on their own. */
   background: color-mix(in oklab, var(--aph-voice, #0090ff) 30%, var(--aph-base, #0e0f14)) !important;
 }
 
@@ -1040,10 +1045,6 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
   opacity: 1 !important;
   color: var(--aph-ink, #e8e8ec) !important;
   background: color-mix(in oklab, var(--aph-voice, #0090ff) 30%, var(--aph-base, #0e0f14)) !important;
-  box-shadow: var(
-    --aph-bar-glow,
-    0 0 16px -6px rgba(0, 144, 255, 0.25)
-  ) !important;
 }
 
 .aph-dock-aph:focus-visible {
@@ -1057,10 +1058,9 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
    density tokenized instead of a bare 22px. */
 sidebar-main:not([expanded]) #aph-ws-dock {
   gap: 3px !important;
-  padding: var(--aph-space-1, 4px) 2px 6px !important;
-  /* Deliberate 2px optical: the 48px rail can't afford the 4px tray
-     margins — the card hugs the rail edge in collapsed mode only. */
-  margin-inline: 2px !important;
+  padding: 6px 0 4px !important;
+  margin-inline: 0 !important;
+  margin-block: 6px 2px !important;
 }
 
 sidebar-main:not([expanded]) .aph-ws-pill {
@@ -1122,6 +1122,12 @@ sidebar-main:not([expanded]) .aph-dock-aph {
    measurement — normal collapsed widths pass through untouched. */
 sidebar-main:not([expanded]) {
   min-width: 48px !important;
+}
+
+/* Collapsed rail keeps the gutter tight: the 48px rail can't afford the
+   full 6px pad on both sides, so it rides space-1 instead. */
+sidebar-main:not([expanded]) #vertical-tabs {
+  padding-inline: var(--aph-space-1, 4px) !important;
 }
 
 /* ==========================================================================
@@ -1333,6 +1339,9 @@ menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-ch
 #aph-aph-menu > #aph-aph-palette {
   --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='2' y='2' width='5' height='5' rx='1.2'/><rect x='9' y='2' width='5' height='5' rx='1.2'/><rect x='2' y='9' width='5' height='5' rx='1.2'/><rect x='9' y='9' width='5' height='5' rx='1.2'/></g></svg>") !important;
 }
+#aph-aph-menu > #aph-aph-new-tab {
+  --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M8 3v10M3 8h10'/></g></svg>") !important;
+}
 #aph-aph-menu > #aph-aph-rename {
   --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M11.3 2.7l2 2L6 13l-3 .8.8-3z'/></g></svg>") !important;
 }
@@ -1366,12 +1375,15 @@ menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-ch
 #aph-aph-menu > #aph-aph-about {
   --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8' r='6'/><path d='M8 7.4v3.2'/><circle cx='8' cy='5.1' r='1' fill='%23e8e8ec' stroke='none'/></g></svg>") !important;
 }
-/* Paper face: the same nine glyphs in paper ink (#23252f). The canvas
+/* Paper face: the same ten glyphs in paper ink (#23252f). The canvas
    faces follow prefers-color-scheme (tokens.css), so the art swaps
    with the room — no context magic involved. */
 @media (prefers-color-scheme: light) {
   #aph-aph-menu > #aph-aph-palette {
     --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%2323252f' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='2' y='2' width='5' height='5' rx='1.2'/><rect x='9' y='2' width='5' height='5' rx='1.2'/><rect x='2' y='9' width='5' height='5' rx='1.2'/><rect x='9' y='9' width='5' height='5' rx='1.2'/></g></svg>") !important;
+  }
+  #aph-aph-menu > #aph-aph-new-tab {
+    --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%2323252f' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M8 3v10M3 8h10'/></g></svg>") !important;
   }
   #aph-aph-menu > #aph-aph-rename {
     --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%2323252f' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M11.3 2.7l2 2L6 13l-3 .8.8-3z'/></g></svg>") !important;
@@ -1484,14 +1496,14 @@ menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-ch
 /* Dock current pill: the readout now (the §6 nav-bar pill is gone).
    Opaque 45% presence spend, solid — strip, tab, and bottom rhyme in
    one hue while the large selected fill (§13) spends a calmer 28%.
-   Text stays toolbar ink throughout. Bold: inner ring + soft drop +
-   tight accent glow so the current pill leads the strip. */
+   Text stays toolbar ink throughout. Quiet: inner ring + soft drop only,
+   no sheen, no outer glow — presence, not neon. */
 
-/* Dock pills: faint tint at rest, full color on current (data-ws set in
-   65-dock.js defines each pill's --aph-ws-accent). Rest spends 18% so
-   every workspace shows identity without outreading hover 30% or
-   current 45%; text stays ink throughout, contrast 9+:1 both faces.
-   Selector is [data-ws] alone (not :not([data-current])) so the
+/* Dock pills: quiet at rest, full color on current (data-ws set in
+   65-dock.js defines each pill's --aph-ws-accent for the current rule).
+   Rest stays neutral 10% ink so hover 30% and current 45% lead by color,
+   not by competing tints; text stays ink throughout, contrast 9+:1 both
+   faces. Selector is [data-ws] alone (not :not([data-current])) so the
    current 45% rule below still wins by specificity + order. */
 .aph-ws-pill[data-ws="1"] { --aph-ws-accent: var(--aph-ws-1); }
 .aph-ws-pill[data-ws="2"] { --aph-ws-accent: var(--aph-ws-2); }
@@ -1522,10 +1534,10 @@ menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-ch
 .aph-ws-pill[data-accent="15"] { --aph-ws-accent: var(--aph-ws-15); }
 .aph-ws-pill[data-accent="16"] { --aph-ws-accent: var(--aph-ws-16); }
 .aph-ws-pill[data-ws] {
-  background: color-mix(in oklab, var(--aph-ws-accent) 18%, var(--aph-base, #0e0f14)) !important;
+  background: color-mix(in oklab, var(--aph-ink, #e8e8ec) 10%, transparent) !important;
 }
-/* Rest tint sits later than §16 hover/drop-target, so re-assert them
-   here with higher specificity — otherwise faint wins and feedback dies. */
+/* Rest wash sits later than §16 hover/drop-target, so re-assert them
+   here with higher specificity — otherwise rest wins and feedback dies. */
 .aph-ws-pill[data-ws]:hover {
   background: color-mix(in oklab, var(--aph-voice, #0090ff) 30%, var(--aph-base, #0e0f14)) !important;
 }
@@ -1534,14 +1546,14 @@ menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-ch
 }
 .aph-ws-pill[data-ws][data-current="1"] {
   /* Opaque 45% in oklab (never translucent): solid presence that holds
-     chroma. Sheen overlays the mix (gradient over opaque stays opaque)
-     so the readout catches light; spend math unchanged. Ring stays solid
-     Step 9 edged with ink — the ownable accent edge. */
+     chroma. Flat (no sheen gradient, no outer glow) so the readout leads
+     by hue + ring, never by bloom. Ring stays solid Step 9 edged with
+     ink — the ownable accent edge. */
   background: color-mix(in oklab, var(--aph-ws-accent) 45%, var(--aph-base, #0e0f14)) !important;
-  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 50%) !important;
+  background-image: none !important;
   color: var(--aph-ink, #e8e8ec) !important;
   font-weight: 700 !important;
-  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--aph-ws-accent) 85%, var(--aph-ink, #e8e8ec)), 0 1px 8px rgba(0, 0, 0, 0.4), var(--aph-glow-accent, 0 0 12px -2px rgba(0, 144, 255, 0.35)) !important;
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--aph-ws-accent) 85%, var(--aph-ink, #e8e8ec)), 0 1px 8px rgba(0, 0, 0, 0.4) !important;
 }
 
 /* Drop-ingestion micro-pulse: a 2px dip-and-release on the destination
@@ -1876,7 +1888,8 @@ tab > .tab-stack > .tab-background {
    kill and shouted over presence (see test_stock_nova_gradient_border). */
 
 /* Reduced-motion mirror: every §24 transition/animation dies, plus the
-   bar button paint transitions (§3/§4 opacity) and the two toasts (§9 here, the stash
+   bar button paint transitions (§3/§4 opacity), the focus exit hint
+   fade (§28) and the two toasts (§9 here, the stash
    page) which previously had none. */
 @media (prefers-reduced-motion: reduce) {
   .tabbrowser-tab > .tab-stack > .tab-background,
@@ -1886,6 +1899,7 @@ tab > .tab-stack > .tab-background {
   #tabbrowser-tabbox,
   #aph-toast,
   #aph-toast.show,
+  #aph-focus-exit,
   #nav-bar-customization-target > *,
   #nav-bar-overflow-button {
     transition: none !important;
@@ -2161,6 +2175,23 @@ sidebar-main #tabs-newtab-button:not([disabled]):is(:hover, :focus-visible, [ope
 }
 
 /* ==========================================================================
+   26e. One bottom toolbar: the stock full-width New Tab row retires
+   inside the vertical strip — the dock's "+" pill (§16) is the single
+   add affordance down there, so the bottom reads as one toolbar
+   (divider → grid) instead of two controls plus a divider. Scoped to
+   the vertical launcher exactly like §26c/d (horizontal tab bar keeps
+   its own new-tab button). §26c/d above stay intact and go inert here.
+   Behavior note: the dock "+" jumps to the lowest-inactive workspace
+   while stock "+" opened in place — Ctrl+T still opens in place.
+   ========================================================================== */
+#vertical-tabs #tabs-newtab-button,
+sidebar-main #tabs-newtab-button,
+#vertical-tabs toolbarbutton[data-l10n-id*="newtab"],
+#vertical-tabs toolbarbutton[data-l10n-id*="new-tab"] {
+  display: none !important;
+}
+
+/* ==========================================================================
    27. Tab group color remap: stock 9-name palette → Aph row colors.
    Stock tabgroup.js sets 7 inline props per <tab-group> referencing
    var(--tab-group-<name>[-variant]); the 9 value families live in
@@ -2301,8 +2332,9 @@ sidebar-main #tabs-newtab-button:not([disabled]):is(:hover, :focus-visible, [ope
    28. Focus mode: page only. :root[data-aph-focus="1"] is stamped by
    72-focus.js (Ctrl+Alt+F, palette toggle) — per-window, session-only,
    no pref behind it. display:none throughout: direction-neutral (the
-   RTL gate holds — no physical props), no transitions (reduced-motion
-   has nothing to mirror), reversible by unsetting the attribute.
+   RTL gate holds — no physical props), reversible by unsetting the
+   attribute. Opacity/visibility-only fades (pill hint, below) ride the
+   §24 reduced-motion mirror like everything else.
    The palette overlay mounts on documentElement outside every surface
    below, so Ctrl+K still opens in focus mode — hotkey + palette + the
    floating exit pill below are the exit paths (Esc stays with page
@@ -2321,7 +2353,12 @@ sidebar-main #tabs-newtab-button:not([disabled]):is(:hover, :focus-visible, [ope
    braces so a stray node never paints outside focus mode. Toast
    language (surface, 13px/500, L1) so it reads as chrome status, never
    page content. left:50% + translateX(-50%) is the symmetric centering
-   the RTL gate allows (same as the toast). */
+   the RTL gate allows (same as the toast). A hint, not furniture: after
+   a few idle seconds 72-focus.js stamps data-aph-focus-idle and the
+   pill cross-fades out (opacity + visibility, never display — fixed
+   positioning means no layout either way); the next pointer/key poke
+   clears the marker and it fades back. Toast transition discipline:
+   base carries the hide delay, the show rule the instant flip. */
 #aph-focus-exit {
   position: fixed !important;
   bottom: 24px !important;
@@ -2346,9 +2383,24 @@ sidebar-main #tabs-newtab-button:not([disabled]):is(:hover, :focus-visible, [ope
   border: 1px solid color-mix(in oklab, var(--aph-ink, #e8e8ec) 12%, transparent) !important;
   border-radius: var(--aph-radius-pill, 999px) !important;
   box-shadow: var(--aph-shadow-l1, 0 2px 8px rgba(0, 0, 0, 0.25)) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  transition: opacity 0.3s ease, visibility 0s linear 0.3s !important;
 }
 :root[data-aph-focus="1"] #aph-focus-exit {
   display: flex !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  transition: opacity 0.3s ease, visibility 0s linear 0s !important;
+}
+/* Idle fade (later + equal specificity vs the show rule, so it owns the
+   pill while both markers are stamped; the base display:none still owns
+   it outside focus mode). Paint-only — the pill keeps its hit area and
+   its click-to-exit while faded, so the way out never moves. */
+:root[data-aph-focus-idle="1"] #aph-focus-exit {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  transition: opacity 0.3s ease, visibility 0s linear 0.3s !important;
 }
 #aph-focus-exit:hover {
   background-color: color-mix(

@@ -50,6 +50,13 @@
   --aph-space-3: 12px;
   --aph-space-4: 16px;
 
+  /* Sidebar rail — quiet-luxury insets. Pad is the strip's own gutter
+     (rows float off the rail edge); dock-gap is the pill rhythm inside
+     the bottom toolbar (6px optical: 4px cramps, 8px scatters). Both
+     consumed by theme.css §16 / §22 — never literals there. */
+  --aph-sidebar-pad: 6px;
+  --aph-sidebar-dock-gap: 6px;
+
   /* Icons — one grid. sm = pills/indicator glyphs, md = Aph-key/menu/urlbar
      glyphs. Label gap documents the intentional 6px icon→text rhyme
      (indicator svg margin + tab-icon-end-margin); not a space-* stop. */

@@ -274,7 +274,7 @@ describe("workspace dock", () => {
     }
   });
 
-  it("Aph key renders a geometric mark, not text", () => {
+  it("Aph key renders the Inter A mark, not a polygon", () => {
     const env = makeEnv();
     const a = addTab(env, { label: "a", ws: "1" });
     env.select(a);
@@ -285,21 +285,20 @@ describe("workspace dock", () => {
     assert.equal(key.getAttribute("aria-label"), "Aph menu");
     const svg = key.children.find((c) => c.localName === "svg");
     assert.ok(svg, "mark present");
-    assert.equal(svg.getAttribute("viewBox"), "0 0 14 14");
+    assert.equal(svg.getAttribute("viewBox"), "0 0 16 16");
     assert.equal(svg.getAttribute("width"), "16");
     assert.equal(svg.getAttribute("height"), "16");
-    // The capital A from branding/aph.svg: one evenodd path (silhouette +
-    // counter) wearing the flat brand purple — never the grid of rects.
-    const grads = svg.children.filter((c) => c.localName === "defs");
-    assert.equal(grads.length, 1, "gradient defs present");
-    const grad = grads[0].children.find((c) => c.localName === "linearGradient");
-    assert.ok(grad, "mark gradient present");
-    const stops = grad.children.filter((c) => c.localName === "stop").map((s) => s.getAttribute("stop-color"));
-    assert.deepEqual(stops, ["#8e4ec6", "#8e4ec6"], "mark wears flat brand purple, not a stale hex");
-    const paths = svg.children.filter((c) => c.localName === "path");
-    assert.equal(paths.length, 1, "one letter path, not rect cells");
-    assert.equal(paths[0].getAttribute("fill-rule"), "evenodd", "counter cut via evenodd");
-    assert.equal(paths[0].getAttribute("fill"), "url(#aph-dock-mark)");
+    // The plain Inter Bold A from branding/aph.svg: one centered <text>
+    // wearing flat brand purple — never a hand-drawn path or grid rects.
+    assert.equal(svg.children.filter((c) => c.localName === "defs").length, 0, "no pretend gradient defs");
+    assert.equal(svg.children.filter((c) => c.localName === "path").length, 0, "no polygon path");
+    const letters = svg.children.filter((c) => c.localName === "text");
+    assert.equal(letters.length, 1, "one letter, not rect cells");
+    assert.equal(letters[0].textContent, "A", "logo text must be a plain A");
+    assert.equal(letters[0].getAttribute("font-weight"), "700", "Inter Bold");
+    assert.ok((letters[0].getAttribute("font-family") || "").includes("Inter"), "Inter stack");
+    assert.equal(letters[0].getAttribute("fill"), "#8e4ec6", "flat brand purple, not a stale hex");
+    assert.equal(letters[0].getAttribute("text-anchor"), "middle", "fallback fonts stay centered");
   });
 
   it("clicking a pill switches workspace", () => {
@@ -392,6 +391,7 @@ describe("workspace dock", () => {
     const m = openAphMenu(env);
     assert.deepEqual(menuLabels(m), [
       "Open Command Palette…",
+      "New Tab",
       null,
       "Rename Workspace 1…",
       "Set Icon for Workspace 1…",
@@ -409,6 +409,7 @@ describe("workspace dock", () => {
       "About Aph",
     ]);
     assert.equal(m.children[0].getAttribute("shortcut"), "Ctrl+K");
+    assert.equal(m.children[1].getAttribute("shortcut"), "Ctrl+T");
     // Icon slots: stock 157 paints .menu-icon from the --menuitem-icon
     // var (theme.css §20b) — the classic image attribute alone renders
     // nothing. JS only flips the stock display-trigger classes; art
@@ -423,6 +424,22 @@ describe("workspace dock", () => {
     const bind = m.children.find((c) => c.localName === "menu");
     assert.equal(bind.id, "aph-aph-bind");
     assert.ok(bind.classList.contains("menu-iconic"), "bind menu icon");
+  });
+
+  it("New Tab row opens an in-place tab in the current workspace", () => {
+    const env = makeEnv();
+    const a = addTab(env, { label: "a", ws: "1" });
+    env.select(a);
+    env.api.renderDock();
+    const m = openAphMenu(env);
+    const row = m.children.find((c) => c.id === "aph-aph-new-tab");
+    assert.ok(row, "New Tab row present");
+    const before = env.tabs.length;
+    row.fire("command", {});
+    assert.equal(env.tabs.length, before + 1, "one tab opened, nothing closed");
+    const nt = env.tabs[env.tabs.length - 1];
+    assert.equal(env.api.getCurrent(), "1", "stays put (unlike the + pill workspace jump)");
+    assert.equal(env.sb.gBrowser.selectedTab, nt, "new tab selected");
   });
 
   it("Firefox Settings row prefers native openPreferences, falls back to about:preferences", () => {
