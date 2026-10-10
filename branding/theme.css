@@ -1775,13 +1775,14 @@ tab > .tab-stack > .tab-background {
 
 .tabbrowser-tab:not([pinned]) > .tab-stack,
 tab:not([pinned]) > .tab-stack {
-  /* Airy rows via breathing room only (never margins, never min-height:
+  /* Compact rows via breathing room only (never margins, never min-height:
      min-height + centering broke row formatting in the vertical strip,
-     so density stays padding-driven like stock). space-1 each side lands
-     the --aph-tab-row 32px rhythm against the stock ~24px content box —
-     Linear/Raycast air without touching row formatting. Pinned tabs keep
+     so density stays padding-driven like stock). 2px each side lands
+     28px rows against the stock ~24px content box — 4px air between
+     fills with the token gap at zero. Deliberate optical, not a space
+     token (space-1's 4px left 8px between fills). Pinned tabs keep
      stock geometry; collapse and multiselect pass through untouched. */
-  padding-block: var(--aph-space-1, 4px) !important;
+  padding-block: 2px !important;
 }
 
 /* ==========================================================================
