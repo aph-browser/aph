@@ -4,7 +4,7 @@
 // shape as tests/win-keyboard.test.js).
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { run, makeTab } = require("./helpers");
+const { run, makeTab, makeFakeNode: fakeNode } = require("./helpers");
 
 const tabVals = new WeakMap();
 
@@ -15,6 +15,7 @@ function makeEnv() {
   let wsel = home;
   const keyHandlers = [];
   const rootAttrs = {};
+  const rootChildren = [];
   let browserFocused = false;
   const sb = {
     window: {
@@ -24,10 +25,18 @@ function makeEnv() {
     navigator: { onLine: true },
     document: {
       readyState: "complete",
-      getElementById: () => null,
-      createElement: () => ({ setAttribute() {}, removeAttribute() {}, style: {} }),
+      getElementById: (id) => rootChildren.find((c) => c.id === id) || null,
+      createElement: (tag) => fakeNode(tag),
       createEvent: () => ({ initEvent() {} }),
       documentElement: {
+        children: rootChildren,
+        appendChild(c) { c.parentNode = this; rootChildren.push(c); return c; },
+        removeChild(c) {
+          const i = rootChildren.indexOf(c);
+          if (i !== -1) rootChildren.splice(i, 1);
+          c.parentNode = null;
+          return c;
+        },
         setAttribute(k, v) { rootAttrs[k] = String(v); },
         getAttribute(k) { return k in rootAttrs ? rootAttrs[k] : null; },
         removeAttribute(k) { delete rootAttrs[k]; },
@@ -142,6 +151,7 @@ function makeEnv() {
   return {
     api, fireKey, rootAttrs,
     wasBrowserFocused: () => browserFocused,
+    exitPill: () => rootChildren.find((c) => c.id === "aph-focus-exit") || null,
     home,
   };
 }
@@ -196,5 +206,29 @@ describe("focus mode", () => {
     const e = env.fireKey({ code: "KeyF", ctrlKey: true, altKey: true, shiftKey: true });
     assert.equal(e._pd, false, "shifted chord is unbound");
     assert.equal(env.api.getFocusMode(), false);
+  });
+
+  it("enter mounts the exit pill, exit removes it", () => {
+    const env = makeEnv();
+    assert.equal(env.exitPill(), null);
+    env.api.setFocusMode(true);
+    const pill = env.exitPill();
+    assert.ok(pill, "pill mounted on enter");
+    assert.equal(pill.localName, "button");
+    assert.equal(pill.textContent, "Exit focus · Ctrl+Alt+F");
+    assert.equal(pill.getAttribute("aria-label"), "Exit focus mode (Ctrl+Alt+F)");
+    env.api.setFocusMode(true);
+    assert.equal(env.exitPill(), pill, "re-enter reuses the pill");
+    env.api.setFocusMode(false);
+    assert.equal(env.exitPill(), null, "pill removed on exit");
+  });
+
+  it("exit pill click exits focus mode", () => {
+    const env = makeEnv();
+    env.api.setFocusMode(true);
+    assert.equal(env.api.getFocusMode(), true);
+    env.exitPill().fire("click", {});
+    assert.equal(env.api.getFocusMode(), false, "mouse users can always leave");
+    assert.equal(env.exitPill(), null);
   });
 });

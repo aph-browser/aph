@@ -49,6 +49,8 @@ BUNDLES: dict[str, list[str]] = {
         "workspaces/70-temp-keys.js",
         "workspaces/71-owned-base.js",
         "workspaces/72-focus.js",
+        "workspaces/73-loadrings.js",
+        "workspaces/74-theme-preset.js",
         "workspaces/75-pinreset.js",
         "workspaces/76-starred.js",
         "workspaces/78-split.js",
@@ -57,6 +59,7 @@ BUNDLES: dict[str, list[str]] = {
         "workspaces/100-startup.js",
         "workspaces/105-welcome.js",
         "workspaces/110-chrome-init.js",
+        "workspaces/115-chrome-v2.js",
     ],
     "command-palette.js": [
         "palette/00-core-open.js",

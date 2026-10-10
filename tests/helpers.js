@@ -191,6 +191,9 @@ function makeGroup(tabs, o) {
   const g = {
     tabs: tabs.slice(),
     collapsed: !!(o && o.collapsed),
+    label: o && typeof o.label === "string" ? o.label : "",
+    name: o && typeof o.name === "string" ? o.name : "",
+    color: o && typeof o.color === "string" ? o.color : "",
     hidden: false,
   };
   for (const t of tabs) {

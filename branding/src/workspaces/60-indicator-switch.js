@@ -1,136 +1,20 @@
-  // Workspace indicator pill (nav-bar): icon + name readout. Click
-  // renames via the command palette, right-click opens the icon picker
-  // (same Rename / Set Icon pair as the dock right-click menu — the pill
-  // is the top-left equivalent for the current workspace). No popover
-  // exists — both are mouse paths into the palette. The `data-aph-ws`
-  // attribute on tabContainer already existed but nothing rendered it —
-  // this badge does.
-  // Indicator: icon + name. The icon (when set) leads, the label is
-  // the name or the bare number — the dock below already shows all
-  // nine numbers, and the tooltip keeps `Workspace N: Name`, so the
-  // address survives one hover away. Mixed content (never textContent:
-  // that would stringify the mark); the svg is aria-hidden paint.
-  function paintIndicatorLabel(el, wsId, name) {
-    try {
-      while (el.firstChild) {
-        el.removeChild(el.firstChild);
-      }
-    } catch (e) {}
-    try {
-      const mark = makeWsIconSvg(getWsIcon(wsId), 14);
-      if (mark) {
-        try {
-          el.appendChild(mark);
-        } catch (e) {}
-      }
-    } catch (e) {}
-    try {
-      el.appendChild(document.createTextNode(name || wsId));
-    } catch (e) {
-      el.textContent = name || wsId;
-    }
-  }
-  function ensureIndicator() {
-    try {
-      let el = document.getElementById("aph-ws-indicator");
-      if (el) {
-        return el;
-      }
-      const navBar = document.getElementById("nav-bar");
-      if (!navBar) {
-        return null;
-      }
-      el = document.createElement("div");
-      el.id = "aph-ws-indicator";
-      el.textContent = isValidId(current) ? current : "1";
-      el.title = "Workspace (Alt+1..9 switch, Alt+Shift+]/[ cycle, Alt+Shift+Tab last, click to rename, right-click for icon)";
-      try {
-        el.addEventListener("click", () => {
-          try {
-            if (window.AphPalette) {
-              window.AphPalette.renameCurrent();
-            }
-          } catch (e) {}
-        });
-      } catch (e) {}
-      // Right-click edits the mark, mirroring the dock menu's Set Icon
-      // item for the current workspace. Suppresses the stock nav-bar
-      // context menu on the pill (toolbar customize lives everywhere
-      // else on the bar). Fail-silent: test pills have no addEventListener.
-      try {
-        el.addEventListener("contextmenu", (e) => {
-          try {
-            if (e && typeof e.preventDefault === "function") {
-              e.preventDefault();
-            }
-          } catch (_e) {}
-          try {
-            if (e && typeof e.stopPropagation === "function") {
-              e.stopPropagation();
-            }
-          } catch (_e) {}
-          try {
-            const api = window.AphPalette;
-            if (api && typeof api.setWsIcon === "function") {
-              api.setWsIcon(isValidId(current) ? current : "1");
-            }
-          } catch (_e) {}
-        });
-      } catch (e) {}
-      navBar.prepend(el);
-      return el;
-    } catch (e) {
-      return null;
-    }
-  }
-
+  // Workspace switching + window stamping (the top pill is gone —
+  // the dock's current pill is the readout now, so this file owns no
+  // DOM of its own). The `data-aph-ws` attribute on tabContainer
+  // already existed; stampWindowWs mirrors it onto documentElement so
+  // theme.css tints per workspace (:root[data-aph-ws="N"]).
   function updateIndicator() {
+    // Name kept for the call sites (init, switches, pref observers):
+    // repaint is dock-only now.
     try {
-      const el = document.getElementById("aph-ws-indicator") || ensureIndicator();
-      if (el) {
-        const cur = isValidId(current) ? current : "1";
-        const name = getWsName(cur);
-        // Icon + name readout (paintIndicatorLabel above): the icon
-        // leads when set, the label is the name or the bare number.
-        // The tooltip below keeps `Workspace N: Name` + shortcuts, so
-        // the address survives one hover away.
-        paintIndicatorLabel(el, cur, name);
-        // Bound container: tooltip only, no color marker — bound pills
-        // read identical to unbound ones (monochrome chrome). The palette
-        // Bind rows are the editor; this title is the checker.
-        let title = `Workspace ${cur}${name ? `: ${name}` : ""} (Alt+1..9 switch · Alt+Shift+]/[ cycle · Alt+Shift+Tab last · click to rename · right-click for icon)`;
-        try {
-          const bid = getWsContainerId(cur);
-          if (bid) {
-            const d = describeContainer(bid);
-            if (d && d.name) {
-              title = `Workspace ${cur}${name ? `: ${name}` : ""} · ${d.name} container (Ctrl+T opens here · click to rename · right-click for icon)`;
-            }
-          }
-        } catch (e) {}
-        try {
-          let routed = 0;
-          const map = loadRoutes();
-          for (const k of Object.keys(map)) {
-            if (map[k] === cur) {
-              routed++;
-            }
-          }
-          if (routed) {
-            title += ` · ${routed} routed domain${routed === 1 ? "" : "s"}`;
-          }
-        } catch (e) {}
-        el.title = title;
-      }
-      // Dock repaints with the badge: switch/rename/bind/pref-sync covered.
-      // Tab open/close/restore/pin call renderDock from their own handlers.
-      try {
-        renderDock();
-      } catch (e) {}
+      renderDock();
     } catch (e) {}
   }
 
-  // Crimson pulse timer for the workspace indicator (200ms flash).
+  // Switch flash timer (200ms): stamps data-aph-ws-pulse on the tab
+  // container so a failed or empty switch still signals instead of
+  // dying silent. (It used to flash the top pill too — pill gone, the
+  // container stamp plus the bloom carry the signal now.)
   let wsPulseTimer = null;
   // Handles for process-global registrations owned by this window. Prefs /
   // progress / obs observers are held strongly by their service, so each
@@ -146,7 +30,8 @@
   // it so + button / menu births land in the bound container. Restored on
   // unload (cleanupWindowObservers).
   let origBrowserOpenTab = null;
-  function pulseWorkspaceIndicator() {    try {
+  function pulseWorkspaceIndicator() {
+    try {
       try {
         if (
           typeof window.matchMedia === "function" &&
@@ -157,23 +42,13 @@
       } catch (e) {}
       const el = gBrowser.tabContainer;
       el.setAttribute("data-aph-ws-pulse", "1");
-      const badge = document.getElementById("aph-ws-indicator");
-      if (badge) {
-        badge.setAttribute("data-aph-ws-pulse", "1");
-      }
       if (wsPulseTimer) {
         clearTimeout(wsPulseTimer);
       }
-      // Short presence flash: clears well inside the bloom decay so the
-    // indicator never outlives the switch signal.
-    wsPulseTimer = setTimeout(() => {
+      // Short presence flash: clears well inside the bloom decay.
+      wsPulseTimer = setTimeout(() => {
         try {
           el.removeAttribute("data-aph-ws-pulse");
-        } catch (e) {}
-        try {
-          if (badge) {
-            badge.removeAttribute("data-aph-ws-pulse");
-          }
         } catch (e) {}
         wsPulseTimer = null;
       }, 140);
@@ -548,6 +423,12 @@
       const arc = window.AphStash;
       if (arc && typeof arc.scheduleAutoStashSweep === "function") {
         arc.scheduleAutoStashSweep();
+      }
+      // Snapshot the arrival workspace promptly (changed + due gated, so
+      // quiet switches write nothing): the time tick stays the backstop,
+      // this keeps fast switch-edit-quit flows from losing work.
+      if (arc && typeof arc.notifyWorkspaceSwitch === "function") {
+        arc.notifyWorkspaceSwitch(target);
       }
     } catch (e) {}
   }

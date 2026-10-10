@@ -381,11 +381,20 @@
       } catch (e) {}
       // Fresh tabs still committing their first document (see
       // PRUNE_SETTLE_MS above): never judge the transient blank face.
-      // Tabs without a birth stamp (tests, restored tabs — restore
-      // deliberately stamps none) stay on the old path.
+      // Tabs without a birth stamp (restored tabs — restore deliberately
+      // stamps none — plus pre-existing survivors) are NEVER pruned:
+      // a restored-but-unloaded tab wears about:blank until its first
+      // commit, and closing it destroys unloaded session state (seen
+      // live: bulk restore + workspace switches pruning the whole
+      // backlog). Genuine newborn blanks always carry a stamp (TabOpen),
+      // so this only spares tabs Aph didn't birth. Under-prune, never
+      // over-prune: at most a spare restored newtab survives.
       try {
         const birth = (t && t.__aphBirth) || 0;
-        if (birth && Date.now() - birth < PRUNE_SETTLE_MS) {
+        if (!birth) {
+          continue;
+        }
+        if (Date.now() - birth < PRUNE_SETTLE_MS) {
           continue;
         }
       } catch (e) {}

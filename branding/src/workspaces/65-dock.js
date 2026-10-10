@@ -1,38 +1,45 @@
   // Workspace dock: mouse-first pills pinned to the bottom of the
-  // vertical tab strip. The nav-bar #aph-ws-indicator auto-hides with the
-  // top bar, so mouse users get this instead: active workspaces + current
-  // + a "+" jump-to-next-empty pill, with container underlines, drag-and-
+  // vertical tab strip. Mounts under #vertical-tabs (or the sidebar
+  // container fallback) and settles at the strip bottom via flex. The
+  // dock is the workspace readout now (the old nav-bar pill is gone):
+  // active workspaces + current + a "+" jump-to-next-empty pill, with container underlines, drag-and-
   // drop retagging, and a right-click menu (rename / icon / accent /
   // bind / unload / close). Accent overrides persist in
   // aph.workspaces.accents; everything else reuses tags, names and
-  // bindings.
+  // bindings. Pills are native <button>s (platform keyboard + screen
+  // reader support, index/icon glyph only — tab counts live in
+  // tooltips/titles and the palette, never as badge chrome) with the
+  // Aph key inline beside them opening the single merged Aph menu. Horizontal-tabs mode has
+  // no strip: the nav-bar switcher (#aph-ws-nav-switcher) is the
+  // readout there — exactly one readout at a time.
   // Anchor: #vertical-tabs (light-DOM box projected into sidebar-main's
   // tabstrip slot, above the tools area). Horizontal-tabs mode leaves
-  // #sidebar-container hidden, so the dock skips itself and the nav-bar
-  // indicator remains the only badge. Everything fails silent (house
+  // #sidebar-container hidden, so the dock skips itself (horizontal
+  // mode has no strip readout). Everything fails silent (house
   // style) so a missing anchor never breaks chrome.
   const DOCK_ID = "aph-ws-dock";
   const DOCK_MENU_ID = "aph-ws-dock-menu";
   // Accent hue names for the dock Accent submenu + settings picker.
-  // Full 16-stop scale (theme.css §21); ws-7 is Purple 9 (true Violet
-  // 9 lives at 14). Labels only.
+  // Full 16-stop scale (theme.css §21). Default nine are the deep→bright
+  // ramp (1 Indigo → 9 Violet); Ruby/Green/Purple/Pink/Plum/Slate/Tomato
+  // are accent-only extras. Labels only — the CSS owns the hexes.
   const WS_ACCENT_NAMES = {
-    1: "Ruby",
-    2: "Orange",
-    3: "Amber",
+    1: "Indigo",
+    2: "Blue",
+    3: "Cyan",
     4: "Jade",
-    5: "Cyan",
-    6: "Blue",
-    7: "Purple",
-    8: "Pink",
-    9: "Slate",
+    5: "Grass",
+    6: "Amber",
+    7: "Orange",
+    8: "Crimson",
+    9: "Violet",
     10: "Tomato",
-    11: "Grass",
+    11: "Ruby",
     12: "Green",
-    13: "Indigo",
-    14: "Violet",
+    13: "Purple",
+    14: "Pink",
     15: "Plum",
-    16: "Crimson",
+    16: "Slate",
   };
   // Tab being dragged over the dock (stock tab dataTransfer carries no tab
   // ref, so track dragstart on the shared tab container instead). Group
@@ -127,11 +134,102 @@
     }
   }
 
+  // Drag-mode layout without destruction: the old path called
+  // renderDock(), which destroyed every pill mid-gesture (content +
+  // listeners rebuilt while the strip's own drag session was live).
+  // Instead the existing pill nodes are detached and re-appended in
+  // numeric order — same objects, listeners and paint intact — missing
+  // workspaces are appended as empty ghosts, and the Aph key is parked
+  // (pills + plus are the only drop UI in play). The exit path
+  // (onDockDragEnd → renderDock) rebuilds active-only once the drag
+  // has unwound.
+  function layoutDragPills() {
+    try {
+      let dock = null;
+      try {
+        dock = document.getElementById(DOCK_ID);
+      } catch (e) {}
+      if (!dock || typeof dock.appendChild !== "function") {
+        return false;
+      }
+      try {
+        dock.setAttribute("data-aph-dragging", "1");
+      } catch (e) {}
+      const cur = isValidId(current) ? current : "1";
+      let counts = {};
+      try {
+        counts = dockCounts();
+      } catch (e) {}
+      const byWs = Object.create(null);
+      let plusNode = null;
+      try {
+        for (const c of Array.from(dock.children || [])) {
+          try {
+            dock.removeChild(c);
+          } catch (e) {
+            continue;
+          }
+          try {
+            if (
+              c &&
+              c.classList &&
+              typeof c.classList.contains === "function" &&
+              c.classList.contains("aph-ws-add")
+            ) {
+              if (!plusNode) {
+                plusNode = c;
+              }
+              continue;
+            }
+            if (
+              c &&
+              c.classList &&
+              typeof c.classList.contains === "function" &&
+              c.classList.contains("aph-dock-aph")
+            ) {
+              continue;
+            }
+            const ws =
+              c && typeof c.getAttribute === "function" ? c.getAttribute("data-ws") : null;
+            if (ws && isValidId(ws) && !byWs[ws]) {
+              byWs[ws] = c;
+              continue;
+            }
+          } catch (e) {}
+        }
+      } catch (e) {}
+      for (let i = 1; i <= 9; i++) {
+        const id = String(i);
+        try {
+          const pill = byWs[id] || makeDockPill(id, id === cur, counts[id] || 0, true);
+          if (pill) {
+            dock.appendChild(pill);
+          }
+        } catch (e) {}
+      }
+      try {
+        const plus = plusNode || makeDockPlus(lowestInactiveId(getActiveIds()));
+        if (plus) {
+          dock.appendChild(plus);
+        }
+      } catch (e) {}
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function enterDockDragMode() {
     try {
       if (!dockDragActive) {
         dockDragActive = true;
-        renderDock();
+        try {
+          if (!layoutDragPills()) {
+            renderDock();
+          }
+        } catch (e) {
+          renderDock();
+        }
       }
     } catch (e) {}
   }
@@ -565,7 +663,14 @@
   function makeDockPill(id, isCurrent, count, isEmpty) {
     let pill = null;
     try {
-      pill = document.createElement("div");
+      // Native button (not div[role=button]): Enter/Space activate via the
+      // platform, focus is a real tab stop, and screen readers announce
+      // the label + current state. No manual keydown handler — it would
+      // double-fire alongside the native click.
+      pill = document.createElement("button");
+      try {
+        pill.setAttribute("type", "button");
+      } catch (e) {}
       pill.className = "aph-ws-pill";
       pill.setAttribute("data-ws", id);
       // Per-WS accent override (32): stamp data-accent="M" when WS id
@@ -581,10 +686,13 @@
           pill.setAttribute("data-accent", hue);
         }
       } catch (e) {}
-      pill.setAttribute("role", "button");
-      pill.setAttribute("tabindex", "0");
+      // Native button needs no role/tabindex: it is focusable and
+      // announced by the platform. aria-current marks the readout.
       if (isCurrent) {
         pill.setAttribute("data-current", "1");
+        try {
+          pill.setAttribute("aria-current", "true");
+        } catch (e) {}
       }
       if (isEmpty) {
         try {
@@ -610,15 +718,9 @@
       } catch (e) {
         pill.textContent = glyph.text;
       }
-      // Counts are per-window tab tags — this window's own set.
-      if (count > 0) {
-        try {
-          const badge = document.createElement("span");
-          badge.className = "aph-ws-count";
-          badge.textContent = String(count);
-          pill.appendChild(badge);
-        } catch (e) {}
-      }
+      // Counts are per-window tab tags — this window's own set. Pills
+      // stay clean (index/icon glyph only): the count rides the pill's
+      // title/aria-label below, never as badge chrome.
       let title = `Workspace ${id}`;
       try {
         const name = getWsName(id);
@@ -679,20 +781,8 @@
             switchTo(id);
           } catch (e) {}
         });
-        pill.addEventListener("keydown", (e) => {
-          try {
-            if (e && (e.key === "Enter" || e.key === " ")) {
-              if (typeof e.preventDefault === "function") {
-                e.preventDefault();
-              }
-              if (id === current) {
-                pulseWorkspaceIndicator();
-                return;
-              }
-              switchTo(id);
-            }
-          } catch (_e) {}
-        });
+        // No keydown handler: a native button fires click on Enter/Space
+        // by itself. A manual Enter/Space listener would switch twice.
       } catch (e) {}
       try {
         const menu = dockMenu();
@@ -816,13 +906,14 @@
   function makeDockPlus(free) {
     let pill = null;
     try {
-      pill = document.createElement("div");
+      pill = document.createElement("button");
+      try {
+        pill.setAttribute("type", "button");
+      } catch (e) {}
       pill.className = "aph-ws-pill aph-ws-add";
-      pill.setAttribute("role", "button");
-      pill.setAttribute("tabindex", "0");
       pill.textContent = "+";
       pill.title = free
-        ? `New workspace ${free} (click: switches here, opens a tab · drop: moves tab(s) here)`
+        ? `Open workspace ${free} (click: switches here, opens a tab · drop: moves tab(s) here)`
         : "All 9 workspaces active";
       try {
         pill.setAttribute("aria-label", pill.title);
@@ -833,16 +924,7 @@
             plusToWorkspace();
           } catch (e) {}
         });
-        pill.addEventListener("keydown", (e) => {
-          try {
-            if (e && (e.key === "Enter" || e.key === " ")) {
-              if (typeof e.preventDefault === "function") {
-                e.preventDefault();
-              }
-              plusToWorkspace();
-            }
-          } catch (_e) {}
-        });
+        // Native button: Enter/Space already fire click. No keydown.
       } catch (e) {}
       // The "+" pill is a drop target for a fresh workspace: dropping moves
       // to the lowest inactive ID (same destination a click would open).
@@ -1203,6 +1285,41 @@
           menu.appendChild(bindMenu);
         }
       } catch (err) {}
+      // Workspace section (merged single menu): accent picker + close
+      // live here alongside rename/icon/bind above, all targeting the
+      // current workspace. Unload stays pill-menu-only: it is disabled
+      // for the current workspace by definition, so it would be a dead
+      // row here.
+      try {
+        const accentMenu = buildAccentSubmenu(cur, "aph-aph");
+        if (accentMenu) {
+          try {
+            accentMenu.id = "aph-aph-accent";
+          } catch (err) {}
+          menu.appendChild(accentMenu);
+        }
+      } catch (err) {}
+      let curCount = 0;
+      try {
+        curCount = (typeof dockCounts === "function" ? dockCounts()[cur] : 0) || 0;
+      } catch (err) {}
+      const closeWs = makeDockMenuItem(
+        "aph-aph-close",
+        curCount > 0 ? `Close Workspace (${curCount} tab${curCount === 1 ? "" : "s"})` : "Close Workspace",
+        () => {
+          try {
+            if (typeof closeWorkspaceTabs === "function") {
+              closeWorkspaceTabs(cur);
+            }
+          } catch (err) {}
+        },
+        curCount === 0
+      );
+      if (closeWs) {
+        try {
+          menu.appendChild(closeWs);
+        } catch (err) {}
+      }
       let stashTitle = "Stash Current Tab";
       try {
         if (typeof stashCmdTitle === "function") {
@@ -1274,6 +1391,21 @@
       if (fxPrefs) {
         try {
           menu.appendChild(fxPrefs);
+        } catch (err) {}
+      }
+      // v2 hides the hamburger button (theme.css §29) — its panel stays
+      // reachable here. PanelUI.show is the stock opener; missing API
+      // fails silent (the row still renders for tests).
+      const appMenu = makeDockMenuItem("aph-aph-appmenu", "Firefox Menu…", () => {
+        try {
+          if (window.PanelUI && typeof window.PanelUI.show === "function") {
+            window.PanelUI.show();
+          }
+        } catch (err) {}
+      }, false, "appmenu");
+      if (appMenu) {
+        try {
+          menu.appendChild(appMenu);
         } catch (err) {}
       }
       const welcome = makeDockMenuItem("aph-aph-welcome", "Aph Welcome Tour", () => {
@@ -1356,12 +1488,13 @@
     } catch (_e) {}
   }
 
-  // Aph mark: 2x2 spaces grid with the tile's steel-blue home cell.
-  // Geometric and abstract on purpose — a letterform would read as
-  // text at 16px. Ghosts ride currentColor (dim at rest, full on
-  // hover); home keeps its brand blue at every state (logos don't
-  // dim). Namespaced construction (never innerHTML) so the XUL/XHTML
-  // host gets real SVG either way.
+  // Aph mark: the capital A from branding/aph.svg, scaled to the dock's
+  // 16px slot. Same construction (silhouette + counter, evenodd) so the
+  // dock mark and the app icon are one mark, not two. The letter wears
+  // the same gradient as the master (indigo apex -> blue baseline);
+  // ghosts ride currentColor and home keeps its brand blue at every
+  // state (logos don't dim). Namespaced construction (never innerHTML)
+  // so the XUL/XHTML host gets real SVG either way.
   function makeDockAphMark() {
     try {
       const NS = "http://www.w3.org/2000/svg";
@@ -1370,28 +1503,34 @@
       svg.setAttribute("width", "16");
       svg.setAttribute("height", "16");
       svg.setAttribute("aria-hidden", "true");
-      const cells = [
-        { x: 1, y: 1, active: true },
-        { x: 8, y: 1, active: false },
-        { x: 1, y: 8, active: false },
-        { x: 8, y: 8, active: false },
-      ];
-      for (const c of cells) {
-        const r = document.createElementNS(NS, "rect");
-        r.setAttribute("x", String(c.x));
-        r.setAttribute("y", String(c.y));
-        r.setAttribute("width", "5");
-        r.setAttribute("height", "5");
-        r.setAttribute("rx", "1.5");
-        if (c.active) {
-          r.setAttribute("fill", "#4682b4");
-        } else {
-          r.setAttribute("fill", "none");
-          r.setAttribute("stroke", "currentColor");
-          r.setAttribute("stroke-width", "1.4");
-        }
-        svg.appendChild(r);
+      const defs = document.createElementNS(NS, "defs");
+      const grad = document.createElementNS(NS, "linearGradient");
+      grad.setAttribute("id", "aph-dock-mark");
+      grad.setAttribute("x1", "0");
+      grad.setAttribute("y1", "2.4");
+      grad.setAttribute("x2", "0");
+      grad.setAttribute("y2", "11.4");
+      grad.setAttribute("gradientUnits", "userSpaceOnUse");
+      for (const [stop, color] of [
+        ["0", "#3e63dd"],
+        ["1", "#0090ff"],
+      ]) {
+        const s = document.createElementNS(NS, "stop");
+        s.setAttribute("offset", stop);
+        s.setAttribute("stop-color", color);
+        grad.appendChild(s);
       }
+      defs.appendChild(grad);
+      svg.appendChild(defs);
+      const mark = document.createElementNS(NS, "path");
+      mark.setAttribute("fill-rule", "evenodd");
+      mark.setAttribute("fill", "url(#aph-dock-mark)");
+      mark.setAttribute(
+        "d",
+        "M 7,2.4 L 10.6,11.4 L 9.6,11.4 L 7.8,7 L 7,5.3 L 6.2,7 L 4.5,11.4 L 3.4,11.4 Z" +
+          " M 7,5.3 L 7.4,5.9 L 6.6,5.9 Z",
+      );
+      svg.appendChild(mark);
       return svg;
     } catch (e) {
       return null;
@@ -1401,10 +1540,15 @@
   function makeDockAph() {
     let btn = null;
     try {
-      btn = document.createElement("div");
+      // Native button, inline with the pills (CSS sizes it 28px — no
+      // full-width row). One menu for both buttons: left-click and
+      // right-click open the same Aph menu, whose workspace section
+      // targets the current workspace. No split-brain key.
+      btn = document.createElement("button");
+      try {
+        btn.setAttribute("type", "button");
+      } catch (e) {}
       btn.className = "aph-dock-aph";
-      btn.setAttribute("role", "button");
-      btn.setAttribute("tabindex", "0");
       btn.setAttribute("aria-label", "Aph menu");
       try {
         const mark = makeDockAphMark();
@@ -1412,7 +1556,7 @@
           btn.appendChild(mark);
         }
       } catch (e) {}
-      btn.title = "Aph menu — click for Aph actions · right-click for workspace actions";
+      btn.title = "Aph menu — click for Aph actions";
       try {
         btn.addEventListener("click", (e) => {
           try {
@@ -1428,19 +1572,11 @@
           openAphMenu(btn, e);
         });
       } catch (e) {}
+      // Native button: Enter/Space already fire click. No keydown.
       try {
-        btn.addEventListener("keydown", (e) => {
-          try {
-            if (e && (e.key === "Enter" || e.key === " ")) {
-              if (typeof e.preventDefault === "function") {
-                e.preventDefault();
-              }
-              openAphMenu(btn, null);
-            }
-          } catch (_e) {}
-        });
-      } catch (e) {}
-      try {
+        // Right-click opens the SAME Aph menu (merged — its workspace
+        // section already targets the current workspace, so the old
+        // separate dock-menu path is gone).
         btn.addEventListener("contextmenu", (e) => {
           try {
             if (typeof e.preventDefault === "function") {
@@ -1451,26 +1587,10 @@
             }
           } catch (_e) {}
           try {
-            const menu = typeof ensureDockMenu === "function" ? ensureDockMenu() : null;
-            const id =
-              typeof current !== "undefined" && typeof isValidId === "function" && isValidId(current)
-                ? current
-                : "1";
-            if (menu) {
-              try {
-                menu.setAttribute("data-ws", id);
-              } catch (_e) {}
-              if (typeof menu.openPopupAtScreen === "function" && e) {
-                menu.openPopupAtScreen(e.screenX, e.screenY, true);
-                return;
-              }
-              if (typeof menu.openPopup === "function") {
-                menu.openPopup(btn, "after_start", 0, 0, true, false, e);
-                return;
-              }
-            }
-          } catch (_e) {}
-          aphDockOpenPalette();
+            openAphMenu(btn, e);
+          } catch (_e) {
+            aphDockOpenPalette();
+          }
         });
       } catch (e) {}
     } catch (e) {
@@ -1479,7 +1599,180 @@
     return btn;
   }
 
+  // Nav-bar switcher: the horizontal-tabs fallback. dockAnchor() is null
+  // when #vertical-tabs is hidden, which used to mean zero workspace
+  // readout. This compact toolbarbutton lives at the head of the nav-bar
+  // instead and shows the current workspace (number + name); click opens
+  // the palette (the switcher), Alt+1..9 still switch directly. Hidden
+  // whenever the strip dock is up — exactly one readout at a time.
+  // XUL toolbarbutton in chrome (HTML button fallback for tests): listen
+  // to both click and command — XUL activates via command, HTML via
+  // click. aphDockOpenPalette is idempotent (open, not toggle), so a
+  // double event cannot flip it shut.
+  const NAV_SWITCHER_ID = "aph-ws-nav-switcher";
+  let cachedNavSwitcher = null;
+
+  function navSwitcherNode() {
+    try {
+      if (typeof document.getElementById === "function") {
+        const found = document.getElementById(NAV_SWITCHER_ID);
+        if (found) {
+          return found;
+        }
+      }
+    } catch (e) {}
+    try {
+      if (
+        cachedNavSwitcher &&
+        cachedNavSwitcher.isConnected !== false
+      ) {
+        return cachedNavSwitcher;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function ensureNavSwitcher() {
+    try {
+      const existing = navSwitcherNode();
+      if (existing) {
+        return existing;
+      }
+      let target = null;
+      try {
+        target =
+          typeof document.getElementById === "function"
+            ? document.getElementById("nav-bar-customization-target") ||
+              document.getElementById("nav-bar")
+            : null;
+      } catch (e) {
+        target = null;
+      }
+      if (!target) {
+        return null;
+      }
+      const canInsert =
+        target &&
+        (typeof target.insertBefore === "function" ||
+          typeof target.appendChild === "function" ||
+          typeof target.prepend === "function");
+      if (!canInsert) {
+        return null;
+      }
+      let sw = null;
+      try {
+        sw =
+          typeof document.createXULElement === "function"
+            ? document.createXULElement("toolbarbutton")
+            : document.createElement("button");
+      } catch (e) {
+        sw = null;
+      }
+      if (!sw) {
+        return null;
+      }
+      try {
+        sw.id = NAV_SWITCHER_ID;
+      } catch (e) {}
+      try {
+        if (sw.classList && typeof sw.classList.add === "function") {
+          sw.classList.add("aph-ws-nav-switcher");
+        }
+      } catch (e) {}
+      const open = (e) => {
+        try {
+          if (e && typeof e.stopPropagation === "function") {
+            e.stopPropagation();
+          }
+        } catch (_e) {}
+        aphDockOpenPalette();
+      };
+      try {
+        if (typeof sw.addEventListener === "function") {
+          sw.addEventListener("click", open);
+          sw.addEventListener("command", open);
+        }
+      } catch (e) {}
+      try {
+        if (typeof target.insertBefore === "function" && target.firstChild !== undefined) {
+          target.insertBefore(sw, target.firstChild || null);
+        } else if (typeof target.prepend === "function") {
+          target.prepend(sw);
+        } else if (typeof target.appendChild === "function") {
+          target.appendChild(sw);
+        } else {
+          return null;
+        }
+      } catch (e) {
+        return null;
+      }
+      try {
+        cachedNavSwitcher = sw;
+      } catch (e) {}
+      return sw;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function renderNavSwitcher() {
+    try {
+      const stripOn = !!dockAnchor();
+      const sw = stripOn ? navSwitcherNode() : ensureNavSwitcher();
+      if (!sw) {
+        return;
+      }
+      const show = !stripOn;
+      try {
+        if (typeof sw.setAttribute === "function") {
+          if (show) {
+            sw.removeAttribute("hidden");
+          } else {
+            sw.setAttribute("hidden", "true");
+          }
+        }
+      } catch (e) {}
+      try {
+        sw.hidden = !show;
+      } catch (e) {}
+      if (!show) {
+        return;
+      }
+      const cur = typeof current !== "undefined" && isValidId(current) ? current : "1";
+      let name = "";
+      try {
+        name = typeof getWsName === "function" ? getWsName(cur) || "" : "";
+      } catch (e) {}
+      let count = 0;
+      try {
+        count = (typeof dockCounts === "function" ? dockCounts()[cur] : 0) || 0;
+      } catch (e) {}
+      const short = name ? `WS ${cur} · ${name}` : `WS ${cur}`;
+      const tip =
+        `${name ? `Workspace ${cur}: ${name}` : `Workspace ${cur}`} · ` +
+        `${count} tab${count === 1 ? "" : "s"} — click for palette · Alt+1..9 to switch`;
+      try {
+        if (typeof sw.setAttribute === "function") {
+          sw.setAttribute("label", short);
+          sw.setAttribute("tooltiptext", tip);
+          sw.setAttribute("aria-label", tip);
+        }
+      } catch (e) {}
+      try {
+        sw.title = tip;
+      } catch (e) {}
+      try {
+        sw.textContent = short;
+      } catch (e) {}
+    } catch (e) {}
+  }
+
   function renderDock() {
+    // The nav-bar fallback paints first: exactly one readout — strip
+    // dock when anchored, nav switcher when horizontal.
+    try {
+      renderNavSwitcher();
+    } catch (e) {}
     try {
       const anchor = dockAnchor();
       let dock = null;
@@ -1676,6 +1969,79 @@
     return false;
   }
 
+  // Shared accent picker submenu: the per-pill right-click menu and the
+  // Aph menu's workspace section both offer it. idPrefix namespaces the
+  // item ids per host menu (aph-dock-* vs aph-aph-*). Returns the <menu>
+  // element (with its popup attached) or null. All 16 hues kept.
+  function buildAccentSubmenu(id, idPrefix) {
+    let accentMenu = null;
+    try {
+      accentMenu =
+        typeof document.createXULElement === "function"
+          ? document.createXULElement("menu")
+          : document.createElement("menu");
+      const head = (() => {
+        try {
+          const nm = typeof getWsName === "function" ? getWsName(id) || "" : "";
+          return nm ? `${id}: ${nm}` : `Workspace ${id}`;
+        } catch (err) {
+          return `Workspace ${id}`;
+        }
+      })();
+      accentMenu.setAttribute("label", `Accent for ${head}…`);
+      const accentSub =
+        typeof document.createXULElement === "function"
+          ? document.createXULElement("menupopup")
+          : document.createElement("menupopup");
+      let curHue = "";
+      try {
+        curHue = typeof getWsAccent === "function" ? getWsAccent(id) : "";
+      } catch (err) {}
+      const follow = makeDockMenuItem(`${idPrefix}-accent-follow`, "Follow workspace", () => {
+        try {
+          if (typeof setWsAccent === "function") {
+            setWsAccent(id, "");
+          }
+          renderDock();
+        } catch (err) {}
+      });
+      if (follow) {
+        if (!curHue) {
+          try {
+            follow.setAttribute("checked", "true");
+          } catch (err) {}
+        }
+        accentSub.appendChild(follow);
+      }
+      try {
+        for (let h = 1; h <= 16; h++) {
+          const hs = String(h);
+          const nm = WS_ACCENT_NAMES[hs] || `Hue ${hs}`;
+          const item = makeDockMenuItem(`${idPrefix}-accent-${hs}`, nm, () => {
+            try {
+              if (typeof setWsAccent === "function") {
+                setWsAccent(id, hs);
+              }
+              renderDock();
+            } catch (err) {}
+          });
+          if (item && curHue === hs) {
+            try {
+              item.setAttribute("checked", "true");
+            } catch (err) {}
+          }
+          if (item) {
+            accentSub.appendChild(item);
+          }
+        }
+      } catch (err) {}
+      accentMenu.appendChild(accentSub);
+    } catch (e) {
+      accentMenu = null;
+    }
+    return accentMenu;
+  }
+
   function onDockMenuShowing(e) {
     try {
       const menu = (e && (e.currentTarget || e.target)) || null;
@@ -1792,59 +2158,10 @@
         } catch (err) {}
       }
       try {
-        const accentMenu =
-          typeof document.createXULElement === "function"
-            ? document.createXULElement("menu")
-            : document.createElement("menu");
-        accentMenu.setAttribute("label", `Accent for ${head}…`);
-        const accentSub =
-          typeof document.createXULElement === "function"
-            ? document.createXULElement("menupopup")
-            : document.createElement("menupopup");
-        let curHue = "";
-        try {
-          curHue = typeof getWsAccent === "function" ? getWsAccent(id) : "";
-        } catch (err) {}
-        const follow = makeDockMenuItem("aph-dock-accent-follow", "Follow workspace", () => {
-          try {
-            if (typeof setWsAccent === "function") {
-              setWsAccent(id, "");
-            }
-            renderDock();
-          } catch (err) {}
-        });
-        if (follow) {
-          if (!curHue) {
-            try {
-              follow.setAttribute("checked", "true");
-            } catch (err) {}
-          }
-          accentSub.appendChild(follow);
+        const accentMenu = buildAccentSubmenu(id, "aph-dock");
+        if (accentMenu) {
+          menu.appendChild(accentMenu);
         }
-        try {
-          for (let h = 1; h <= 16; h++) {
-            const hs = String(h);
-            const nm = WS_ACCENT_NAMES[hs] || `Hue ${hs}`;
-            const item = makeDockMenuItem(`aph-dock-accent-${hs}`, nm, () => {
-              try {
-                if (typeof setWsAccent === "function") {
-                  setWsAccent(id, hs);
-                }
-                renderDock();
-              } catch (err) {}
-            });
-            if (item && curHue === hs) {
-              try {
-                item.setAttribute("checked", "true");
-              } catch (err) {}
-            }
-            if (item) {
-              accentSub.appendChild(item);
-            }
-          }
-        } catch (err) {}
-        accentMenu.appendChild(accentSub);
-        menu.appendChild(accentMenu);
       } catch (err) {}
       const unload = makeDockMenuItem(
         "aph-dock-unload",
@@ -2286,6 +2603,19 @@
       dockDragGroup = null;
       dockDragActive = false;
       dockPendingDrop = null;
+    } catch (e) {}
+    try {
+      const sw = navSwitcherNode();
+      if (sw) {
+        if (sw.parentNode && typeof sw.parentNode.removeChild === "function") {
+          sw.parentNode.removeChild(sw);
+        } else if (typeof sw.remove === "function") {
+          sw.remove();
+        }
+      }
+    } catch (e) {}
+    try {
+      cachedNavSwitcher = null;
     } catch (e) {}
     try {
       const menu = dockMenu();

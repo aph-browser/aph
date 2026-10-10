@@ -10,11 +10,12 @@ const { run, makeTab, makeFakeNode: fakeNode, makeSessionStore, makeCi, makeChro
 
 const tabVals = new WeakMap();
 
-function makeEnv(prefs, identityService) {
+function makeEnv(prefs, identityService, opts) {
   const tabs = [];
   const containerHandlers = {};
   const prompts = [];
   const prefStore = Object.assign({}, prefs || {});
+  const horizontal = !!(opts && opts.horizontal);
   const identities = identityService || {
     getPublicIdentityFromId: (id) =>
       id === 7 ? { name: "Work", color: "blue", icon: "briefcase" } : null,
@@ -30,6 +31,7 @@ function makeEnv(prefs, identityService) {
   const anchor = fakeNode("box");
   const popupSet = fakeNode("popupset");
   const rootEl = fakeNode("html");
+  const navBar = fakeNode("toolbar");
   const prefObservers = {};
   const doc = {
     readyState: "complete",
@@ -37,15 +39,18 @@ function makeEnv(prefs, identityService) {
     documentElement: rootEl,
     getElementById: (id) => {
       if (id === "vertical-tabs") return anchor;
-      if (id === "sidebar-container") return { hidden: false };
+      if (id === "sidebar-container") return { hidden: horizontal };
       if (id === "mainPopupSet") return popupSet;
       if (id === "aph-ws-dock") return anchor.children.find((c) => c.id === "aph-ws-dock") || null;
       if (id === "aph-ws-dock-menu") return popupSet.children.find((c) => c.id === "aph-ws-dock-menu") || null;
+      if (id === "aph-aph-menu") return popupSet.children.find((c) => c.id === "aph-aph-menu") || null;
+      if (id === "aph-ws-nav-switcher") return navBar.children.find((c) => c.id === "aph-ws-nav-switcher") || null;
+      if (id === "nav-bar-customization-target") return null;
       if (id === "navigator-toolbox") {
         return { querySelector: () => null, setAttribute() {}, removeAttribute() {} };
       }
       if (id === "nav-bar") {
-        return { prepend() {}, querySelector: () => null, setAttribute() {}, removeAttribute() {} };
+        return navBar;
       }
       return null;
     },
@@ -142,9 +147,10 @@ function makeEnv(prefs, identityService) {
   const menu = () => popupSet.children.find((c) => c.id === "aph-ws-dock-menu") || null;
   const pills = () => (dock() ? dock().children.filter((c) => (c.className || "").includes("aph-ws-pill") && !(c.className || "").includes("aph-ws-add")) : []);
   const plus = () => (dock() ? dock().children.find((c) => (c.className || "").includes("aph-ws-add")) || null : null);
+  const switcher = () => navBar.children.find((c) => c.id === "aph-ws-nav-switcher") || null;
   return {
-    sb, tabs, containerHandlers, prompts, prefStore, prefObservers, anchor, popupSet,
-    dock, menu, pills, plus,
+    sb, tabs, containerHandlers, prompts, prefStore, prefObservers, anchor, popupSet, navBar,
+    dock, menu, pills, plus, switcher,
     api: sb.window.AphWorkspaces,
     select(t) { sb.gBrowser.selectedTab = t; },
   };
@@ -193,7 +199,7 @@ describe("workspace dock", () => {
     assert.ok(env.plus(), "plus pill present");
   });
 
-  it("shows the bare number for named workspaces without icons, and shows counts", () => {
+  it("shows the bare number for named workspaces without icons, counts live in tooltip only", () => {
     const env = makeEnv({ "aph.workspaces.names": JSON.stringify({ 2: "💼 Work" }) });
     const a = addTab(env, { label: "a", ws: "1" });
     addTab(env, { label: "a2", ws: "1" });
@@ -202,10 +208,12 @@ describe("workspace dock", () => {
     env.api.renderDock();
     const byWs = {};
     for (const p of env.pills()) byWs[pillWs(p)] = p;
-    // Letters retired: names live in tooltips/titles and the indicator.
+    // Letters retired: names live in tooltips/titles and the dock pills.
     assert.equal(byWs["2"].textContent, "2");
-    const count = byWs["1"].children.find((c) => c.className === "aph-ws-count");
-    assert.equal(count && count.textContent, "2");
+    // Pills stay clean: no count badge chrome — counts ride title/aria-label.
+    const badge = byWs["1"].children.find((c) => c.className === "aph-ws-count");
+    assert.equal(badge, undefined);
+    assert.ok(/· 2 tabs/.test(byWs["1"].getAttribute("aria-label")), "count in accessible name");
   });
 
   it("renders the icon mark when set, number otherwise", () => {
@@ -280,13 +288,18 @@ describe("workspace dock", () => {
     assert.equal(svg.getAttribute("viewBox"), "0 0 14 14");
     assert.equal(svg.getAttribute("width"), "16");
     assert.equal(svg.getAttribute("height"), "16");
-    const rects = svg.children.filter((c) => c.localName === "rect");
-    assert.equal(rects.length, 4);
-    assert.equal(rects[0].getAttribute("fill"), "#4682b4");
-    for (const r of rects.slice(1)) {
-      assert.equal(r.getAttribute("fill"), "none");
-      assert.equal(r.getAttribute("stroke"), "currentColor");
-    }
+    // The capital A from branding/aph.svg: one evenodd path (silhouette +
+    // counter) wearing the product ramp — never the grid of rects.
+    const grads = svg.children.filter((c) => c.localName === "defs");
+    assert.equal(grads.length, 1, "gradient defs present");
+    const grad = grads[0].children.find((c) => c.localName === "linearGradient");
+    assert.ok(grad, "mark gradient present");
+    const stops = grad.children.filter((c) => c.localName === "stop").map((s) => s.getAttribute("stop-color"));
+    assert.deepEqual(stops, ["#3e63dd", "#0090ff"], "mark wears the ramp, not a stale hex");
+    const paths = svg.children.filter((c) => c.localName === "path");
+    assert.equal(paths.length, 1, "one letter path, not rect cells");
+    assert.equal(paths[0].getAttribute("fill-rule"), "evenodd", "counter cut via evenodd");
+    assert.equal(paths[0].getAttribute("fill"), "url(#aph-dock-mark)");
   });
 
   it("clicking a pill switches workspace", () => {
@@ -300,7 +313,7 @@ describe("workspace dock", () => {
     assert.equal(env.api.getCurrent(), "2");
   });
 
-  it("pill Enter/Space switch workspace like click", () => {
+  it("pills are native buttons with current marked; click activates", () => {
     const env = makeEnv();
     const a = addTab(env, { label: "a", ws: "1" });
     addTab(env, { label: "c", ws: "2" });
@@ -309,12 +322,27 @@ describe("workspace dock", () => {
     env.api.renderDock();
     const byWs = {};
     for (const p of env.pills()) byWs[pillWs(p)] = p;
-    assert.equal(byWs["2"].getAttribute("tabindex"), "0");
+    // Native buttons: no role/tabindex crutches, current exposed via
+    // aria-current for the readout.
+    for (const id of ["1", "2", "3"]) {
+      assert.equal(byWs[id].localName, "button");
+      assert.equal(byWs[id].getAttribute("role"), null);
+      assert.equal(byWs[id].getAttribute("tabindex"), null);
+    }
+    assert.equal(byWs["1"].getAttribute("aria-current"), "true");
+    assert.equal(byWs["1"].getAttribute("data-current"), "1");
+    assert.equal(byWs["2"].getAttribute("aria-current"), null);
+    // No manual keydown handler: a stray keydown must not switch (the
+    // platform fires click for Enter/Space on its own — a manual
+    // listener would double-fire).
     firePill(byWs["2"], "keydown", { key: "Enter", preventDefault() {} });
+    assert.equal(env.api.getCurrent(), "1");
+    // Click (synthesized keyboard activation included) switches.
+    firePill(byWs["2"], "click", {});
     assert.equal(env.api.getCurrent(), "2");
     const fresh = {};
     for (const p of env.pills()) fresh[pillWs(p)] = p;
-    firePill(fresh["3"], "keydown", { key: " ", preventDefault() {} });
+    firePill(fresh["3"], "click", {});
     assert.equal(env.api.getCurrent(), "3");
   });
 
@@ -328,14 +356,32 @@ describe("workspace dock", () => {
     return m;
   }
 
-  it("Aph key Enter opens the menu", () => {
+  it("Aph key is a native button; click opens the menu", () => {
     const env = makeEnv();
     const a = addTab(env, { label: "a", ws: "1" });
     env.select(a);
     env.api.renderDock();
     const key = env.dock().children.find((c) => c.className === "aph-dock-aph");
+    assert.equal(key.localName, "button");
+    // No manual keydown: stray keys never open the menu twice.
     key.fire("keydown", { key: "Enter", preventDefault() {} });
-    assert.ok(env.popupSet.children.find((c) => c.id === "aph-aph-menu"), "menu opened via keyboard");
+    assert.ok(!env.popupSet.children.find((c) => c.id === "aph-aph-menu"), "no menu from keydown alone");
+    key.fire("click", {});
+    assert.ok(env.popupSet.children.find((c) => c.id === "aph-aph-menu"), "menu opened via click");
+  });
+
+  it("Aph key right-click opens the same merged menu", () => {
+    const env = makeEnv();
+    const a = addTab(env, { label: "a", ws: "1" });
+    env.select(a);
+    env.api.renderDock();
+    const key = env.dock().children.find((c) => c.className === "aph-dock-aph");
+    key.fire("contextmenu", { preventDefault() {}, stopPropagation() {} });
+    const m = env.popupSet.children.find((c) => c.id === "aph-aph-menu");
+    assert.ok(m, "right-click opens the Aph menu, not a separate dock menu");
+    m.fire("popupshowing", { currentTarget: m, target: m });
+    assert.ok(menuLabels(m).includes("Open Command Palette…"));
+    assert.ok(menuLabels(m).some((l) => l && l.startsWith("Accent for")), "workspace section present");
   });
 
   it("Aph menu lists grouped rows with icons in order", () => {
@@ -350,12 +396,15 @@ describe("workspace dock", () => {
       "Rename Workspace 1…",
       "Set Icon for Workspace 1…",
       "Bind Workspace 1 to Container…",
+      "Accent for Workspace 1…",
+      "Close Workspace (1 tab)",
       "Stash Current Tab",
       "Open Stash",
       null,
       "Customize Sidebar…",
       "Aph Settings…",
       "Firefox Settings…",
+      "Firefox Menu…",
       "Aph Welcome Tour",
       "About Aph",
     ]);
@@ -363,9 +412,10 @@ describe("workspace dock", () => {
     // Icon slots: stock 157 paints .menu-icon from the --menuitem-icon
     // var (theme.css §20b) — the classic image attribute alone renders
     // nothing. JS only flips the stock display-trigger classes; art
-    // lives in CSS with context-fill ink.
+    // lives in CSS with context-fill ink. Dynamic rows (bind list, the
+    // close row with its live count) stay text-only by passing no key.
     for (const c of m.children) {
-      if (c.localName === "menuitem") {
+      if (c.localName === "menuitem" && c.id !== "aph-aph-close") {
         assert.ok(c.classList.contains("menuitem-iconic"), `${c.getAttribute("label")} iconic`);
         assert.equal(c.getAttribute("image"), null, "no dead image attr");
       }
@@ -397,6 +447,85 @@ describe("workspace dock", () => {
     );
     assert.equal(opened.length, 1, "fallback opens about:preferences");
     assert.equal(env.sb.gBrowser.selectedTab, opened[0], "fallback tab selected");
+  });
+
+  it("Firefox Menu row opens the native app panel, silently without PanelUI", () => {
+    const env = makeEnv();
+    const a = addTab(env, { label: "a", ws: "1" });
+    env.select(a);
+    env.api.renderDock();
+    let shown = 0;
+    env.sb.window.PanelUI = { show() { shown++; } };
+    let m = openAphMenu(env);
+    const row = m.children.find((c) => c.id === "aph-aph-appmenu");
+    assert.ok(row, "appmenu row present");
+    row.fire("command", {});
+    assert.equal(shown, 1, "native PanelUI.show used");
+    delete env.sb.window.PanelUI;
+    m = openAphMenu(env);
+    m.children.find((c) => c.id === "aph-aph-appmenu").fire("command", {});
+  });
+
+  it("counts live in tooltip/aria-label only, never as badge chrome", () => {
+    const env = makeEnv();
+    const a = addTab(env, { label: "a", ws: "1" });
+    addTab(env, { label: "a2", ws: "1" });
+    env.select(a);
+    env.api.renderDock();
+    const pill1 = env.pills().find((p) => pillWs(p) === "1");
+    const badge = pill1.children.find((c) => c.className === "aph-ws-count");
+    assert.equal(badge, undefined, "no badge node");
+    assert.ok(/· 2 tabs/.test(pill1.getAttribute("aria-label")), "count in accessible name");
+  });
+
+  it("Aph menu accent submenu applies the chosen hue to current", () => {
+    const env = makeEnv();
+    const a = addTab(env, { label: "a", ws: "1" });
+    env.select(a);
+    env.api.renderDock();
+    const m = openAphMenu(env);
+    const accent = m.children.find((c) => c.id === "aph-aph-accent");
+    assert.ok(accent, "accent submenu present in Aph menu");
+    const sub = accent.children.find((c) => c.localName === "menupopup");
+    const names = sub.children.map((c) => c.getAttribute("label"));
+    assert.ok(names.includes("Follow workspace"));
+    assert.equal(names.filter((n) => n !== "Follow workspace").length, 16);
+    sub.children.find((c) => c.getAttribute("label") === "Crimson").fire("command", {});
+    assert.deepEqual(
+      JSON.parse(env.prefStore["aph.workspaces.accents"] || "{}"), { 1: "8" }
+    );
+  });
+
+  it("Aph menu close row closes the current workspace tabs", () => {
+    const env = makeEnv();
+    const a = addTab(env, { label: "a", ws: "1" });
+    addTab(env, { label: "a2", ws: "1" });
+    const c = addTab(env, { label: "c", ws: "2" });
+    env.select(a);
+    env.api.renderDock();
+    const m = openAphMenu(env);
+    const close = m.children.find((cl) => cl.id === "aph-aph-close");
+    assert.ok(close, "close row present");
+    assert.equal(close.getAttribute("label"), "Close Workspace (2 tabs)");
+    close.fire("command", {});
+    assert.equal(env.api.getCurrent(), "2", "switched to neighbor first");
+    assert.ok(!env.tabs.includes(a), "WS1 tabs closed");
+    assert.ok(env.tabs.includes(c), "WS2 tab survives");
+  });
+
+  it("drag expansion reuses pill nodes instead of rebuilding", () => {
+    const env = makeEnv();
+    const a = addTab(env, { label: "a", ws: "1" });
+    addTab(env, { label: "c", ws: "2" });
+    env.select(a);
+    env.api.renderDock();
+    const before = {};
+    for (const p of env.pills()) before[pillWs(p)] = p;
+    env.containerHandlers.dragstart.forEach((fn) => fn({ target: a }));
+    assert.deepEqual(env.pills().map(pillWs).sort(), ["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+    assert.equal(env.pills().find((p) => pillWs(p) === "1"), before["1"], "WS1 node reused");
+    assert.equal(env.pills().find((p) => pillWs(p) === "2"), before["2"], "WS2 node reused");
+    assert.ok(!env.dock().children.some((cl) => cl.className === "aph-dock-aph"), "Aph key parked");
   });
 
   it("Aph menu Set Icon row opens the picker for the current workspace", () => {
@@ -825,10 +954,10 @@ describe("workspace dock", () => {
     const crimson = sub.children.find((c) => c.getAttribute("label") === "Crimson");
     crimson.fire("command", {});
     assert.deepEqual(
-      JSON.parse(env.prefStore["aph.workspaces.accents"] || "{}"), { 1: "16" }
+      JSON.parse(env.prefStore["aph.workspaces.accents"] || "{}"), { 1: "8" }
     );
     const stamped = env.pills().find((p) => pillWs(p) === "1");
-    assert.equal(stamped.getAttribute("data-accent"), "16");
+    assert.equal(stamped.getAttribute("data-accent"), "8");
     const m2 = openMenuFor(env, stamped);
     const accent2 = m2.children.find((c) => (c.getAttribute("label") || "").startsWith("Accent for"));
     const sub2 = accent2.children.find((c) => c.localName === "menupopup");
@@ -849,9 +978,9 @@ describe("workspace dock", () => {
     const violet = sub.children.find((c) => c.getAttribute("label") === "Violet");
     violet.fire("command", {});
     const root = env.sb.document.documentElement;
-    assert.equal(root.getAttribute("data-aph-accent"), "14", "window retuned at once");
+    assert.equal(root.getAttribute("data-aph-accent"), "9", "window retuned at once");
     const stamped = env.pills().find((p) => pillWs(p) === "1");
-    assert.equal(stamped.getAttribute("data-accent"), "14", "pill retuned at once");
+    assert.equal(stamped.getAttribute("data-accent"), "9", "pill retuned at once");
   });
 
   it("accents pref observer applies external writes immediately", () => {
@@ -916,5 +1045,45 @@ describe("workspace dock", () => {
     delete noLabel.getUserContextLabel;
     const env2 = makeEnv(undefined, noLabel);
     assert.equal(env2.api.describeContainer(1).name, "Personal");
+  });
+
+  it("horizontal mode hides the strip dock and shows the nav switcher", () => {
+    const env = makeEnv(undefined, undefined, { horizontal: true });
+    const a = addTab(env, { label: "a", ws: "1" });
+    addTab(env, { label: "c", ws: "2" });
+    env.select(a);
+    env.api.renderDock();
+    assert.equal(env.dock(), null, "no strip dock without the vertical anchor");
+    const sw = env.switcher();
+    assert.ok(sw, "nav switcher mounted");
+    assert.equal(sw.hidden, false);
+    assert.equal(sw.getAttribute("label"), "WS 1");
+    assert.ok(/1 tab/.test(sw.getAttribute("aria-label")), `count in label: ${sw.getAttribute("aria-label")}`);
+  });
+
+  it("nav switcher names the workspace and opens the palette on click", () => {
+    const env = makeEnv(
+      { "aph.workspaces.names": JSON.stringify({ 1: "Ops" }) },
+      undefined,
+      { horizontal: true }
+    );
+    const a = addTab(env, { label: "a", ws: "1" });
+    env.select(a);
+    let opened = 0;
+    env.sb.window.AphPalette.open = () => { opened++; };
+    env.api.renderDock();
+    const sw = env.switcher();
+    assert.equal(sw.getAttribute("label"), "WS 1 · Ops");
+    sw.fire("click", {});
+    assert.equal(opened, 1, "palette opens");
+  });
+
+  it("nav switcher hides while the strip dock is up", () => {
+    const env = makeEnv();
+    const a = addTab(env, { label: "a", ws: "1" });
+    env.select(a);
+    env.api.renderDock();
+    assert.ok(env.dock(), "strip dock up");
+    assert.equal(env.switcher(), null, "no nav readout alongside the dock");
   });
 });

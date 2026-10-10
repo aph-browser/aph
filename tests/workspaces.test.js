@@ -641,8 +641,12 @@ describe("newtab pruning", () => {
     // (addTrustedTab births blank; the real URL lands later). Pruning on
     // that transient face closed the first-run welcome mid-load (seen
     // live in the Browser Console: prune killed a chrome:// tab reading
-    // as about:blank). Tabs born <10s ago settle first; older spares
-    // still prune exactly as before.
+    // as about:blank). Tabs born <10s ago settle first; older stamped
+    // spares still prune exactly as before. Tabs without a birth stamp
+    // (restored tabs — restore deliberately stamps none) are never
+    // pruned: a restored-but-unloaded tab wears about:blank until its
+    // first commit, and closing it destroys unloaded session state (seen
+    // live: bulk restore + workspace switches pruning the backlog).
     const start = api.getCurrent();
     if (start !== "1") api.switchTo("1");
     const prevSel = sb.gBrowser.selectedTab;
@@ -651,17 +655,23 @@ describe("newtab pruning", () => {
     const fresh = makeTab(tabVals, { label: "fresh", ws: "1", spec: "about:blank" });
     fresh.__aphBirth = Date.now();
     const old1 = makeTab(tabVals, { label: "old1", ws: "1", spec: "about:blank" });
+    old1.__aphBirth = Date.now() - 60000;
     const old2 = makeTab(tabVals, { label: "old2", ws: "1", spec: "about:blank" });
-    sb.gBrowser.tabs.push(ws2, keeper, fresh, old1, old2);
+    old2.__aphBirth = Date.now() - 60000;
+    const restored1 = makeTab(tabVals, { label: "restored1", ws: "1", spec: "about:blank" });
+    const restored2 = makeTab(tabVals, { label: "restored2", ws: "1", spec: "about:blank" });
+    sb.gBrowser.tabs.push(ws2, keeper, fresh, old1, old2, restored1, restored2);
     sb.gBrowser.selectedTab = keeper;
     try {
       api.switchTo("2");
       api.switchTo("1");
       assert.ok(sb.gBrowser.tabs.includes(fresh), "newborn blank face survives the switch");
-      assert.ok(sb.gBrowser.tabs.includes(old1), "one settled spare survives (keep=1)");
-      assert.ok(!sb.gBrowser.tabs.includes(old2), "second settled spare still prunes");
+      assert.ok(sb.gBrowser.tabs.includes(restored1), "unstamped restored blank survives the switch");
+      assert.ok(sb.gBrowser.tabs.includes(restored2), "second unstamped restored blank survives too");
+      assert.ok(sb.gBrowser.tabs.includes(old1) || sb.gBrowser.tabs.includes(old2), "one settled stamped spare survives (keep=1)");
+      assert.ok(!(sb.gBrowser.tabs.includes(old1) && sb.gBrowser.tabs.includes(old2)), "second settled stamped spare still prunes");
     } finally {
-      for (const t of [ws2, keeper, fresh, old1, old2]) {
+      for (const t of [ws2, keeper, fresh, old1, old2, restored1, restored2]) {
         const i = sb.gBrowser.tabs.indexOf(t);
         if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
       }
