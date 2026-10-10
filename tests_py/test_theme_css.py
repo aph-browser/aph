@@ -1530,8 +1530,8 @@ def test_loadrings_module_ships_in_bundle() -> None:
 
 
 def test_row_gap_tightened_via_token() -> None:
-    """§22d: inter-tab air goes 4px to 2px total by repointing stock's
-    leaf token (2px/side → 1px), scoped to the vertical strip.
+    """§22d: inter-tab air goes 4px to 0 total by repointing stock's
+    leaf token (2px/side → 0), scoped to the vertical strip.
     !important because stock owns the token definition."""
     css = _css()
     assert "22d. Row gaps" in css
@@ -1539,8 +1539,8 @@ def test_row_gap_tightened_via_token() -> None:
     m = re.search(r'#tabbrowser-tabs\[orient="vertical"\]\s*\{([^}]*)\}', code)
     assert m, "vertical strip token scope missing"
     body = m.group(1)
-    assert re.search(r"--tab-vertical-block-margin:\s*1px\s*!important", body), (
-        "gap must repoint the stock token at 1px with !important"
+    assert re.search(r"--tab-vertical-block-margin:\s*0\s*!important", body), (
+        "gap must repoint the stock token at 0 with !important"
     )
 
 

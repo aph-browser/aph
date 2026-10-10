@@ -1785,18 +1785,20 @@ tab:not([pinned]) > .tab-stack {
 }
 
 /* ==========================================================================
-   22d. Row gaps: tighten stock inter-tab air from 4px to 2px total.
+   22d. Row gaps: tighten stock inter-tab air from 4px to 0 total.
    Stock vertical tabs carry margin-block: var(--tab-vertical-block-margin)
    at 2px/side (verified in the packaged tab.tokens.css) — repoint the
-   leaf token to 1px instead of setting margins directly, so every stock
+   leaf token to 0 instead of setting margins directly, so every stock
    consumer (rows, drop indicator, group headers) recalculates from one
    value, the same single-source discipline as the icon gap (§22) and the
-   separators (§19b). Scoped to orient="vertical" (horizontal untouched);
-   block axis needs no RTL mirror; spacing needs no forced-colors guard.
-   !important because stock owns the token definition.
+   separators (§19b). Rows touch; density stays row-height driven (the
+   32px rhythm keeps hit targets intact). Scoped to orient="vertical"
+   (horizontal untouched); block axis needs no RTL mirror; spacing needs
+   no forced-colors guard. !important because stock owns the token
+   definition.
    ========================================================================== */
 #tabbrowser-tabs[orient="vertical"] {
-  --tab-vertical-block-margin: 1px !important;
+  --tab-vertical-block-margin: 0 !important;
 }
 
 /* ==========================================================================
