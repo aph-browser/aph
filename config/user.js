@@ -358,6 +358,14 @@ user_pref("aph.sidebar.hideFooter", true);
 // config/policies.json), so user choice sticks.
 user_pref("identity.fxaccounts.enabled", false);
 user_pref("signon.rememberSignons", false);
+
+// 19. Theme preset: auto follows the OS room (midnight/paper faces);
+// midnight/paper pin those rooms against the OS, nord cools the room
+// with a steel voice, espresso warms it umber. Picked in Aph Settings
+// (Appearance → Theme preset), which also pairs the matching Firefox
+// built-in theme so scheme art (menu glyphs, palette slab) agrees with
+// the room. Unknown values read as auto.
+user_pref("aph.theme.preset", "auto");
 // 13. New Tab look: Aph's own desk, no forced wallpaper.
 // branding/userContent.css paints the designed gradient on html with body
 // forced transparent, so Activity Stream's wallpaper (body

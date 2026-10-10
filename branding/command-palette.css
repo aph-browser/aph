@@ -1,12 +1,14 @@
 /* Aph command palette — bold Raycast-class overlay. Centered, grouped,
-   animated. Always-dark Spotlight slab (never follows the paper room),
-   so text stays pinned light for guaranteed contrast. */
+   animated. The slab follows the room (charcoal Spotlight in the dark
+   room, warm paper in the light room — same prefers-color-scheme signal
+   the chrome canvas reads, so the two never disagree), with ink pinned
+   per face for guaranteed contrast. */
 /* Shared tokens (shipped as chrome://browser/content/aph-tokens.css). */
 @import url("chrome://browser/content/aph-tokens.css");
 #aph-palette-overlay {
-  /* Always-dark slab: pin the color scheme on the overlay itself (never
-     :root — the chrome window follows the OS theme) so the input and
-     scrollbars inside render dark even on a light OS. */
+  /* Face-following scheme: dark controls in the dark room, light
+     controls in the paper room (never :root — the chrome window owns
+     its own scheme; the overlay declares its own). */
   color-scheme: dark;
   position: fixed !important;
   inset: 0 !important;
@@ -32,11 +34,11 @@
 }
 /* Deliberate charcoal surface (Linear/Raycast-style): Cool Midnight
    Charcoal #161722 — 92% pitch black with a whisper of deep navy, never
-   pure flat grey (which reads muddy/unstyled). Always-dark overlay like
-   Spotlight, so text is pinned light for guaranteed contrast; a 7%
-   voice kiss ties the slab to the room without going candy, and the
-   voice (selection, marks, urlbar border) shines through. The slab
-   tokens themselves live in aph-tokens.css now. */
+   pure flat grey (which reads muddy/unstyled). Spotlight in the dark
+   room, warm paper in the light room — a 7–8% voice kiss ties the slab
+   to the room without going candy, and the voice (selection, marks,
+   urlbar border) shines through. The slab tokens themselves live in
+   aph-tokens.css now. */
 #aph-palette {
   width: var(--aph-palette-width, 680px) !important;
   max-width: 94vw !important;
@@ -49,10 +51,31 @@
   border: 1px solid rgba(255, 255, 255, 0.14) !important;
   border-radius: var(--aph-radius-card) !important;
   /* Card language (L3): ring + top highlight + contact + far diffuse.
-     Always-dark slab (§Decision 1 Spotlight model) — never follows the
-     paper room. Bolder than before: thicker top light, deeper drop. */
+     Bolder than before: thicker top light, deeper drop. Shadows are
+     black-based, so the same recipe floats off charcoal and cream. */
   box-shadow: var(--aph-shadow-palette) !important;
   font: inherit !important;
+  color-scheme: dark !important;
+}
+/* Paper face: same geometry, room-following slab + ink. The section
+   fade below re-reads the light slab token so headers melt into paper,
+   not charcoal. */
+@media (prefers-color-scheme: light) {
+  #aph-palette-overlay {
+    color-scheme: light !important;
+  }
+  #aph-palette {
+    background: var(--aph-palette-bg-light, #f5efe0) !important;
+    color: var(--aph-palette-fg-light, #26262b) !important;
+    border-color: color-mix(in oklab, var(--aph-ink, #26262b) 14%, transparent) !important;
+    color-scheme: light !important;
+  }
+  .aph-palette-section {
+    background: linear-gradient(to bottom, var(--aph-palette-bg-light, #f5efe0) 70%, transparent) !important;
+  }
+  #aph-palette-footer {
+    border-top-color: color-mix(in oklab, var(--aph-ink, #26262b) 10%, transparent) !important;
+  }
 }
 #aph-palette.aph-palette-anim {
   /* Runs WITH the backdrop fade (140ms), not after it: duration and
@@ -139,23 +162,30 @@
   display: none !important;
 }
 .aph-palette-item:hover {
-  background: color-mix(in srgb, var(--aph-voice, rgba(255, 255, 255, 0.12)) 35%, transparent) !important;
+  background: color-mix(in oklab, var(--aph-voice, #0090ff) 30%, var(--aph-base, #0e0f14)) !important;
 }
 .aph-palette-item.selected {
-  /* Wash selection (55% voice + inset accent ring) — urlbar sibling
-     (§25), never the opaque vivid block. Always-dark slab keeps light
-     ink, so hierarchy survives on both faces. Bold: also lifts 1px. */
+  /* Wash selection (45% voice + inset accent ring) — the presence
+     spend, shared with the urlbar selection (§14/§25), never the opaque
+     vivid block. Per-face ink keeps hierarchy on charcoal and paper.
+     Bold: also lifts 1px. */
   background: color-mix(
-    in srgb,
-    var(--aph-voice, rgba(255, 255, 255, 0.12)) 55%,
-    transparent
+    in oklab,
+    var(--aph-voice, #0090ff) 45%,
+    var(--aph-base, #0e0f14)
   ) !important;
-  border-color: color-mix(in srgb, var(--aph-urlbar-accent, rgba(0, 144, 255, 0.5)) 45%, transparent) !important;
-  box-shadow: inset 2px 0 0 var(--aph-urlbar-accent, rgba(0, 144, 255, 0.6)) !important;
+  border-color: color-mix(in oklab, var(--aph-urlbar-accent, #0090ff) 45%, transparent) !important;
+  box-shadow: inset 2px 0 0 var(--aph-urlbar-accent, #0090ff) !important;
 }
 .aph-palette-item:focus-visible {
   outline: 2px solid var(--aph-urlbar-accent, #0090ff) !important;
   outline-offset: -2px !important;
+}
+.aph-palette-item:active {
+  /* Press dips in place (transform-only, eased by the item's own micro
+     transition): tactile commit without moving layout. Snaps under
+     reduced-motion like every other press state. */
+  transform: scale(0.98) !important;
 }
 .aph-palette-icon,
 .aph-palette-icon-img {
@@ -169,8 +199,8 @@
   justify-content: center !important;
   font-size: 14px !important;
   font-weight: 600 !important;
-  background: color-mix(in srgb, currentColor 12%, transparent) !important;
-  border: 1px solid color-mix(in srgb, currentColor 10%, transparent) !important;
+  background: color-mix(in oklab, currentColor 12%, transparent) !important;
+  border: 1px solid color-mix(in oklab, currentColor 10%, transparent) !important;
   opacity: 0.95 !important;
 }
 .aph-palette-icon-img {
@@ -191,9 +221,9 @@
   font-weight: 700 !important;
   font-size: 12px !important;
   color: #fff !important;
-  /* Deliberate literal: the avatar mark sits on the always-dark slab
-     (Spotlight), so this legibility shadow is slab-local, not a
-     room-wide elevation token. */
+  /* Deliberate literal: the avatar mark sits on a saturated mid-tone
+     color tile (JS hsl wash), so white stays legible on both slab
+     faces — this shadow is tile-local, not a room elevation token. */
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
 }
 .aph-palette-body {
@@ -228,12 +258,12 @@
   font-size: 11px !important;
   font-weight: 600 !important;
   opacity: 0 !important;
-  border: 1px solid color-mix(in srgb, currentColor 25%, transparent) !important;
+  border: 1px solid color-mix(in oklab, currentColor 25%, transparent) !important;
   border-bottom-width: 2px !important;
   border-radius: var(--aph-radius-sm) !important;
   padding: 2px 6px !important;
   margin-top: 0 !important;
-  background: color-mix(in srgb, currentColor 6%, transparent) !important;
+  background: color-mix(in oklab, currentColor 6%, transparent) !important;
 }
 .aph-palette-item.selected .aph-palette-key {
   opacity: 0.75 !important;
@@ -256,23 +286,23 @@
   white-space: nowrap !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
-  background: color-mix(in srgb, currentColor 5%, transparent) !important;
+  background: color-mix(in oklab, currentColor 5%, transparent) !important;
 }
 /* Fuzzy-match highlight: why this row matched the query. The Aph
    select token — one selection paint with the inputs and urlbar.
-   Brighter text on top so the mark reads on the dark slab. */
+   Per-face ink on top so the mark reads on charcoal and paper. */
 .aph-palette-mark {
   background: var(--aph-select, rgba(0, 144, 255, 0.45)) !important;
   border-radius: var(--aph-radius-xs) !important;
   padding: 0 1px !important;
-  color: #fff !important;
+  color: var(--aph-palette-fg, #fff) !important;
   font-weight: 600 !important;
 }
-/* Cream-room tweak: slab stays dark (Spotlight), but the ring warms
-   so it doesn't glare against a paper desk behind the backdrop. */
+/* Paper-face mark ink: translucent select over cream needs dark text
+   (white would wash out); charcoal keeps near-white. */
 @media (prefers-color-scheme: light) {
-  #aph-palette {
-    border-color: color-mix(in srgb, #000 45%, transparent) !important;
+  .aph-palette-mark {
+    color: var(--aph-palette-fg-light, #26262b) !important;
   }
 }
 @media (max-width: 760px) {

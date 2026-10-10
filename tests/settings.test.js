@@ -126,6 +126,23 @@ describe("staleMin clamp", () => {
     assert.equal(L.clampIntPref(L.SAFETY_PREF, 99), 9);
     assert.equal(L.clampIntPref(L.STALE_PREF, 99999), 1440);
   });
+
+  it("clamps tiered retention prefs per pref", () => {
+    assert.equal(L.SNAP_MAX_AUTO_PREF, "aph.stash.snapshots.maxAuto");
+    assert.equal(L.SNAP_MAX_AUTO_DEFAULT, 10);
+    assert.equal(L.clampMaxAuto(0), 1);
+    assert.equal(L.clampMaxAuto(10.9), 10);
+    assert.equal(L.clampMaxAuto(999), 50);
+    assert.equal(L.clampMaxAuto("nope"), 10);
+    assert.equal(L.SNAP_DAILIES_PREF, "aph.stash.snapshots.keepDailies");
+    assert.equal(L.SNAP_DAILIES_DEFAULT, 7);
+    assert.equal(L.clampKeepDailies(-1), 0);
+    assert.equal(L.clampKeepDailies(7.9), 7);
+    assert.equal(L.clampKeepDailies(999), 30);
+    assert.equal(L.clampKeepDailies("nope"), 7);
+    assert.equal(L.clampIntPref(L.SNAP_MAX_AUTO_PREF, 0), 1);
+    assert.equal(L.clampIntPref(L.SNAP_DAILIES_PREF, 999), 30);
+  });
 });
 
 describe("JSON guards", () => {
@@ -144,6 +161,7 @@ describe("JSON guards", () => {
     assert.equal(L.ROUTES_PREF, "aph.workspaces.domainRoutes");
     assert.equal(L.ACCENTS_PREF, "aph.workspaces.accents");
     assert.equal(L.STASH_PREF, "aph.stash.tabs");
+    assert.equal(L.SNAPSHOTS_PREF, "aph.stash.snapshots");
     assert.equal(L.FRECENCY_PREF, "aph.palette.frecency");
   });
 });
@@ -165,10 +183,15 @@ describe("backup round-trip", () => {
       return k in fixed ? fixed[k] : d;
     },
     int: (pref) => (pref === L.UNLOAD_STALE_PREF ? 30 : 12),
-    json: (k) =>
-      k === L.STASH_PREF
-        ? [{ id: "a", url: "https://a.example/", title: "A" }]
-        : { "2": "Work" },
+    json: (k) => {
+      if (k === L.STASH_PREF) {
+        return [{ id: "a", url: "https://a.example/", title: "A" }];
+      }
+      if (k === L.SNAPSHOTS_PREF) {
+        return [{ id: "s1", name: "S", ws: "2", tabs: [{ url: "https://s.example/" }] }];
+      }
+      return { "2": "Work" };
+    },
   };
 
   it("builds a versioned backup covering every pref", () => {
@@ -183,6 +206,8 @@ describe("backup round-trip", () => {
     assert.equal(b.prefs[L.UNLOAD_STALE_PREF], 30);
     assert.equal(b.prefs[L.SNAP_INTERVAL_PREF], 12);
     assert.equal(b.prefs[L.SAFETY_PREF], 9);
+    assert.equal(b.prefs[L.SNAP_MAX_AUTO_PREF], 12);
+    assert.equal(b.prefs[L.SNAP_DAILIES_PREF], 12);
     assertJsonEqual(b.prefs[L.STASH_PREF], [
       { id: "a", url: "https://a.example/", title: "A" },
     ]);
@@ -223,6 +248,14 @@ describe("backup round-trip", () => {
       L.parseBackup('{"aphBackup":1,"prefs":{"aph.stash.tabs":{}}}').ok,
       false
     );
+    assert.equal(
+      L.parseBackup('{"aphBackup":1,"prefs":{"aph.stash.snapshots.maxAuto":"many"}}').ok,
+      false
+    );
+    assert.equal(
+      L.parseBackup('{"aphBackup":1,"prefs":{"aph.stash.snapshots.keepDailies":"many"}}').ok,
+      false
+    );
   });
 
   it("ignores unknown keys and tolerates missing ones", () => {
@@ -254,11 +287,13 @@ describe("backup round-trip", () => {
       "aph.unload.staleMin": 30,
       "aph.stash.snapshots.intervalMin": 30,
       "aph.stash.safetyMin": 3,
+      "aph.stash.snapshots.maxAuto": 10,
+      "aph.stash.snapshots.keepDailies": 7,
     });
     assert.ok(s.includes("2 workspace names"), s);
     assert.ok(s.includes("1 route"), s);
     assert.ok(s.includes("2 stashed tabs"), s);
-    assert.ok(s.includes("5 settings"), s);
+    assert.ok(s.includes("7 settings"), s);
     assert.equal(L.summarizeBackup({}), "no Aph prefs");
   });
 });
@@ -422,5 +457,204 @@ describe("appearance bridge degrades without a theme manager", () => {
     assert.ok(seen.includes("firefox-compact-light@mozilla.org"), "write targets the light theme");
     assert.ok(enabled.includes("firefox-compact-light@mozilla.org"), "theme enabled");
     assert.deepEqual(env.opened, [], "no fallback tab on the manager path");
+  });
+});
+
+describe("theme presets pair rooms with schemes", () => {
+  it("offers auto plus four frozen rooms in order", () => {
+    assertJsonEqual(L.THEME_PRESET_OPTIONS, ["auto", "midnight", "paper", "nord", "mocha", "espresso"]);
+  });
+
+  it("pairs paper with light, every other pin with dark, auto with system", () => {
+    assertJsonEqual(L.THEME_PRESET_SCHEME, {
+      auto: "system",
+      midnight: "dark",
+      paper: "light",
+      nord: "dark",
+      mocha: "dark",
+      espresso: "dark",
+    });
+  });
+
+  it("names the preset pref", () => {
+    assert.equal(L.THEME_PRESET_PREF, "aph.theme.preset");
+  });
+});
+
+describe("theme preset radios persist through re-render", () => {
+  function makePresetEnv(seed) {
+    const store = Object.assign({}, seed || {});
+    const writes = [];
+    const list = makeFakeNode("main");
+    const doc = {
+      readyState: "complete",
+      activeElement: null,
+      hidden: false,
+      createElement: (t) => makeFakeNode(t),
+      createTextNode: () => makeFakeNode("#text"),
+      getElementById: (id) => (id === "aph-settings-list" ? list : null),
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      addEventListener(t, fn) {
+        (this._handlers[t] = this._handlers[t] || []).push(fn);
+      },
+      fire(t, ev) {
+        for (const fn of this._handlers[t] || []) fn(ev || {});
+      },
+      body: makeFakeNode("body"),
+      documentElement: makeFakeNode("html"),
+    };
+    doc._handlers = {};
+    const sb2 = {
+      window: { open: () => {} },
+      document: doc,
+      Services: { prefs: {
+        getBoolPref: (k, d) => (typeof d === "boolean" ? d : false),
+        getIntPref: (k, d) => (typeof d === "number" ? d : 0),
+        getStringPref: (k, d) => (k in store ? store[k] : d),
+        setStringPref: (k, v) => { writes.push([k, v]); store[k] = String(v); },
+        addObserver() {},
+        removeObserver() {},
+      } },
+    };
+    sb2.window.window = sb2.window;
+    run("settings-page.js", sb2);
+    sb2.window.AphSettingsLogic = sb2.AphSettingsLogic;
+    doc.fire("visibilitychange", {});
+    const collect = (root) => {
+      const out = [];
+      (function walk(n) {
+        if (!n) return;
+        if (n.localName === "input") out.push(n);
+        for (const c of n.children || []) walk(c);
+      })(root);
+      return out;
+    };
+    return {
+      sb: sb2, list, store, writes, doc,
+      radios: () => collect(list).filter((i) => i.name === "aph-preset"),
+    };
+  }
+
+  it("renders five preset radios with auto checked by default", () => {
+    const env = makePresetEnv();
+    assert.deepEqual(
+      env.radios().map((r) => r.value),
+      ["auto", "midnight", "paper", "nord", "mocha", "espresso"]
+    );
+    assert.ok(env.radios().find((r) => r.value === "auto").checked);
+  });
+
+  it("clicking a preset writes the pref (no silent no-op)", () => {
+    const env = makePresetEnv();
+    const nord = env.radios().find((r) => r.value === "nord");
+    nord.checked = true;
+    nord.fire("change", {});
+    assert.deepEqual(env.writes, [["aph.theme.preset", "nord"]]);
+    assert.equal(env.store["aph.theme.preset"], "nord");
+  });
+
+  it("a re-render keeps the pick instead of resetting to auto", () => {
+    const env = makePresetEnv();
+    const get = (v) => env.radios().find((r) => r.value === v);
+    // The reported bug: the click wrote nothing, so the tab-switch
+    // re-render (visibility path, rebuilt from the pref) snapped back.
+    get("nord").checked = true;
+    get("nord").fire("change", {});
+    assert.equal(env.store["aph.theme.preset"], "nord");
+    env.doc.fire("visibilitychange", {});
+    assert.ok(
+      env.radios().find((r) => r.value === "nord").checked,
+      "rebuilt radios still honor the stored pref"
+    );
+  });
+});
+
+describe("appearance bridge resolves a sync ESM namespace", () => {
+  // Regression: ChromeUtils.importESModule returns the namespace
+  // SYNCHRONOUSLY (never a promise). Calling .then on it threw, theme
+  // pairing silently died, and every pick fell back to about:addons.
+  function makeSyncManagerEnv() {
+    const list = makeFakeNode("main");
+    const opened = [];
+    const enabled = [];
+    const fakeManager = {
+      getAddonByID: (id) => Promise.resolve({
+        enable: () => { enabled.push(id); return Promise.resolve(); },
+      }),
+      getAddonsByTypes: () => Promise.resolve([]),
+    };
+    const doc = {
+      readyState: "complete",
+      activeElement: null,
+      hidden: false,
+      createElement: (t) => makeFakeNode(t),
+      createTextNode: () => makeFakeNode("#text"),
+      getElementById: (id) => (id === "aph-settings-list" ? list : null),
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      addEventListener(t, fn) {
+        (this._handlers[t] = this._handlers[t] || []).push(fn);
+      },
+      fire(t, ev) {
+        for (const fn of this._handlers[t] || []) fn(ev || {});
+      },
+      body: makeFakeNode("body"),
+      documentElement: makeFakeNode("html"),
+    };
+    doc._handlers = {};
+    const sb2 = {
+      window: { open: (url) => { opened.push(url); } },
+      document: doc,
+      ChromeUtils: { importESModule: () => ({ AddonManager: fakeManager }) },
+      Services: { prefs: {
+        getBoolPref: (k, d) => (typeof d === "boolean" ? d : false),
+        getIntPref: (k, d) => (typeof d === "number" ? d : 0),
+        getStringPref: (k, d) => (k in {} ? "" : d),
+        setStringPref() {},
+        addObserver() {},
+        removeObserver() {},
+      } },
+    };
+    sb2.window.window = sb2.window;
+    run("settings-page.js", sb2);
+    sb2.window.AphSettingsLogic = sb2.AphSettingsLogic;
+    doc.fire("visibilitychange", {});
+    const collect = (root) => {
+      const out = [];
+      (function walk(n) {
+        if (!n) return;
+        if (n.localName === "input") out.push(n);
+        for (const c of n.children || []) walk(c);
+      })(root);
+      return out;
+    };
+    return { sb: sb2, list, opened, enabled, collect };
+  }
+
+  it("clicking Dark enables compact-dark instead of opening about:addons", async () => {
+    const env = makeSyncManagerEnv();
+    const dark = env.collect(env.list).filter((i) => i.name === "aph-appearance")
+      .find((r) => r.value === "dark");
+    assert.ok(dark, "appearance radios rendered");
+    dark.checked = true;
+    dark.fire("change", {});
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(env.enabled, ["firefox-compact-dark@mozilla.org"]);
+    assert.deepEqual(env.opened, []);
+  });
+
+  it("picking Paper pairs the light theme (preset scheme path)", async () => {
+    const env = makeSyncManagerEnv();
+    const paper = env.collect(env.list).filter((i) => i.name === "aph-preset")
+      .find((r) => r.value === "paper");
+    assert.ok(paper, "preset radios rendered");
+    paper.checked = true;
+    paper.fire("change", {});
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(env.enabled, ["firefox-compact-light@mozilla.org"]);
+    assert.deepEqual(env.opened, []);
   });
 });

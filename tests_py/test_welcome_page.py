@@ -56,9 +56,27 @@ def test_welcome_css_is_sane() -> None:
     assert "aph-fonts/inter-" in css
     assert "prefers-reduced-motion" in css
     assert "transition: none" in css
-    # The tour carries no workspace identity rows, so no workspace hues:
-    # color lives only where data-ws identity lives (stash, settings).
+    # The old local --wel-* scale is gone; the page reads shared tokens.
     assert "--wel-ws-1" not in css
+
+
+def test_welcome_hero_teaches_workspace_hues() -> None:
+    """The hero demo pills wear the true WS1..3 hues at the dock's own
+    spends (45% current + ring, 18% rest) — first sight teaches color =
+    workspace. Blue stays the voice (steps, caret, CTA)."""
+    css = CSS.read_text(encoding="utf-8")
+    on = css[css.find(".aph-hero-pill-on {") :]
+    on = on[: on.find("}") + 1]
+    assert "var(--aph-ws-1)" in on and "45%" in on
+    assert "inset 0 0 0 1.5px" in on, "current demo carries the inset ring"
+    for demo, hue in (("2", "--aph-ws-2"), ("3", "--aph-ws-3")):
+        sel = f'.aph-hero-pill[data-ws-demo="{demo}"] {{'
+        head = css.find(sel)
+        assert head != -1, f"hero rest pill {demo} missing"
+        assert hue in css[head : css.find("}", head)] and "18%" in css[head : css.find("}", head)]
+    html = (ROOT / "branding" / "welcome.html").read_text(encoding="utf-8")
+    for demo in ("1", "2", "3"):
+        assert f'data-ws-demo="{demo}"' in html, f"hero pill {demo} missing demo hook"
 
 
 def test_welcome_demo_reaches_live_palette() -> None:

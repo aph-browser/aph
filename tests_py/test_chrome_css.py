@@ -15,6 +15,10 @@ from scripts.dev import seed_chrome_css, sync_chrome_css
 CSS = "menupopup { background: red; }\n"
 
 
+def _stamp(css: str, version: int) -> str:
+    return f"/* aph-seed-version: {version} */\n{css}"
+
+
 def _make_root(tmp_path: Path, css: str | None = CSS) -> Path:
     root = tmp_path / "root"
     (root / "branding").mkdir(parents=True)
@@ -119,6 +123,75 @@ def test_shipped_css_leaves_select_popups_native() -> None:
                     f"{name}: unguarded menupopup leg themes <select> popups: {part.strip()}"
                 )
         assert found, f"{name}: no menupopup legs found"
+
+
+def test_seed_migrates_on_version_bump(tmp_path: Path) -> None:
+    """A newer bundled seed version backs the profile copy up to .bak and
+    overwrites — this is how chrome fixes reach existing profiles."""
+    root = _make_root(tmp_path, css=_stamp(CSS, 2))
+    profile = tmp_path / "profile"
+    (profile / "chrome").mkdir(parents=True)
+    custom = _stamp("menupopup { background: green; } /* user */\n", 1)
+    (profile / "chrome" / "userChrome.css").write_text(custom, encoding="utf-8")
+    assert seed_chrome_css(root, profile) == "migrated"
+    assert (profile / "chrome" / "userChrome.css").read_text(encoding="utf-8") == _stamp(CSS, 2)
+    assert (profile / "chrome" / "userChrome.css.bak").read_text(encoding="utf-8") == custom
+
+
+def test_seed_migrates_unstamped_to_stamped(tmp_path: Path) -> None:
+    """Pre-scheme profile copies (no stamp = v0) migrate to the first
+    stamped bundle exactly once, then hold."""
+    root = _make_root(tmp_path, css=_stamp(CSS, 1))
+    profile = tmp_path / "profile"
+    (profile / "chrome").mkdir(parents=True)
+    custom = "menupopup { background: green; } /* user */\n"
+    (profile / "chrome" / "userChrome.css").write_text(custom, encoding="utf-8")
+    assert seed_chrome_css(root, profile) == "migrated"
+    assert seed_chrome_css(root, profile) == "kept"
+
+
+def test_seed_keeps_same_version_user_edits(tmp_path: Path) -> None:
+    """Same stamp both sides: user edits persist, no backup litter."""
+    root = _make_root(tmp_path, css=_stamp(CSS, 1))
+    profile = tmp_path / "profile"
+    (profile / "chrome").mkdir(parents=True)
+    custom = _stamp("menupopup { background: green; } /* user */\n", 1)
+    (profile / "chrome" / "userChrome.css").write_text(custom, encoding="utf-8")
+    assert seed_chrome_css(root, profile) == "kept"
+    assert (profile / "chrome" / "userChrome.css").read_text(encoding="utf-8") == custom
+    assert not (profile / "chrome" / "userChrome.css.bak").exists()
+
+
+def test_seed_migrate_refuses_while_running(tmp_path: Path) -> None:
+    """A due migration never overwrites under a live Firefox — it reports
+    locked and retries on the next fresh launch."""
+    root = _make_root(tmp_path, css=_stamp(CSS, 2))
+    profile = tmp_path / "profile"
+    (profile / "chrome").mkdir(parents=True)
+    custom = _stamp("menupopup { background: green; } /* user */\n", 1)
+    (profile / "chrome" / "userChrome.css").write_text(custom, encoding="utf-8")
+    try:
+        os.symlink(f"127.0.0.1:+{os.getpid()}", profile / "lock")
+    except OSError:
+        pytest.skip("cannot create symlinks on this platform")
+    assert seed_chrome_css(root, profile) == "locked"
+    assert (profile / "chrome" / "userChrome.css").read_text(encoding="utf-8") == custom
+    assert not (profile / "chrome" / "userChrome.css.bak").exists()
+
+
+def test_bundled_seed_stamps_match() -> None:
+    """Both shipped seeds carry the same aph-seed-version stamp (bump both
+    together — a lone bump would migrate one file and strand the other)."""
+    root = Path(__file__).resolve().parent.parent
+    versions = set()
+    for name in ("branding/userChrome.css", "branding/userContent.css"):
+        css = (root / name).read_text(encoding="utf-8")
+        m = re.search(r"aph-seed-version:\s*(\d+)", css)
+        assert m, f"{name}: seed stamp missing"
+        assert css.index("aph-seed-version") < 200, f"{name}: stamp must ride the first line"
+        versions.add(int(m.group(1)))
+    assert len(versions) == 1, f"seed stamps diverged: {versions}"
+    assert next(iter(versions)) >= 1
 
 
 def test_seed_seeds_content_backdrop_alongside(tmp_path: Path) -> None:

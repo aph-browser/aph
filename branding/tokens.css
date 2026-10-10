@@ -3,16 +3,23 @@
  * Shipped as chrome://browser/content/aph-tokens.css and @imported by
  * theme.css, command-palette.css, settings.css, stash.css and
  * welcome.css (separate documents, no shared cascade — chrome window
- * vs chrome-tab pages). Each consumer keeps its local :root mirrors
- * as fallback so an older omni without this entry still paints.
+ * vs chrome-tab pages). Consumers read this file directly (no local
+ * :root mirrors — mirrors drift, single source wins).
  * Keep values in sync: test_settings_voice_parity +
  * test_stash_voice_parity pin the sixteen hue stops to
- * theme.css §21 (nine workspaces + seven accent-only extras).
+ * the --aph-color-* stops below (nine workspaces + seven accent-only
+ * extras).
  *
  * Canvas faces follow prefers-color-scheme (tracks the theme scheme).
  * Voice = workspace accent once :root[data-aph-ws] stamps, theme voice
- * otherwise. Presence spends: tab 35%, pill/indicator/dock 45%,
- * hover 30%, palette/urlbar-selected 55%.
+ * otherwise. Presence spends (large surfaces spend less): tab-selected
+ * 28%, pill/indicator/dock/group-label 45%, tab-hover 24%,
+ * menu/dropdown/palette-hover 30%, urlbar/palette-selected 45%.
+ *
+ * Luminous Dark (direction 1): deep charcoal canvas (#0e0f14), tactile
+ * framing via --aph-specular (1px top light, never neon), tight
+ * --aph-glow-accent halos, airy --aph-tab-row 32px rows. Inter only —
+ * never serif. Opaque everywhere (no backdrop blur on #browser).
  */
 
 :root {
@@ -25,12 +32,14 @@
     Ubuntu, Cantarell, sans-serif;
   --aph-tracking-ui: 0.015em;
 
-  /* Radii — single source, sm fields → card canvas */
+  /* Radii — single source, sm fields → card canvas. Unified frame:
+     md rows 8 / lg 10 / xl panels 14 / card 12 (bar and card share 12
+     so chrome reads as one precision-machined frame). */
   --aph-radius-sm: 4px;
-  --aph-radius-md: 6px;
-  --aph-radius-lg: 8px;
-  --aph-radius-xl: 10px;
-  --aph-radius-card: 14px;
+  --aph-radius-md: 8px;
+  --aph-radius-lg: 10px;
+  --aph-radius-xl: 14px;
+  --aph-radius-card: 12px;
   --aph-radius-xs: 3px;   /* tags, chips, focus-adjacent micro marks */
   --aph-radius-pill: 999px;
 
@@ -48,60 +57,95 @@
   --aph-icon-md: 16px;
   --aph-icon-label-gap: 6px;
 
-  /* Hit rhythm — one row. hit-min 28px = urlbar/indicator/pills/dock-key;
-     bar-button 30px = nav-bar buttons; bar-height 36px = nav-bar itself;
-     hit-sm 22px = collapsed pills/key only (density stays 28px at rest). */
+  /* Hit rhythm — one row. hit-min 28px = urlbar/indicator/pills/dock-key
+     (pinned: test_icon_hit_empty_tokens_mirrored); bar-button 30px =
+     nav-bar buttons; bar-height 36px = nav-bar itself; hit-sm 22px =
+     collapsed pills/key only. Tab rows ride their own token below. */
   --aph-hit-min: 28px;
   --aph-hit-sm: 22px;
   --aph-bar-button: 30px;
   --aph-bar-height: 36px;
+  /* Tab rows — balanced 32px (Linear/Raycast standard: airy for scanning,
+     compact for power users). Consumed by the strip in Step 2. */
+  --aph-tab-row: 32px;
 
   /* Empty workspaces — drag-only dashed affordance (counts stay in
      tooltips/palette, never badges). */
   --aph-pill-empty-opacity: 0.55;
   --aph-pill-empty-dash: 35%;
 
-  /* Canvas — dark room (default) */
-  --aph-base: #17181f;
-  --aph-surface: #202028;
-  --aph-field: #22232f;
-  --aph-raised: #2a2c3a;
+  /* Canvas — Radix slate dark steps (the same scale the Slate color stop
+     and ws-16 wear, single source, never hand-tuned). Bold ladder so
+     desk, bar, rows, fields, and raised caps read as separate furniture
+     even in thumbnails:
+     base slate-1, surface slate-3, field slate-4, urlbar slate-5,
+     raised slate-6. Ink pairs stay contrast-gated (ink 15→9:1,
+     dim ~8:1 on base). */
+  --aph-base: #111113;
+  --aph-surface: #212225;
+  --aph-field: #272a2d;
+  --aph-urlbar-bg: #2e3135;
+  --aph-raised: #363a3f;
   --aph-ink: #e8e8ec;
   --aph-ink-dim: #a3a8ba;
   --aph-ink-faint: #626880;
   --aph-line: rgba(255, 255, 255, 0.09);
+  /* Specular — the 1px top light that makes floating surfaces feel
+     tactile (cards, menus, palette, toasts). Refined 8%: visible on
+     charcoal, never a neon edge. Never on the content card's own ring
+     (one shared --aph-hairline there, no doubled edge). */
+  --aph-specular: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  /* Tight accent glow — elegant presence halo for stamped pills/rings.
+     Small blur + negative spread keeps it close to the edge. Light effect:
+     stays translucent, but oklab holds chroma so the halo reads hue,
+     never grey film. */
+  --aph-glow-accent: 0 0 12px -2px color-mix(in oklab, var(--aph-voice) 35%, transparent);
   /* Danger family: the only red in the system, functional by contract
      (delete/reset signals). Tied to Ruby so functional red speaks the
      same scale as the workspace accents; the warn pair is the stash
      row's destructive-hover state. Ruby Dark 11 (#ff949d-adjacent)
      stays light-on-dark legible for the ink. */
   --aph-danger: var(--aph-color-ruby);
-  --aph-warn-bg: color-mix(in srgb, var(--aph-danger) 15%, var(--aph-base));
+  --aph-warn-bg: color-mix(in oklab, var(--aph-danger) 15%, var(--aph-base));
   --aph-warn-ink: #ff9aae;
-  /* Per-element workspace hue: the neutral slate until the owning page
-     stamps it from a [data-ws] row/pill. Mirrors theme.css §21's
-     --aph-ws-accent default (no workspace = no identity color). */
-  --aph-ws-now: var(--aph-ws-9);
+  /* Per-element workspace hue: Blue until the owning page stamps it
+     from a [data-ws] row/pill. Reads the color stop directly (never a
+     slot alias) so a hue re-map can never move the default. */
+  --aph-ws-now: var(--aph-color-blue, #0090ff);
 
-  /* Voice + selection + hairline (ws-6 owned by the palette block
-     below — same value, single declaration site). */
-  --aph-voice: color-mix(in srgb, var(--aph-ws-6, #0090ff) 28%, transparent);
-  --aph-select: color-mix(in srgb, var(--aph-voice) 45%, transparent);
-  --aph-hairline: color-mix(in srgb, var(--aph-ink, #e8e8ec) 12%, transparent);
+  /* Voice + selection + hairline. Voice is SOLID (never a wash): spends
+     happen downstream at each surface (tab 28 / pill 45 / hover 24-30),
+     so a translucent voice would double-dilute every wash into grey film.
+     Deliberately decoupled from the --aph-ws-N slots — interaction blue
+     must not move when the default nine are re-mapped. Stamped windows
+     retune it to the solid workspace accent (§21 flip). Select stays
+     translucent (text mark, not a fill) but oklab so the mark reads hue
+     instead of mud. */
+  --aph-voice: var(--aph-color-blue, #0090ff);
+  --aph-select: color-mix(in oklab, var(--aph-voice) 45%, transparent);
+  --aph-hairline: color-mix(in oklab, var(--aph-ink, #e8e8ec) 12%, transparent);
 
-  /* Workspace hues — mirror of theme.css §21 (parity-tested).
+  /* Workspace hues — single source (parity-tested against consumers).
      Base scale: Radix dark Step 9, one hex per hue (Aph's color-mix
      spends derive hover/border/badge states — no Step 1..8 imports).
-     ws-1..9 keep their historic hues (workspace identity never
-     remaps); ws-10..16 are accent-only extras (no workspace wears
-     them by default). Deliberately absent: Sky/Lime/Yellow Step 9
-     (dark-text steps — fail the white-ink 45% presence gate) and
-     Teal (sits ~10° from Jade, inseparable at presence wash).
+     Default nine = a designed deep→bright ramp ordered by SLOT
+     IMPORTANCE, not wheel coverage. Slots 1-3 are daily drivers and
+     carry the calm, authoritative hues; energy peaks at 7-8 where usage
+     is rarest; ws-9 violet bookends back to ws-1 indigo so the ramp
+     loops. Consequences of the order:
+       - ws-1 is indigo, never red: red is the danger semantic
+         (--aph-danger = ruby), so a home workspace must not wear it.
+       - amber sits mid-ramp (ws-6), clear of the starred-tab gold
+         (--aph-star shares the hue) at high-traffic slots.
+       - ws-9 dropped slate: a grey identity reads as "no identity"
+         at 28% presence (chroma collapses to ~0.01), so slate moved
+         to the accent-only extras below and the ramp closes on violet.
+     ws-10..16 are accent-only overrides (no workspace wears them by
+     default). Deliberately absent: Sky/Lime/Yellow Step 9 (dark-text
+     steps — fail the white-ink 45% gate) and Teal (~10° from Jade).
      Every stop below is exact Radix dark Step 9 except Amber: true
-     Amber 9 #ffc53d fails the dark-room 45% presence gate at 4.28:1,
-     so ws-3 carries the muted stop per house rule (never hand-tuned
-     around). ws-7 is Purple 9 (was mislabeled Violet — true Violet 9
-     now lives at ws-14). */
+     Amber 9 #ffc53d fails the dark-room 45% gate at 4.28:1, so ws-6
+     carries the muted stop per house rule (never hand-tuned around). */
   --aph-color-ruby: #e54666;
   --aph-color-tomato: #e54d2e;
   --aph-color-orange: #f76b15;
@@ -118,61 +162,100 @@
   --aph-color-plum: #ab4aba;
   --aph-color-crimson: #e93d82;
   --aph-color-slate: #696e77;
-  --aph-ws-1: var(--aph-color-ruby);
-  --aph-ws-2: var(--aph-color-orange);
-  --aph-ws-3: var(--aph-color-amber);
+  /* Default nine — the deep→bright ramp (1 indigo → 9 violet). */
+  --aph-ws-1: var(--aph-color-indigo);
+  --aph-ws-2: var(--aph-color-blue);
+  --aph-ws-3: var(--aph-color-cyan);
   --aph-ws-4: var(--aph-color-jade);
-  --aph-ws-5: var(--aph-color-cyan);
-  --aph-ws-6: var(--aph-color-blue);
-  --aph-ws-7: var(--aph-color-purple);
-  --aph-ws-8: var(--aph-color-pink);
-  --aph-ws-9: var(--aph-color-slate);
+  --aph-ws-5: var(--aph-color-grass);
+  --aph-ws-6: var(--aph-color-amber);
+  --aph-ws-7: var(--aph-color-orange);
+  --aph-ws-8: var(--aph-color-crimson);
+  --aph-ws-9: var(--aph-color-violet);
+  /* Accent-only extras (per-workspace overrides in Settings). Ruby
+     stays here by design: the default nine never wear the danger red. */
   --aph-ws-10: var(--aph-color-tomato);
-  --aph-ws-11: var(--aph-color-grass);
+  --aph-ws-11: var(--aph-color-ruby);
   --aph-ws-12: var(--aph-color-green);
-  --aph-ws-13: var(--aph-color-indigo);
-  --aph-ws-14: var(--aph-color-violet);
+  --aph-ws-13: var(--aph-color-purple);
+  --aph-ws-14: var(--aph-color-pink);
   --aph-ws-15: var(--aph-color-plum);
-  --aph-ws-16: var(--aph-color-crimson);
+  --aph-ws-16: var(--aph-color-slate);
 
   /* Functional */
   --aph-warn-text: #ff9aae;
   --aph-star: var(--aph-color-amber);
   --aph-secondary-opacity: 0.5;
 
-  /* Gutters (content card frame) */
+  /* Gutters (content card frame) — unified 8/8/8 frame: bar and card
+     share one tight rhythm so chrome reads as a single machined frame. */
   --aph-gutter-top: 8px;
-  --aph-gutter-side: 12px;
-  --aph-gutter-bottom: 12px;
+  --aph-gutter-side: 8px;
+  --aph-gutter-bottom: 8px;
 
-  /* Elevation — L1 toast/rename, L2 dropdown, L3 palette/modal */
-  --aph-shadow-l1: 0 2px 8px rgba(0, 0, 0, 0.25);
-  /* Palette slab: ring + top highlight + contact + far diffuse. One
+  /* Elevation — L1 toast/rename, L2 bar, card. Tight recipe: hairline
+     ring + short contact; card adds one restrained far diffuse
+     (12/32) for screenshot lift. No big blooms (24px/80px/96px
+     made bar and card read as unrelated floats).
+     Opaque only — no backdrop blur on #browser or the sidebar. */
+  --aph-shadow-l1:
+    var(--aph-specular),
+    0 2px 8px rgba(0, 0, 0, 0.35);
+  /* Palette slab: ring + specular + contact + far diffuse. One
      surface, one depth recipe — was four literals in command-palette.css. */
   --aph-shadow-palette:
     0 0 0 1px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 2px 12px rgba(0, 0, 0, 0.4),
-    0 32px 96px rgba(0, 0, 0, 0.65);
+    var(--aph-specular),
+    0 2px 12px rgba(0, 0, 0, 0.45),
+    0 32px 96px rgba(0, 0, 0, 0.7);
   --aph-scrim: rgba(0, 0, 0, 0.5);
-  /* Command palette slab: always-dark Spotlight (never the paper room),
-     a whisper of voice over near-black. Lived in command-palette.css as
-     locals; the page now only reads them. */
-  --aph-palette-bg: color-mix(in srgb, var(--aph-voice, #0090ff) 7%, #161722);
+  /* Command palette slab: charcoal Spotlight in the dark room (a
+     whisper of voice over near-black), warm paper in the light room
+     (voice kiss slightly stronger — cream needs more hue to register).
+     The palette follows the room (never pinned dark): each face reads
+     its own pair. Lived in command-palette.css as locals; the page now
+     only reads them. */
+  --aph-palette-bg: color-mix(in oklab, var(--aph-voice, #0090ff) 7%, #161722);
   --aph-palette-fg: #e8e8ec;
+  --aph-palette-bg-light: color-mix(in oklab, var(--aph-voice, #0090ff) 8%, #f5efe0);
+  --aph-palette-fg-light: #26262b;
   /* Focus ring: the guest pages' keyboard affordance (2px accent wash).
-     Chrome keeps its own stock outline language. */
-  --aph-focus-ring: 0 0 0 2px color-mix(in srgb, var(--aph-ws-6) 25%, transparent);
-  --aph-shadow-l2: 0 2px 12px rgba(0, 0, 0, 0.35), 0 24px 80px rgba(0, 0, 0, 0.6);
+     Chrome keeps its own stock outline language. Light effect: translucent,
+     oklab for chroma. */
+  --aph-focus-ring: 0 0 0 2px color-mix(in oklab, var(--aph-color-blue, #0090ff) 25%, transparent);
+  /* Floating bar: hairline ring + specular top light + tight contact
+     + mid diffuse. Furniture with presence, still one machined frame
+     with the card. Opaque only: the highlight overlays
+     the solid surface, never translucency. Glow spends voice 25% so the
+     bar never outreads tab 28% / pill 45% presence. */
+  --aph-shadow-l2:
+    0 0 0 1px var(--aph-hairline, color-mix(in oklab, var(--aph-ink, #e8e8ec) 12%, transparent)),
+    var(--aph-specular, inset 0 1px 0 rgba(255, 255, 255, 0.08)),
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 8px 24px -6px rgba(0, 0, 0, 0.5);
+  /* Bar material overlays (opaque): film grain over a milled crown +
+     grounded base — lit top edge, faint bottom shade so the pill reads
+     as one solid object, never floating up. Grain is the desk recipe
+     (inline SVG turbulence, self-contained) at a whisper alpha so it
+     reads as texture, never noise. Whisper outer glow, focus halo, 1px
+     cluster divider. */
+  --aph-bar-highlight: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.035'/></svg>"), linear-gradient(to bottom, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.04) 100%);
+  --aph-bar-glow: 0 0 16px -6px color-mix(in oklab, var(--aph-voice, #0090ff) 25%, transparent);
+  --aph-bar-focus-ring: 0 0 0 3px color-mix(in oklab, var(--aph-voice, #0090ff) 25%, transparent);
+  --aph-bar-divider: color-mix(in oklab, var(--aph-ink, #e8e8ec) 8%, transparent);
+  /* Content card: ring + tight contact + one far diffuse for
+     screenshot lift. No specular here — the card's edge is the single
+     shared --aph-hairline. */
   --aph-shadow-card:
-    0 1px 2px rgba(0, 0, 0, 0.18),
-    0 12px 32px -16px rgba(0, 0, 0, 0.5),
-    0 32px 64px -32px rgba(0, 0, 0, 0.35);
+    0 1px 2px rgba(0, 0, 0, 0.25),
+    0 8px 24px -8px rgba(0, 0, 0, 0.45),
+    0 12px 32px -8px rgba(0, 0, 0, 0.6);
 
   /* Motion — split pop tokens (never merge: animation shorthand
-     misreads a second <time> as delay) */
+     misreads a second <time> as delay). Spring ease carries a touch of
+     overshoot for the snappy modal pop; duration stays 180ms. */
   --aph-pop-in-duration: 180ms;
-  --aph-pop-in-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --aph-pop-in-ease: cubic-bezier(0.34, 1.25, 0.64, 1);
   --aph-motion-hover: 0.12s ease-out;
   --aph-motion-glide: 0.15s ease-out;
   --aph-motion-pop: 0.18s ease-out;
@@ -181,10 +264,25 @@
      scrim speaks one timing (was 140ms/150ms). */
   --aph-motion-micro: 90ms ease-out;
   --aph-motion-overlay: 140ms ease-out;
+  /* Springs move things, eases fade them: press dips and entrances ride
+     the soft overshoot below, while color/opacity washes keep the plain
+     eases above (overshoot on a color is meaningless). --aph-motion-spring
+     composes duration + curve so guest pages name a single motion token
+     per the house rule — no inline curves anywhere. */
+  --aph-spring-soft: cubic-bezier(0.3, 1.1, 0.4, 1);
+  --aph-motion-spring: var(--aph-pop-in-duration) var(--aph-spring-soft);
 
   /* Palette geometry (bold Raycast) */
   --aph-palette-width: 680px;
   --aph-palette-max-h: 72vh;
+
+  /* Floating chrome (v2 shell): the bar detaches into a centered pill.
+     Float margins clear the window edge; bar and card share 12px so
+     bar = card reads as one frame. */
+  --aph-bar-float-margin: 8px;
+  --aph-bar-float-side: 8px;
+  --aph-bar-float-radius: 12px;
+  --aph-bar-float-height: 40px;
 
   /* Page geometry */
   --aph-page-width: 860px;
@@ -193,13 +291,129 @@
 
 @media (prefers-color-scheme: light) {
   :root {
-    --aph-base: #e8e0c9;
+    --aph-base: #ddd0b0;
     --aph-surface: #f5efe0;
     --aph-field: #faf6ea;
-    --aph-raised: #fffdf4;
+    --aph-raised: #ffffff;
+    /* Light urlbar field: brightest paper (one step above field) so the
+       input reads as a field at rest. Raised caps the ladder at pure
+       white; base steps two shades deeper so desk and bar separate in
+       stills. Dim deepens one step with it so the 4.5:1 gate holds
+       (ink ~9.8:1, dim ~5.1:1 on base). */
+    --aph-urlbar-bg: #fffdf4;
     --aph-ink: #26262b;
-    --aph-ink-dim: #585c64;
+    --aph-ink-dim: #4e525c;
     --aph-ink-faint: #6b6f78;
     --aph-line: rgba(38, 38, 43, 0.12);
+    /* Paper face crown + base: white top-light over cream, warm umber
+       ground shade (never black — black dirties paper). Same whisper
+       grain at paper alpha. */
+    --aph-bar-highlight: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.045'/></svg>"), linear-gradient(to bottom, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 45%, rgba(120, 100, 60, 0) 70%, rgba(120, 100, 60, 0.04) 100%);
   }
+}
+
+/* Theme presets (aph.theme.preset → :root[data-aph-preset], stamped by
+   74-theme-preset.js, picked in Settings → Appearance). Presets are
+   frozen data, never paint code: each block redefines ONLY the room
+   ladder + grain + color-scheme that every surface already reads, so a
+   preset cannot drift from the chrome. Absent/invalid means auto (the
+   prefers-color-scheme faces above). Specificity (0,2,0) beats the
+   face media (0,1,0), so a pinned preset holds regardless of OS scheme;
+   the stamped workspace flip (:root[data-aph-ws], same weight but later
+   via the theme.css import) still owns voice + hairline on top.
+   Every room below clears the house gates (verified, not eyeballed):
+   ink 7:1+, dim 4.5:1+ vs base, and all sixteen hues at pill 45% and
+   tab 28% over each base — see test_preset_rooms_clear_gates. */
+
+/* Midnight: the dark face, pinned. Identical values — the point is the
+   pin (OS flips to light, Aph stays midnight), not a new room. */
+:root[data-aph-preset="midnight"] {
+  color-scheme: dark;
+  --aph-base: #111113;
+  --aph-surface: #212225;
+  --aph-field: #272a2d;
+  --aph-urlbar-bg: #2e3135;
+  --aph-raised: #363a3f;
+  --aph-ink: #e8e8ec;
+  --aph-ink-dim: #a3a8ba;
+  --aph-ink-faint: #626880;
+  --aph-line: rgba(255, 255, 255, 0.09);
+  --aph-bar-highlight: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.035'/></svg>"), linear-gradient(to bottom, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.04) 100%);
+}
+
+/* Paper: the light face, pinned. Same contract as midnight. */
+:root[data-aph-preset="paper"] {
+  color-scheme: light;
+  --aph-base: #ddd0b0;
+  --aph-surface: #f5efe0;
+  --aph-field: #faf6ea;
+  --aph-urlbar-bg: #fffdf4;
+  --aph-raised: #ffffff;
+  --aph-ink: #26262b;
+  --aph-ink-dim: #4e525c;
+  --aph-ink-faint: #6b6f78;
+  --aph-line: rgba(38, 38, 43, 0.12);
+  --aph-bar-highlight: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.045'/></svg>"), linear-gradient(to bottom, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 45%, rgba(120, 100, 60, 0) 70%, rgba(120, 100, 60, 0.04) 100%);
+}
+
+  /* Nord: cool desaturated dark. Same ladder discipline (five separable
+     steps), snow ink, steel-dim. Voice cools with the room — same 28%
+     strength, steel instead of pure blue, so hovers stay as legible as
+     midnight's while reading northern. Both voice inputs read the color
+     stops directly (never slot aliases) so the hue re-map can't move
+     them. */
+  :root[data-aph-preset="nord"] {
+  color-scheme: dark;
+  --aph-base: #0f141b;
+  --aph-surface: #1b2330;
+  --aph-field: #232e3d;
+  --aph-urlbar-bg: #2a3648;
+  --aph-raised: #333f52;
+  --aph-ink: #e5e9f0;
+  --aph-ink-dim: #9aa7bd;
+  --aph-ink-faint: #5e6b85;
+  --aph-line: rgba(229, 233, 240, 0.09);
+  --aph-voice: color-mix(in oklab, var(--aph-color-blue, #0090ff) 28%, var(--aph-color-slate, #696e77));
+  --aph-bar-highlight: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.035'/></svg>"), linear-gradient(to bottom, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.04) 100%);
+}
+
+/* Mocha: Catppuccin Mocha (catppuccin/palette) as an Aph room — Base
+   surface, Surface0 field, Surface1 raised, Text ink, Subtext0 dim,
+   Overlay0 faint. The desk sits 3 units under Crust (#0e0e18): Crust
+   itself left Amber presence at 4.44:1, so the room mutes (never the
+   hue — same rule that muted the Amber stop) and clears at 4.58.
+   Voice carries Mocha's identity accent: same 28% strength as the
+   default, Mauve instead of pure blue, so hovers stay as legible as
+   midnight's while reading unmistakably Catppuccin. The Mauve hex is
+   baked (not an --aph-ws stop) with this cross-ref, the same idiom as
+   the starred-tab amber. */
+:root[data-aph-preset="mocha"] {
+  color-scheme: dark;
+  --aph-base: #0e0e18;
+  --aph-surface: #1e1e2e;
+  --aph-field: #313244;
+  --aph-urlbar-bg: #313244;
+  --aph-raised: #45475a;
+  --aph-ink: #cdd6f4;
+  --aph-ink-dim: #a6adc8;
+  --aph-ink-faint: #6c7086;
+  --aph-line: rgba(205, 214, 244, 0.09);
+  --aph-voice: color-mix(in oklab, var(--aph-color-blue, #0090ff) 28%, #cba6f7);
+  --aph-bar-highlight: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.035'/></svg>"), linear-gradient(to bottom, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.04) 100%);
+}
+
+/* Espresso: warm umber dark (never black — black dirties the warmth).
+   Ground shades stay umber, never neutral grey. */
+:root[data-aph-preset="espresso"] {
+  color-scheme: dark;
+  --aph-base: #14100d;
+  --aph-surface: #241d17;
+  --aph-field: #2c231b;
+  --aph-urlbar-bg: #352a20;
+  --aph-raised: #453729;
+  --aph-ink: #ece3d8;
+  --aph-ink-dim: #b3a48f;
+  --aph-ink-faint: #7d6e5d;
+  --aph-line: rgba(236, 227, 216, 0.09);
+  --aph-bar-highlight: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.035'/></svg>"), linear-gradient(to bottom, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.04) 100%);
 }

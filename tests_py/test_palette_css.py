@@ -34,19 +34,52 @@ def test_palette_input_shares_urlbar_accent() -> None:
 
 
 def test_palette_slab_belongs_to_room() -> None:
-    """The always-dark slab carries a 7% voice kiss so the overlay belongs
-    to the workspace without going candy; selection speaks the full voice.
-    The slab tokens live in tokens.css now (the page only reads them)."""
+    """The slab follows the room (charcoal Spotlight / warm paper), each
+    face carrying a voice kiss so the overlay belongs to the workspace
+    without going candy; selection speaks the presence voice. The slab
+    tokens live in tokens.css now (the page only reads them)."""
     tokens = (ROOT / "branding" / "tokens.css").read_text(encoding="utf-8")
-    head = tokens.find("--aph-palette-bg")
-    assert head != -1, "slab color must be declared in tokens.css"
+    head = tokens.find("--aph-palette-bg:")
+    assert head != -1, "dark slab color must be declared in tokens.css"
     block = tokens[head : tokens.find(";", head)]
     assert "--aph-voice" in block and "7%" in block
+    light = tokens.find("--aph-palette-bg-light:")
+    assert light != -1, "light slab color must be declared in tokens.css"
+    light_block = tokens[light : tokens.find(";", light)]
+    assert "--aph-voice" in light_block and "#f5efe0" in light_block
+    assert "--aph-palette-fg-light:" in tokens
     css = _css()
     assert "var(--aph-palette-bg)" in css and "--aph-palette-bg:" not in css
+    assert "var(--aph-palette-bg-light" in css
     sel = css[css.find(".aph-palette-item.selected {") :]
     sel = sel[: sel.find("}") + 1]
     assert "--aph-voice" in sel
+
+
+def test_palette_follows_theme() -> None:
+    """No pinned-dark slab: a light-face block repaints slab + ink +
+    ring, flips color-scheme so native controls follow, and re-reads
+    the light slab in the sticky section fade. Selection spends the
+    45% presence (unified with the urlbar), hover the 30% menu wash."""
+    css = _css()
+    assert "Always-dark" not in css, "always-dark contract retired"
+    assert "never follows the paper room" not in css
+    light = css.find("@media (prefers-color-scheme: light)")
+    assert light != -1, "light-face block missing"
+    tail = css[light:]
+    assert "var(--aph-palette-bg-light" in tail
+    assert "var(--aph-palette-fg-light" in tail
+    assert "color-scheme: light" in tail
+    # Dark face still pins dark controls on the overlay itself.
+    assert "color-scheme: dark" in css
+    sel = css[css.find(".aph-palette-item.selected {") :]
+    sel = sel[: sel.find("}") + 1]
+    assert "45%" in sel, "selected must spend the 45% presence"
+    assert "55%" not in sel, "old 55% selection resurrected"
+    hov = css[css.find(".aph-palette-item:hover {") :]
+    hov = hov[: hov.find("}") + 1]
+    assert "30%" in hov, "hover must spend the 30% menu wash"
+    assert "35%" not in hov
 
 
 def test_palette_icon_marks_have_a_slot() -> None:
@@ -96,7 +129,7 @@ def test_pop_plays_with_the_fade_not_after_it() -> None:
     assert "--aph-pop-in)" not in code
     assert "--aph-pop-in " not in code
     theme = re.sub(
-        r"/\*.*?\*/", "", (ROOT / "branding" / "theme.css").read_text(encoding="utf-8"), flags=re.S
+        r"/\*.*?\*/", "", (ROOT / "branding" / "tokens.css").read_text(encoding="utf-8"), flags=re.S
     )
     assert "--aph-pop-in-duration: 180ms" in theme
     assert "--aph-pop-in-ease: cubic-bezier" in theme

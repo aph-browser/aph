@@ -46,6 +46,16 @@ var AphSettingsLogic = (function () {
   const SAFETY_DEFAULT = 3;
   const SAFETY_MIN = 1;
   const SAFETY_MAX = 9;
+  // Tiered autos retention (global): newest maxAuto recents plus newest
+  // one per calendar day for keepDailies days. Manuals stay flat 20.
+  const SNAP_MAX_AUTO_PREF = "aph.stash.snapshots.maxAuto";
+  const SNAP_MAX_AUTO_DEFAULT = 10;
+  const SNAP_MAX_AUTO_MIN = 1;
+  const SNAP_MAX_AUTO_MAX = 50;
+  const SNAP_DAILIES_PREF = "aph.stash.snapshots.keepDailies";
+  const SNAP_DAILIES_DEFAULT = 7;
+  const SNAP_DAILIES_MIN = 0;
+  const SNAP_DAILIES_MAX = 30;
 
   // Automatic unloading staleness: separate pref from the stash one on
   // purpose — unloading is cheap and reversible (click reloads) while
@@ -70,6 +80,7 @@ var AphSettingsLogic = (function () {
   const ROUTES_PREF = "aph.workspaces.domainRoutes";
   const ACCENTS_PREF = "aph.workspaces.accents";
   const STASH_PREF = "aph.stash.tabs";
+  const SNAPSHOTS_PREF = "aph.stash.snapshots";
 
   // Appearance (color-scheme room): driven through Firefox's own built-in
   // themes, never an Aph override — every prefers-color-scheme consumer
@@ -91,6 +102,23 @@ var AphSettingsLogic = (function () {
     } catch (e) {}
     return APPEARANCE_THEMES.system;
   }
+
+  // Theme presets: frozen Aph rooms (tokens.css companion) picked below
+  // the Appearance radios. Each preset pairs with the matching Firefox
+  // built-in theme so scheme art (menu glyphs, palette slab) agrees with
+  // the room — paper pins light, every other preset pins dark, auto
+  // restores the system theme and unpins the room. Unknown values read
+  // as auto (the chrome module allowlists the same way).
+  const THEME_PRESET_PREF = "aph.theme.preset";
+  const THEME_PRESET_OPTIONS = ["auto", "midnight", "paper", "nord", "mocha", "espresso"];
+  const THEME_PRESET_SCHEME = {
+    auto: "system",
+    midnight: "dark",
+    paper: "light",
+    nord: "dark",
+    mocha: "dark",
+    espresso: "dark",
+  };
 
   // Unknown active themes (Alpenglow, colorways, third-party) bucket to
   // System: Aph only promises its three rooms, never a stranger's.
@@ -161,19 +189,31 @@ var AphSettingsLogic = (function () {
           kind: "bool",
           pref: "aph.stash.snapshots.autoEnabled",
           title: "Snapshot workspaces automatically",
-          desc: "Every few minutes, capture any workspace whose tabs changed since its last auto snapshot, plus a safety capture before bulk workspace closes. Restores never close anything.",
+          desc: "Capture any workspace whose tabs, order, groups or selection changed — on close, group edits and workspace switches (debounced), plus every few minutes and before bulk closes and quit. Restores bring back order, groups, starred state and names; nothing is ever closed.",
         },
         {
           kind: "int",
           pref: "aph.stash.snapshots.intervalMin",
           title: "Snapshot cadence",
-          desc: "Minutes between automatic workspace captures (5–240). Only workspaces whose tabs changed are captured.",
+          desc: "Minutes between periodic workspace captures (5–240). Event captures (close, group, switch) have their own 10-minute budget and only store when content moved.",
         },
         {
           kind: "int",
           pref: "aph.stash.safetyMin",
           title: "Bulk-close safety threshold",
           desc: "Closing a workspace with at least this many tabs captures a safety snapshot first (1–9).",
+        },
+        {
+          kind: "int",
+          pref: "aph.stash.snapshots.maxAuto",
+          title: "Auto snapshot recents",
+          desc: "Newest automatic snapshots to keep (1–50, default 10). Daily keeps add on top (below); manuals always keep 20.",
+        },
+        {
+          kind: "int",
+          pref: "aph.stash.snapshots.keepDailies",
+          title: "Auto snapshot dailies",
+          desc: "Newest one per calendar day to keep for this many days (0–30, default 7). 0 keeps recents only.",
         },
       ],
     },
@@ -266,6 +306,34 @@ var AphSettingsLogic = (function () {
     return n;
   }
 
+  function clampMaxAuto(v) {
+    const n = Math.floor(Number(v));
+    if (!Number.isFinite(n)) {
+      return SNAP_MAX_AUTO_DEFAULT;
+    }
+    if (n < SNAP_MAX_AUTO_MIN) {
+      return SNAP_MAX_AUTO_MIN;
+    }
+    if (n > SNAP_MAX_AUTO_MAX) {
+      return SNAP_MAX_AUTO_MAX;
+    }
+    return n;
+  }
+
+  function clampKeepDailies(v) {
+    const n = Math.floor(Number(v));
+    if (!Number.isFinite(n)) {
+      return SNAP_DAILIES_DEFAULT;
+    }
+    if (n < SNAP_DAILIES_MIN) {
+      return SNAP_DAILIES_MIN;
+    }
+    if (n > SNAP_DAILIES_MAX) {
+      return SNAP_DAILIES_MAX;
+    }
+    return n;
+  }
+
   // Per-pref clamp dispatcher for the generic int rows (read + write +
   // backup share it, so the page can never persist an out-of-range
   // value no matter which path writes).
@@ -276,6 +344,12 @@ var AphSettingsLogic = (function () {
       }
       if (pref === SAFETY_PREF) {
         return clampSafetyMin(v);
+      }
+      if (pref === SNAP_MAX_AUTO_PREF) {
+        return clampMaxAuto(v);
+      }
+      if (pref === SNAP_DAILIES_PREF) {
+        return clampKeepDailies(v);
       }
     } catch (e) {}
     return clampStaleMin(v);
@@ -310,7 +384,7 @@ var AphSettingsLogic = (function () {
   // delete); unknown keys are ignored so newer files stay loadable.
   const BACKUP_VERSION = 1;
   const BACKUP_BOOL_PREFS = Object.keys(BOOL_DEFAULTS);
-  const BACKUP_JSON_PREFS = [NAMES_PREF, BINDINGS_PREF, ROUTES_PREF, ACCENTS_PREF, STASH_PREF, FRECENCY_PREF];
+  const BACKUP_JSON_PREFS = [NAMES_PREF, BINDINGS_PREF, ROUTES_PREF, ACCENTS_PREF, STASH_PREF, SNAPSHOTS_PREF, FRECENCY_PREF];
 
   // read: { bool(pref, def), int(pref, def), json(pref) } — the DOM
   // controller binds these to Services; tests pass stubs.
@@ -324,6 +398,8 @@ var AphSettingsLogic = (function () {
       out[UNLOAD_STALE_PREF] = clampStaleMin(read.int(UNLOAD_STALE_PREF, UNLOAD_STALE_DEFAULT));
       out[SNAP_INTERVAL_PREF] = clampSnapIntervalMin(read.int(SNAP_INTERVAL_PREF, SNAP_INTERVAL_DEFAULT));
       out[SAFETY_PREF] = clampSafetyMin(read.int(SAFETY_PREF, SAFETY_DEFAULT));
+      out[SNAP_MAX_AUTO_PREF] = clampMaxAuto(read.int(SNAP_MAX_AUTO_PREF, SNAP_MAX_AUTO_DEFAULT));
+      out[SNAP_DAILIES_PREF] = clampKeepDailies(read.int(SNAP_DAILIES_PREF, SNAP_DAILIES_DEFAULT));
       for (const k of BACKUP_JSON_PREFS) {
         out[k] = read.json(k);
       }
@@ -391,6 +467,18 @@ var AphSettingsLogic = (function () {
       }
       prefs[SAFETY_PREF] = clampSafetyMin(root.prefs[SAFETY_PREF]);
     }
+    if (SNAP_MAX_AUTO_PREF in root.prefs) {
+      if (typeof root.prefs[SNAP_MAX_AUTO_PREF] !== "number" || !Number.isFinite(root.prefs[SNAP_MAX_AUTO_PREF])) {
+        return { ok: false, error: `${SNAP_MAX_AUTO_PREF} must be a number.` };
+      }
+      prefs[SNAP_MAX_AUTO_PREF] = clampMaxAuto(root.prefs[SNAP_MAX_AUTO_PREF]);
+    }
+    if (SNAP_DAILIES_PREF in root.prefs) {
+      if (typeof root.prefs[SNAP_DAILIES_PREF] !== "number" || !Number.isFinite(root.prefs[SNAP_DAILIES_PREF])) {
+        return { ok: false, error: `${SNAP_DAILIES_PREF} must be a number.` };
+      }
+      prefs[SNAP_DAILIES_PREF] = clampKeepDailies(root.prefs[SNAP_DAILIES_PREF]);
+    }
     // JSON prefs validate in BACKUP_JSON_PREFS order so an export →
     // import round-trip keeps stable key order (diffable files).
     for (const k of BACKUP_JSON_PREFS) {
@@ -415,6 +503,25 @@ var AphSettingsLogic = (function () {
         prefs[k] = kept;
         if (dropped > 0) {
           prefs.__droppedStash = dropped;
+        }
+        continue;
+      }
+      if (k === SNAPSHOTS_PREF) {
+        if (!Array.isArray(root.prefs[k])) {
+          return { ok: false, error: `${k} must be a list.` };
+        }
+        const kept = [];
+        let dropped = 0;
+        for (const e of root.prefs[k]) {
+          if (e && typeof e === "object" && typeof e.id === "string" && Array.isArray(e.tabs)) {
+            kept.push(e);
+          } else {
+            dropped++;
+          }
+        }
+        prefs[k] = kept;
+        if (dropped > 0) {
+          prefs.__droppedSnapshots = dropped;
         }
         continue;
       }
@@ -479,6 +586,11 @@ var AphSettingsLogic = (function () {
       if (Array.isArray(prefs[STASH_PREF])) {
         bits.push(`${prefs[STASH_PREF].length} stashed tab${prefs[STASH_PREF].length === 1 ? "" : "s"}`);
       }
+      if (Array.isArray(prefs[SNAPSHOTS_PREF])) {
+        bits.push(
+          `${prefs[SNAPSHOTS_PREF].length} workspace stash${prefs[SNAPSHOTS_PREF].length === 1 ? "" : "es"}`
+        );
+      }
       let toggles = 0;
       for (const k of BACKUP_BOOL_PREFS) {
         if (k in prefs) {
@@ -495,6 +607,12 @@ var AphSettingsLogic = (function () {
         toggles++;
       }
       if (SAFETY_PREF in prefs) {
+        toggles++;
+      }
+      if (SNAP_MAX_AUTO_PREF in prefs) {
+        toggles++;
+      }
+      if (SNAP_DAILIES_PREF in prefs) {
         toggles++;
       }
       if (toggles) {
@@ -518,6 +636,14 @@ var AphSettingsLogic = (function () {
     SAFETY_DEFAULT,
     SAFETY_MIN,
     SAFETY_MAX,
+    SNAP_MAX_AUTO_PREF,
+    SNAP_MAX_AUTO_DEFAULT,
+    SNAP_MAX_AUTO_MIN,
+    SNAP_MAX_AUTO_MAX,
+    SNAP_DAILIES_PREF,
+    SNAP_DAILIES_DEFAULT,
+    SNAP_DAILIES_MIN,
+    SNAP_DAILIES_MAX,
     UNLOAD_STALE_PREF,
     UNLOAD_STALE_DEFAULT,
     UNLOAD_STALE_PRESETS,
@@ -527,14 +653,20 @@ var AphSettingsLogic = (function () {
     ROUTES_PREF,
     ACCENTS_PREF,
     STASH_PREF,
+    SNAPSHOTS_PREF,
     APPEARANCE_OPTIONS,
     APPEARANCE_THEMES,
     themeIdForAppearance,
     appearanceForThemeId,
+    THEME_PRESET_PREF,
+    THEME_PRESET_OPTIONS,
+    THEME_PRESET_SCHEME,
     GROUPS,
     clampStaleMin,
     clampSnapIntervalMin,
     clampSafetyMin,
+    clampMaxAuto,
+    clampKeepDailies,
     clampIntPref,
     parseJsonObject,
     countKeys,
@@ -749,6 +881,12 @@ var AphSettingsLogic = (function () {
       if (l && pref === l.SAFETY_PREF) {
         return l.SAFETY_DEFAULT || 3;
       }
+      if (l && pref === l.SNAP_MAX_AUTO_PREF) {
+        return l.SNAP_MAX_AUTO_DEFAULT || 10;
+      }
+      if (l && pref === l.SNAP_DAILIES_PREF) {
+        return l.SNAP_DAILIES_DEFAULT || 7;
+      }
       if (l && typeof l.STALE_DEFAULT === "number") {
         return l.STALE_DEFAULT;
       }
@@ -758,6 +896,12 @@ var AphSettingsLogic = (function () {
     }
     if (pref === "aph.stash.safetyMin") {
       return 3;
+    }
+    if (pref === "aph.stash.snapshots.maxAuto") {
+      return 10;
+    }
+    if (pref === "aph.stash.snapshots.keepDailies") {
+      return 7;
     }
     return 5;
   }
@@ -1045,13 +1189,33 @@ var AphSettingsLogic = (function () {
         ChromeUtils &&
         typeof ChromeUtils.importESModule === "function"
       ) {
-        return ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs").then(
-          (m) => pickAddonManager(m),
-          (e) => {
-            diagLog(`AddonManager.sys.mjs import failed: ${e && (e.message || e)}`);
-            return null;
-          }
-        );
+        // importESModule returns the namespace SYNCHRONOUSLY (never a
+        // promise) — calling .then on it throws and silently kills theme
+        // pairing. Accept both shapes: a thenable (defensive) or the
+        // namespace itself.
+        let imported = null;
+        try {
+          imported =
+            ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
+        } catch (e) {
+          diagLog(`AddonManager.sys.mjs import failed: ${e && (e.message || e)}`);
+          imported = null;
+        }
+        if (imported && typeof imported.then === "function") {
+          return imported.then(
+            (m) => pickAddonManager(m),
+            (e) => {
+              diagLog(`AddonManager.sys.mjs import failed: ${e && (e.message || e)}`);
+              return null;
+            }
+          );
+        }
+        const picked = pickAddonManager(imported);
+        if (picked) {
+          return Promise.resolve(picked);
+        }
+        diagLog("AddonManager.sys.mjs namespace unusable");
+        return Promise.resolve(null);
       }
       diagLog("ChromeUtils.importESModule unavailable");
     } catch (e) {
@@ -1287,6 +1451,135 @@ var AphSettingsLogic = (function () {
         () => {}
       );
     } catch (e) {}
+  }
+
+  // NOTE: the THEME_PRESET_* consts live in the AphSettingsLogic IIFE
+  // above — controller scope reaches them only through L(), the same
+  // bridge every other controller path uses (direct reads throw
+  // ReferenceError here and die silently in the surrounding try/catch).
+  function presetLib() {
+    try {
+      const l = L();
+      if (!l) {
+        return null;
+      }
+      return {
+        pref: l.THEME_PRESET_PREF || "aph.theme.preset",
+        options: l.THEME_PRESET_OPTIONS || ["auto"],
+        scheme: l.THEME_PRESET_SCHEME || { auto: "system" },
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function readThemePreset() {
+    try {
+      const lib = presetLib();
+      const opts = (lib && lib.options) || ["auto"];
+      const pref = (lib && lib.pref) || "aph.theme.preset";
+      const p = prefs();
+      const raw = p && typeof p.getStringPref === "function"
+        ? p.getStringPref(pref, "auto")
+        : "auto";
+      const v = String(raw || "").trim().toLowerCase();
+      if (opts.indexOf(v) !== -1) {
+        return v;
+      }
+    } catch (e) {}
+    return "auto";
+  }
+
+  function writeThemePreset(sel) {
+    let lib = null;
+    try {
+      lib = presetLib();
+    } catch (e) {
+      lib = null;
+    }
+    const opts = (lib && lib.options) || ["auto"];
+    const pref = (lib && lib.pref) || "aph.theme.preset";
+    const v = String(sel || "").trim().toLowerCase();
+    if (opts.indexOf(v) === -1) {
+      return;
+    }
+    try {
+      const p = prefs();
+      if (!p || typeof p.setStringPref !== "function") {
+        toast("Settings unavailable");
+        return;
+      }
+      p.setStringPref(pref, v);
+    } catch (e) {
+      toast("Write failed");
+      return;
+    }
+    // Pair the scheme so art agrees with the room (preset comment above).
+    // The room pref observer restamps every window live; the theme change
+    // toasts Saved on its own path like the Appearance radios.
+    try {
+      const scheme = (lib && lib.scheme) || {};
+      writeAppearance(scheme[v] || "system");
+    } catch (_e) {}
+  }
+
+  // Second radio group under Appearance: frozen rooms, same native-radio
+  // dialect (accent-color wash, no custom knob). Sync-reads the pref, so
+  // the checked state stamps at build like the int rows — no second
+  // render, no clobbered edits.
+  function makePresetSection() {
+    const section = document.createElement("section");
+    section.className = "aph-settings-group";
+    section.dataset.group = "Theme preset";
+    const h = document.createElement("h2");
+    h.textContent = "Theme preset";
+    section.appendChild(h);
+    const opts = [
+      { value: "auto", label: "Auto", desc: "Follow the OS room (midnight or paper)." },
+      { value: "midnight", label: "Midnight", desc: "Pin the dark room against the OS." },
+      { value: "paper", label: "Paper", desc: "Pin the light room against the OS." },
+      { value: "nord", label: "Nord", desc: "Cool desaturated dark with a steel voice." },
+      { value: "mocha", label: "Mocha", desc: "Soothing pastel dark with a mauve voice." },
+      { value: "espresso", label: "Espresso", desc: "Warm umber dark, never neutral grey." },
+    ];
+    let current = "auto";
+    try {
+      current = readThemePreset();
+    } catch (_e) {}
+    for (const o of opts) {
+      const row = document.createElement("label");
+      row.className = "aph-settings-row aph-settings-appearance";
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "aph-preset";
+      radio.value = o.value;
+      radio.className = "aph-settings-radio";
+      radio.setAttribute("aria-label", `Theme preset: ${o.label}`);
+      try {
+        radio.checked = o.value === current;
+      } catch (_e) {}
+      radio.addEventListener("change", () => {
+        try {
+          if (radio.checked) {
+            writeThemePreset(radio.value);
+          }
+        } catch (_e) {}
+      });
+      row.appendChild(radio);
+      const main = document.createElement("div");
+      main.className = "aph-settings-main";
+      const lab = document.createElement("div");
+      lab.className = "aph-settings-label";
+      lab.textContent = o.label;
+      main.appendChild(lab);
+      const desc = document.createElement("div");
+      desc.className = "aph-settings-desc";
+      desc.textContent = o.desc;
+      main.appendChild(desc);
+      row.appendChild(main);
+      section.appendChild(row);
+    }
+    return section;
   }
 
   function toast(msg) {
@@ -1644,25 +1937,26 @@ var AphSettingsLogic = (function () {
   }
 
   // Accent hue names for the workspace accents table editor. Full
-  // 16-stop scale (theme.css §21); ws-7 is Purple 9 (true Violet 9
-  // lives at 14). Labels only, never hexes.
+  // 16-stop scale (theme.css §21). Default nine are the deep→bright
+  // ramp (1 Indigo → 9 Violet); the rest are accent-only extras. Labels
+  // only, never hexes.
   const WS_ACCENT_NAMES = {
-    1: "Ruby",
-    2: "Orange",
-    3: "Amber",
+    1: "Indigo",
+    2: "Blue",
+    3: "Cyan",
     4: "Jade",
-    5: "Cyan",
-    6: "Blue",
-    7: "Purple",
-    8: "Pink",
-    9: "Slate",
+    5: "Grass",
+    6: "Amber",
+    7: "Orange",
+    8: "Crimson",
+    9: "Violet",
     10: "Tomato",
-    11: "Grass",
+    11: "Ruby",
     12: "Green",
-    13: "Indigo",
-    14: "Violet",
+    13: "Purple",
+    14: "Pink",
     15: "Plum",
-    16: "Crimson",
+    16: "Slate",
   };
 
   function accentEditor(ws, currentHue) {
@@ -1982,6 +2276,11 @@ var AphSettingsLogic = (function () {
           list.appendChild(makeAppearanceSection());
         } catch (_e) {}
       }
+      if (!searchQuery || matchesSearch("Theme preset auto midnight paper nord espresso room")) {
+        try {
+          list.appendChild(makePresetSection());
+        } catch (_e) {}
+      }
       const l = L();
       const groups = (l && l.GROUPS) || [];
       for (const g of groups) {
@@ -2115,6 +2414,16 @@ var AphSettingsLogic = (function () {
         } else {
           stalePrefs.push("aph.stash.safetyMin");
         }
+        if (l && l.SNAP_MAX_AUTO_PREF) {
+          stalePrefs.push(l.SNAP_MAX_AUTO_PREF);
+        } else {
+          stalePrefs.push("aph.stash.snapshots.maxAuto");
+        }
+        if (l && l.SNAP_DAILIES_PREF) {
+          stalePrefs.push(l.SNAP_DAILIES_PREF);
+        } else {
+          stalePrefs.push("aph.stash.snapshots.keepDailies");
+        }
       } catch (e) {}
       for (const sp of stalePrefs) {
         if (p && sp in p) {
@@ -2143,7 +2452,10 @@ var AphSettingsLogic = (function () {
       const data = l.buildBackup({
         bool: (k) => readBool(k),
         int: (pref, d) => readIntPref(pref || (l && l.STALE_PREF) || "aph.stash.autoStaleMin"),
-        json: (k) => (k === l.STASH_PREF ? readJsonArray(k) : readJsonObject(k)),
+        json: (k) =>
+          k === l.STASH_PREF || k === l.SNAPSHOTS_PREF
+            ? readJsonArray(k)
+            : readJsonObject(k),
       });
       const text = JSON.stringify(data, null, 2);
       const blob = new Blob([text], { type: "application/json" });
@@ -2345,6 +2657,7 @@ var AphSettingsLogic = (function () {
           watched.push(l ? l.ROUTES_PREF : "aph.workspaces.domainRoutes");
           watched.push(l && l.ACCENTS_PREF ? l.ACCENTS_PREF : "aph.workspaces.accents");
           watched.push(l ? l.STASH_PREF : "aph.stash.tabs");
+          watched.push(l && l.SNAPSHOTS_PREF ? l.SNAPSHOTS_PREF : "aph.stash.snapshots");
         } catch (e) {}
         const obs = {
           observe(subj, topic, data) {

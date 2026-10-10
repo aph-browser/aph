@@ -1,11 +1,13 @@
 /* Aph welcome page — one product with the chrome (theme.css), not a
    guest skin. System: Inter, the Aph radius scale, neutral desk
    surfaces (#17181f desk / #202028 elevated / #2a2c3a raised), ink +
-   muted text. The tour is global surface throughout — no workspace
-   identity rows, so no workspace hues here by design (unlike the stash
-   and settings, which stamp data-ws onto rows/pills). Every surface,
-   radius, shadow and motion value comes from aph-tokens.css (the shared
-   scale) — this file declares no local copies.
+   muted text. The tour body is global surface throughout, but the hero
+   teaches the core mapping at first sight — color = workspace — with
+   true WS1..3 hues on the demo pills (indigo current, blue/cyan rest,
+   mirroring the dock's 45%/18% presence spends). Blue stays the voice
+   (steps, caret, CTA): actions speak Aph, spaces speak hue. Every
+   surface, radius, shadow and motion value comes from aph-tokens.css
+   (the shared scale) — this file declares no local copies.
    House rules for this file (enforced by tests_py/test_guest_css_tokens.py):
    - no local per-page token scale (the old --set- / --arch- / --wel-
      families are gone): every surface, radius, shadow, motion and hue
@@ -67,7 +69,7 @@ html, body {
 #aph-welcome-head {
   position: sticky;
   top: 0;
-  background: color-mix(in srgb, var(--aph-base) 88%, transparent);
+  background: color-mix(in oklab, var(--aph-base) 88%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(1.1);
   backdrop-filter: blur(12px) saturate(1.1);
   border-bottom: 1px solid var(--aph-line);
@@ -153,8 +155,11 @@ kbd {
   gap: 8px;
 }
 
-/* Hero: dock pills + palette mock in pure CSS (neutral — the tour
-   carries no workspace identity, so no hues here by design). */
+/* Hero: dock pills + palette mock in pure CSS. The demo pills wear the
+   true WS1..3 hues (indigo/blue/cyan — the head of the deep→bright
+   ramp) at the dock's own spends — 45% current with an inset ring, 18%
+   rest — so first sight teaches color = workspace. Steps/CTA stay blue
+   voice (--aph-color-blue, never a ws slot: actions, not spaces). */
 #aph-welcome-hero {
   margin-top: 20px;
   display: grid;
@@ -182,14 +187,23 @@ kbd {
   align-items: center;
   justify-content: center;
   border-radius: var(--aph-radius-md);
-  background: color-mix(in srgb, var(--aph-ink) 10%, transparent);
+  background: color-mix(in oklab, var(--aph-ink) 10%, transparent);
   color: var(--aph-ink);
   font-size: 13px;
   font-weight: 600;
 }
 
 .aph-hero-pill-on {
-  background: color-mix(in srgb, var(--aph-ws-6) 45%, transparent);
+  background: color-mix(in oklab, var(--aph-ws-1) 45%, var(--aph-base, #0e0f14));
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--aph-ws-1) 80%, transparent);
+}
+
+.aph-hero-pill[data-ws-demo="2"] {
+  background: color-mix(in oklab, var(--aph-ws-2) 18%, var(--aph-base, #0e0f14));
+}
+
+.aph-hero-pill[data-ws-demo="3"] {
+  background: color-mix(in oklab, var(--aph-ws-3) 18%, var(--aph-base, #0e0f14));
 }
 
 #aph-hero-bar {
@@ -211,7 +225,7 @@ kbd {
 }
 
 #aph-hero-caret {
-  color: var(--aph-ws-6);
+  color: var(--aph-color-blue);
   font-weight: 700;
   /* Deliberate literal: a caret blink is a semantic signal, not a UI
      transition — it must stay out of the motion scale (and out of the
@@ -255,8 +269,8 @@ kbd {
 
 .aph-hero-step.on {
   color: var(--aph-ink);
-  border-color: color-mix(in srgb, var(--aph-ws-6) 55%, transparent);
-  background: color-mix(in srgb, var(--aph-ws-6) 18%, transparent);
+  border-color: color-mix(in oklab, var(--aph-color-blue) 55%, transparent);
+  background: color-mix(in oklab, var(--aph-color-blue) 18%, var(--aph-base, #0e0f14));
 }
 
 .aph-welcome-demo {
@@ -283,7 +297,7 @@ kbd {
 }
 
 .aph-welcome-demobtn:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--aph-ws-6) 65%, transparent);
+  outline: 2px solid color-mix(in oklab, var(--aph-color-blue) 65%, transparent);
   outline-offset: 2px;
 }
 
@@ -294,7 +308,7 @@ kbd {
 }
 
 #aph-welcome-dismiss {
-  background: color-mix(in srgb, var(--aph-ws-6) 55%, transparent);
+  background: color-mix(in oklab, var(--aph-color-blue) 55%, var(--aph-base, #0e0f14));
   color: var(--aph-ink);
   border: 1px solid transparent;
   border-radius: var(--aph-radius-lg);
@@ -306,7 +320,7 @@ kbd {
 }
 
 #aph-welcome-dismiss:hover {
-  background: color-mix(in srgb, var(--aph-ws-6) 70%, transparent);
+  background: color-mix(in oklab, var(--aph-color-blue) 70%, var(--aph-base, #0e0f14));
 }
 
 #aph-welcome-links {
@@ -324,10 +338,17 @@ kbd {
   transition: background-color var(--aph-motion-hover);
 }
 #aph-welcome-dismiss {
-  transition: background-color var(--aph-motion-hover);
+  transition: background-color var(--aph-motion-hover), transform var(--aph-motion-spring);
 }
 .aph-welcome-demobtn {
-  transition: background-color var(--aph-motion-hover), color var(--aph-motion-hover);
+  transition: background-color var(--aph-motion-hover), color var(--aph-motion-hover),
+    transform var(--aph-motion-spring);
+}
+/* Press dips ride the spring (transform-only, never layout). The
+   reduced-motion mirror below kills the transitions, so presses snap. */
+#aph-welcome-dismiss:active,
+.aph-welcome-demobtn:active {
+  transform: scale(0.97);
 }
 @media (prefers-reduced-motion: reduce) {
   .aph-welcome-card,

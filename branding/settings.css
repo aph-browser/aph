@@ -76,7 +76,7 @@ html, body {
 #aph-settings-head {
   position: sticky;
   top: 0;
-  background: color-mix(in srgb, var(--aph-base) 88%, transparent);
+  background: color-mix(in oklab, var(--aph-base) 88%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(1.1);
   backdrop-filter: blur(12px) saturate(1.1);
   border-bottom: 1px solid var(--aph-line);
@@ -113,7 +113,7 @@ html, body {
 }
 
 #aph-settings-search:focus {
-  border-color: color-mix(in srgb, var(--aph-ws-6) 65%, transparent);
+  border-color: color-mix(in oklab, var(--aph-color-blue) 65%, transparent);
   box-shadow: var(--aph-focus-ring);
 }
 
@@ -176,7 +176,7 @@ html, body {
   height: 22px;
   border-radius: var(--aph-radius-pill);
   border: 1px solid var(--aph-line);
-  background: color-mix(in srgb, var(--aph-ink) 10%, transparent);
+  background: color-mix(in oklab, var(--aph-ink) 10%, transparent);
   position: relative;
   cursor: pointer;
   padding: 0;
@@ -194,7 +194,7 @@ html, body {
 }
 
 .aph-settings-toggle[aria-checked="true"] {
-  background: color-mix(in srgb, var(--aph-ws-6) 55%, transparent);
+  background: color-mix(in oklab, var(--aph-color-blue) 55%, var(--aph-base, #0e0f14));
   border-color: transparent;
 }
 
@@ -217,7 +217,7 @@ html, body {
 }
 
 .aph-settings-number:focus {
-  border-color: color-mix(in srgb, var(--aph-ink) 45%, transparent);
+  border-color: color-mix(in oklab, var(--aph-ink) 45%, transparent);
 }
 
 /* Appearance radios: native shape with the Aph accent wash (one prop,
@@ -232,7 +232,7 @@ html, body {
   width: 16px;
   height: 16px;
   margin-inline-end: 4px;
-  accent-color: var(--aph-ws-6, #0090ff);
+  accent-color: var(--aph-color-blue, #0090ff);
   cursor: pointer;
 }
 
@@ -410,10 +410,31 @@ html, body {
 .aph-settings-toggle::after {
   transition: left var(--aph-motion-hover), background-color var(--aph-motion-hover);
 }
+/* Buttons glide instead of snapping; press dips ride the spring
+   (transform-only, never layout). Filter joins the ok-button glide so
+   its brightness hover eases too. */
+#aph-settings-export,
+#aph-settings-import,
+#aph-settings-reset-frecency,
+.aph-settings-rowbtn,
+#aph-settings-modal-cancel,
+#aph-settings-modal-ok {
+  transition: background-color var(--aph-motion-hover), color var(--aph-motion-hover),
+    border-color var(--aph-motion-hover), filter var(--aph-motion-hover),
+    transform var(--aph-motion-spring);
+}
+#aph-settings-export:active,
+#aph-settings-import:active,
+#aph-settings-reset-frecency:active,
+.aph-settings-rowbtn:active,
+#aph-settings-modal-cancel:active,
+#aph-settings-modal-ok:active {
+  transform: scale(0.97);
+}
 
 /* Cards: groups read as elevated sections, not bare rows. */
 .aph-settings-group {
-  background: color-mix(in srgb, var(--aph-surface) 55%, transparent);
+  background: color-mix(in oklab, var(--aph-surface) 55%, transparent);
   border: 1px solid var(--aph-line);
   border-radius: var(--aph-radius-xl);
   padding: 6px 6px 12px;
@@ -428,7 +449,7 @@ html, body {
 #aph-settings-export:focus-visible,
 #aph-settings-import:focus-visible,
 #aph-settings-reset-frecency:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--aph-ws-6) 70%, transparent);
+  outline: 2px solid color-mix(in oklab, var(--aph-color-blue) 70%, transparent);
   outline-offset: 2px;
 }
 
@@ -447,7 +468,7 @@ html, body {
   outline: none;
 }
 .aph-settings-edit:focus {
-  border-color: color-mix(in srgb, var(--aph-ws-6) 65%, transparent);
+  border-color: color-mix(in oklab, var(--aph-color-blue) 65%, transparent);
   box-shadow: var(--aph-focus-ring);
 }
 .aph-settings-rowbtn {
@@ -472,7 +493,7 @@ html, body {
 .aph-settings-rowbtn.is-active {
   background: var(--aph-field);
   color: var(--aph-ink);
-  border-color: color-mix(in srgb, var(--aph-ws-6) 65%, transparent);
+  border-color: color-mix(in oklab, var(--aph-color-blue) 65%, transparent);
 }
 
 /* Staleness tier buttons (unload presets): wrap under the row on narrow
@@ -508,6 +529,16 @@ html, body {
   border-radius: var(--aph-radius-xl);
   box-shadow: var(--aph-shadow-l2);
   padding: 20px;
+  /* Entrance pops on unhide (display:none → flex restarts the animation,
+     same trick as the palette): rise + settle on the pop spring. */
+  animation: aph-modal-pop var(--aph-pop-in-duration) var(--aph-pop-in-ease);
+  transform-origin: center;
+}
+/* NOTE: no !important inside @keyframes — parsers drop important
+   keyframe declarations, which silently kills the animation. */
+@keyframes aph-modal-pop {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: none; }
 }
 #aph-settings-modal-title {
   font-size: 16px;
@@ -543,13 +574,13 @@ html, body {
   color: var(--aph-ink);
 }
 #aph-settings-modal-ok {
-  background: color-mix(in srgb, var(--aph-ws-6) 55%, transparent);
+  background: color-mix(in oklab, var(--aph-color-blue) 55%, var(--aph-base, #0e0f14));
   border-color: transparent;
   color: var(--aph-ink);
   font-weight: 500;
 }
 #aph-settings-modal-ok.danger {
-  background: color-mix(in srgb, var(--aph-danger) 70%, transparent);
+  background: color-mix(in oklab, var(--aph-danger) 70%, var(--aph-base, #0e0f14));
 }
 #aph-settings-modal-ok:hover {
   filter: brightness(1.1);
@@ -569,7 +600,15 @@ html, body {
   .aph-settings-toggle::after,
   #aph-settings-toast,
   .aph-settings-rowbtn,
-  .aph-settings-edit {
+  .aph-settings-edit,
+  #aph-settings-export,
+  #aph-settings-import,
+  #aph-settings-reset-frecency,
+  #aph-settings-modal-cancel,
+  #aph-settings-modal-ok {
     transition: none;
+  }
+  #aph-settings-modal-card {
+    animation: none;
   }
 }

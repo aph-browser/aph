@@ -2,7 +2,6 @@
 and every Aph stylesheet pulls it via @import (local mirrors stay as
 fallback for older omnis)."""
 
-import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -48,24 +47,28 @@ def test_tokens_source_is_sane() -> None:
 
 
 def test_tokens_hues_match_chrome() -> None:
-    """Sixteen hue stops mirror theme.css §21 (same parity contract as
-    the settings/stash mirrors). tokens.css declares each hex once under
-    --aph-color-* with --aph-ws-N aliasing it; theme.css keeps literals
-    as fallback for older omnis — compare resolved values."""
+    """Sixteen hue stops live in tokens.css (single source: --aph-color-*
+    + --aph-ws-N aliases). theme.css owns no literals — it maps
+    data-aph-ws / data-accent to the imported stops via var()."""
     theme = (ROOT / "branding" / "theme.css").read_text(encoding="utf-8")
     tokens = TOKENS.read_text(encoding="utf-8")
-    theme_hues = dict(re.findall(r"--aph-ws-([0-9]{1,2}):\s*(#[0-9a-fA-F]{6})", theme))
-    assert len(theme_hues) == 16, f"expected 16 chrome hues, found {len(theme_hues)}"
-    colors = dict(re.findall(r"--aph-color-([a-z]+):\s*(#[0-9a-fA-F]{6})", tokens))
+    import re as _re
+
+    # No literals in chrome: single source wins (zero mirrors).
+    assert not _re.findall(r"--aph-ws-([0-9]{1,2}):\s*(#[0-9a-fA-F]{6})", theme), (
+        "theme.css must not mirror hue literals — tokens.css owns them"
+    )
+    colors = dict(_re.findall(r"--aph-color-([a-z]+):\s*(#[0-9a-fA-F]{6})", tokens))
     assert len(colors) == 16, f"expected 16 named colors, found {len(colors)}"
-    aliases = dict(re.findall(r"--aph-ws-([0-9]{1,2}):\s*var\(--aph-color-([a-z]+)\)", tokens))
+    aliases = dict(_re.findall(r"--aph-ws-([0-9]{1,2}):\s*var\(--aph-color-([a-z]+)\)", tokens))
     assert len(aliases) == 16, f"expected 16 ws aliases, found {len(aliases)}"
     for n in [str(i) for i in range(1, 17)]:
         assert n in aliases, f"tokens missing alias for hue {n}"
-        resolved = colors[aliases[n]].lower()
-        assert resolved == theme_hues[n].lower(), (
-            f"ws{n} diverged: tokens {resolved} vs chrome {theme_hues[n]}"
-        )
+    # Chrome maps every workspace + accent override to the imported stops.
+    for n in [str(i) for i in range(1, 10)]:
+        assert f':root[data-aph-ws="{n}"]' in theme
+    for n in [str(i) for i in range(1, 17)]:
+        assert f"--aph-ws-{n}" in theme, f"theme missing mapping to ws{n}"
 
 
 def test_every_consumer_imports_tokens_first() -> None:

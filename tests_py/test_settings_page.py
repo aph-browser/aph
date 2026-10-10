@@ -163,10 +163,11 @@ def test_settings_voice_parity() -> None:
     """The page used to duplicate the nine workspace hues under --set-ws-N
     with this test holding the copies equal. It now reads the tokens.css
     table outright, so parity is structural: the page spends the shared
-    hues and carries no local copy."""
+    hues and carries no local copy (single source in tokens.css)."""
     css = CSS.read_text()
-    theme_hues = dict(re.findall(r"--aph-ws-([0-9]{1,2}):\s*(#[0-9a-fA-F]{6})", _theme_css()))
-    assert len(theme_hues) == 16
+    tokens = (ROOT / "branding" / "tokens.css").read_text(encoding="utf-8")
+    token_hues = set(re.findall(r"--aph-ws-([0-9]{1,2}):\s*var\(--aph-color-", tokens))
+    assert len(token_hues) == 16
     assert "--set-ws-" not in css
     for n in [str(i) for i in range(1, 17)]:
         assert f"var(--aph-ws-{n})" in css, n
