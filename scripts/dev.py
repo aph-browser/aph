@@ -506,24 +506,12 @@ def main() -> None:
     # Auto-merge enterprise policies & extensions
     merge_policies(root)
 
-    # Auto-rebrand browser/omni.ja. A fresh rebrand moves omni offsets,
-    # so drop the purge marker: this launch passes -purgecaches and the
-    # stale startupCache (which would otherwise keep mapping chrome and
-    # resource:// URLs to the old bytes) is rebuilt.
-    rebranded = ensure_rebranded(root)
-    if rebranded:
-        with contextlib.suppress(OSError):
-            (profile / ".purgecache_done").unlink(missing_ok=True)
-        if profile_locked(profile):
-            # The running instance has the previous build memory-mapped;
-            # forwarding into it would show stale code and invite the
-            # refetch/dev/quit loop. Quit first, then relaunch.
-            print(
-                f"ERROR: just rebranded, but Firefox is running on {profile} - "
-                "quit it first, then re-run.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    # Auto-rebrand browser/omni.ja. A fresh rebrand moves omni offsets;
+    # rebrand() also drops the purge marker, so this launch passes
+    # -purgecaches and the stale startupCache (which would otherwise
+    # keep mapping chrome and resource:// URLs to the old bytes) is
+    # rebuilt.
+    ensure_rebranded(root)
 
     if not binary.is_file():
         print(f"ERROR: {binary} not found. Extract Firefox first.", file=sys.stderr)
@@ -531,6 +519,18 @@ def main() -> None:
 
     # Always pass -purgecaches if cache was cleared
     purgecache_marker = profile / ".purgecache_done"
+    if profile_locked(profile) and not purgecache_marker.exists():
+        # A rebrand landed since this instance started (manual rebrand
+        # or another profile's launch): the purge marker is gone, so the
+        # running process has the previous build memory-mapped.
+        # Forwarding into it would open a window on stale code — the
+        # refetch/dev/quit loop. Quit first, then relaunch.
+        print(
+            f"ERROR: branding changed under the running Aph on {profile} - "
+            "quit it first, then re-run.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     if not purgecache_marker.exists():
         purgecache_marker.touch()
         cmd = [str(binary), "-purgecaches", "--profile", str(profile), *extra_args]

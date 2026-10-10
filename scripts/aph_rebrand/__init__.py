@@ -61,19 +61,18 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
 
 
 def rebrand() -> bool:
-    # Never patch omni.ja under a running browser: it has the old build
-    # memory-mapped, and the profile caches can't be safely cleared
-    # either. Same quit-first contract as the nuke recipes.
-    held = running_profiles()
-    if held:
+    # A running instance keeps the previous build memory-mapped, so it
+    # stays on old code until restarted — but omni.ja itself is replaced
+    # atomically and the cache clear is safe, so other profiles running
+    # is a warning, not a refusal. (Refusing here is what blocked
+    # unrelated launches: the daily driver running must not veto a repo
+    # rebrand.) The true staleness guard lives in scripts/dev.py, which
+    # refuses to forward into a freshly-rebranded held profile.
+    for p in running_profiles():
         print(
-            "ERROR: Aph is running on "
-            + ", ".join(str(p) for p in held)
-            + " - quit it first, then re-run. (Patching omni.ja under a "
-            "live instance leaves it on stale code and corrupts the "
-            "cache clear, which is the refetch/dev/quit loop.)"
+            f"WARNING: Aph is running on {p} - it will stay on old code "
+            "until it is quit and relaunched."
         )
-        return False
 
     # Rebuild generated browser bundles from branding/src/ first so the
     # injected JS always matches the modular sources (no-op when up to date).

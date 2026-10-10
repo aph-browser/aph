@@ -1,10 +1,12 @@
-"""Rebrand lock guards: never patch omni.ja under a running browser.
+"""Rebrand lock guards: a running browser must never silently go stale.
 
-Patching under a live instance leaves it on stale memory-mapped code
-and corrupts the cache clear — the refetch/dev/quit loop. rebrand()
-must refuse while either profile is locked (same quit-first contract
-as the nuke recipes), and the asset build must not bump mtimes when
-content is unchanged (phantom staleness would force needless rebrands).
+omni.ja is replaced atomically, so patching while another profile runs
+is safe — but that instance keeps the previous build memory-mapped and
+stays on old code until restarted. rebrand() must warn loudly per held
+profile (a daily driver running must not veto a repo rebrand); the hard
+refusal lives in dev.py, which won't forward into a freshly-rebranded
+held profile. The asset build must not bump mtimes when content is
+unchanged (phantom staleness would force needless rebrands).
 """
 
 import contextlib
@@ -45,11 +47,18 @@ def test_running_profiles_lists_held(tmp_path: Path, monkeypatch) -> None:
     assert cache.running_profiles() == [held]
 
 
-def test_rebrand_refuses_when_locked(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_rebrand_warns_not_refuses_when_locked(tmp_path: Path, monkeypatch, capsys) -> None:
+    """A held profile warns (stays on old code till restart) but must
+    not veto the rebrand — otherwise the daily driver running blocks
+    every repo launch (seen live)."""
     held = tmp_path / "held"
     monkeypatch.setattr(aph_rebrand, "running_profiles", lambda: [held])
-    assert aph_rebrand.rebrand() is False
-    assert "quit it first" in capsys.readouterr().out
+    monkeypatch.setattr(aph_rebrand, "patch_omni_ja", lambda _buffers: True)
+    monkeypatch.setattr(aph_rebrand, "slice_icons", lambda: {16: b"x"})
+    monkeypatch.setattr(aph_rebrand, "clear_startup_cache", lambda: None)
+    assert aph_rebrand.rebrand() is True
+    out = capsys.readouterr().out
+    assert "WARNING" in out and str(held) in out and "old code" in out
 
 
 def test_build_skips_unchanged() -> None:
