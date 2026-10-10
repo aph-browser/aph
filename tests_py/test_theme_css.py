@@ -186,7 +186,7 @@ def test_workspace_accent_has_a_root_default() -> None:
 
     It resolves via a --aph-color-* stop, not a --aph-ws-N slot alias, on
     purpose: interaction blue must not move when the default nine are
-    re-mapped (slot 6 is amber after the deep→bright ramp)."""
+    re-mapped (slot 7 is amber after the deep→bright ramp)."""
     css = _css()
     m = re.search(r":root\s*\{[^}]*--aph-ws-accent\s*:\s*([^;]+);", css, re.S)
     assert m, "--aph-ws-accent needs a :root default"

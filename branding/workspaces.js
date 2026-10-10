@@ -5568,10 +5568,10 @@
   // Aph mark: the capital A from branding/aph.svg, scaled to the dock's
   // 16px slot. Same construction (silhouette + counter, evenodd) so the
   // dock mark and the app icon are one mark, not two. The letter wears
-  // the same gradient as the master (indigo apex -> blue baseline);
-  // ghosts ride currentColor and home keeps its brand blue at every
-  // state (logos don't dim). Namespaced construction (never innerHTML)
-  // so the XUL/XHTML host gets real SVG either way.
+  // the same flat purple as the master; ghosts ride currentColor and
+  // home keeps its brand purple at every state (logos don't dim).
+  // Namespaced construction (never innerHTML) so the XUL/XHTML host
+  // gets real SVG either way.
   function makeDockAphMark() {
     try {
       const NS = "http://www.w3.org/2000/svg";
@@ -5589,8 +5589,8 @@
       grad.setAttribute("y2", "11.4");
       grad.setAttribute("gradientUnits", "userSpaceOnUse");
       for (const [stop, color] of [
-        ["0", "#3e63dd"],
-        ["1", "#0090ff"],
+        ["0", "#8e4ec6"],
+        ["1", "#8e4ec6"],
       ]) {
         const s = document.createElementNS(NS, "stop");
         s.setAttribute("offset", stop);

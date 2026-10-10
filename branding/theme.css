@@ -62,7 +62,7 @@
   /* Workspace accent default: Blue so unstamped windows read alive
      in-palette. Per-workspace §21 retunes it; tokens.css owns the
      --aph-ws-1..16 stops this aliases. Reads the color stop directly
-     (never a --aph-ws-N slot alias): slot 6 is amber after the
+     (never a --aph-ws-N slot alias): slot 7 is amber after the
      deep→bright ramp re-order, so a slot reference here would paint
      every unstamped window gold. */
   --aph-ws-accent: var(--aph-color-blue, #0090ff);

@@ -289,13 +289,13 @@ describe("workspace dock", () => {
     assert.equal(svg.getAttribute("width"), "16");
     assert.equal(svg.getAttribute("height"), "16");
     // The capital A from branding/aph.svg: one evenodd path (silhouette +
-    // counter) wearing the product ramp — never the grid of rects.
+    // counter) wearing the flat brand purple — never the grid of rects.
     const grads = svg.children.filter((c) => c.localName === "defs");
     assert.equal(grads.length, 1, "gradient defs present");
     const grad = grads[0].children.find((c) => c.localName === "linearGradient");
     assert.ok(grad, "mark gradient present");
     const stops = grad.children.filter((c) => c.localName === "stop").map((s) => s.getAttribute("stop-color"));
-    assert.deepEqual(stops, ["#3e63dd", "#0090ff"], "mark wears the ramp, not a stale hex");
+    assert.deepEqual(stops, ["#8e4ec6", "#8e4ec6"], "mark wears flat brand purple, not a stale hex");
     const paths = svg.children.filter((c) => c.localName === "path");
     assert.equal(paths.length, 1, "one letter path, not rect cells");
     assert.equal(paths[0].getAttribute("fill-rule"), "evenodd", "counter cut via evenodd");

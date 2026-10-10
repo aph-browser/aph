@@ -3,7 +3,7 @@
    surfaces (#17181f desk / #202028 elevated / #2a2c3a raised), ink +
    muted text. The tour body is global surface throughout, but the hero
    teaches the core mapping at first sight — color = workspace — with
-   true WS1..3 hues on the demo pills (indigo current, blue/cyan rest,
+   true WS1..3 hues on the demo pills (purple current, indigo/blue rest,
    mirroring the dock's 45%/18% presence spends). Blue stays the voice
    (steps, caret, CTA): actions speak Aph, spaces speak hue. Every
    surface, radius, shadow and motion value comes from aph-tokens.css
@@ -156,7 +156,7 @@ kbd {
 }
 
 /* Hero: dock pills + palette mock in pure CSS. The demo pills wear the
-   true WS1..3 hues (indigo/blue/cyan — the head of the deep→bright
+   true WS1..3 hues (purple/indigo/blue — the head of the deep→bright
    ramp) at the dock's own spends — 45% current with an inset ring, 18%
    rest — so first sight teaches color = workspace. Steps/CTA stay blue
    voice (--aph-color-blue, never a ws slot: actions, not spaces). */
