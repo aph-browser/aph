@@ -20,6 +20,32 @@ def _display(p: Path) -> str:
         return str(p)
 
 
+def _profile_locked(profile: Path) -> bool:
+    """True if a running Firefox holds this profile (same check as
+    scripts/dev.py and the nuke recipes: a ``lock`` symlink whose pid
+    is alive). Local copy so the rebrand package never imports the
+    launcher (direct-script entry must keep working)."""
+    import os
+
+    lock = profile / "lock"
+    try:
+        if not lock.is_symlink():
+            return False
+        target = os.readlink(lock)  # e.g. "127.0.0.1:+12345"
+        pid = target.rsplit(":", 1)[-1].lstrip("+")
+        if not pid.isdigit():
+            return False
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def running_profiles() -> list[Path]:
+    """Repo + daily profiles currently held by a running Firefox."""
+    return [p for p in (PROFILE_DIR, DAILY_PROFILE_DIR) if _profile_locked(p)]
+
+
 def _clear_one(profile: Path) -> None:
     if not profile.is_dir():
         return

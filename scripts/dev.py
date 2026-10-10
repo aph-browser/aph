@@ -510,9 +510,20 @@ def main() -> None:
     # so drop the purge marker: this launch passes -purgecaches and the
     # stale startupCache (which would otherwise keep mapping chrome and
     # resource:// URLs to the old bytes) is rebuilt.
-    if ensure_rebranded(root):
+    rebranded = ensure_rebranded(root)
+    if rebranded:
         with contextlib.suppress(OSError):
             (profile / ".purgecache_done").unlink(missing_ok=True)
+        if profile_locked(profile):
+            # The running instance has the previous build memory-mapped;
+            # forwarding into it would show stale code and invite the
+            # refetch/dev/quit loop. Quit first, then relaunch.
+            print(
+                f"ERROR: just rebranded, but Firefox is running on {profile} - "
+                "quit it first, then re-run.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     if not binary.is_file():
         print(f"ERROR: {binary} not found. Extract Firefox first.", file=sys.stderr)

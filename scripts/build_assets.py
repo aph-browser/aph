@@ -90,10 +90,25 @@ def render(bundle: str) -> str:
 
 
 def build() -> list[Path]:
+    """Rebuild bundles, skipping files whose content is unchanged.
+
+    Skipping matters: every write bumps the file mtime, and
+    scripts/dev.py treats branding newer than omni.ja as a rebrand
+    trigger — rewriting identical bytes would force a rebrand (and a
+    -purgecaches launch) on every run for no reason.
+    """
     written: list[Path] = []
     for bundle in BUNDLES:
         out = BRANDING_DIR / bundle
-        out.write_text(render(bundle), encoding="utf-8")
+        rendered = render(bundle)
+        try:
+            current = out.read_text(encoding="utf-8")
+        except OSError:
+            current = ""
+        if current == rendered:
+            print(f"Up to date {out.relative_to(ROOT)} (skipped)")
+            continue
+        out.write_text(rendered, encoding="utf-8")
         written.append(out)
         print(f"Built {out.relative_to(ROOT)} from {len(BUNDLES[bundle])} sources")
     return written

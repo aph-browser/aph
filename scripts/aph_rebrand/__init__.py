@@ -8,7 +8,7 @@ ZIP_STORED (no compression) for memory-mapping.
 from __future__ import annotations
 
 from .assets import PatchPayloads, load_payloads
-from .cache import clear_startup_cache
+from .cache import clear_startup_cache, running_profiles
 from .constants import OMNI_JA
 from .icons import slice_icons
 from .injectors.base import PatchCounts
@@ -25,6 +25,7 @@ __all__ = [
     "normalize_omni_ja",
     "patch_omni_ja",
     "rebrand",
+    "running_profiles",
     "slice_icons",
 ]
 
@@ -60,6 +61,20 @@ def patch_omni_ja(icon_buffers: dict[int, bytes]) -> bool:
 
 
 def rebrand() -> bool:
+    # Never patch omni.ja under a running browser: it has the old build
+    # memory-mapped, and the profile caches can't be safely cleared
+    # either. Same quit-first contract as the nuke recipes.
+    held = running_profiles()
+    if held:
+        print(
+            "ERROR: Aph is running on "
+            + ", ".join(str(p) for p in held)
+            + " - quit it first, then re-run. (Patching omni.ja under a "
+            "live instance leaves it on stale code and corrupts the "
+            "cache clear, which is the refetch/dev/quit loop.)"
+        )
+        return False
+
     # Rebuild generated browser bundles from branding/src/ first so the
     # injected JS always matches the modular sources (no-op when up to date).
     try:

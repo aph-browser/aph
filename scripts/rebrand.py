@@ -24,6 +24,7 @@ try:
         normalize_omni_ja,
         patch_omni_ja,
         rebrand,
+        running_profiles,
         slice_icons,
     )
 except ImportError:  # pragma: no cover - direct-script fallback
@@ -37,6 +38,7 @@ except ImportError:  # pragma: no cover - direct-script fallback
         normalize_omni_ja,
         patch_omni_ja,
         rebrand,
+        running_profiles,
         slice_icons,
     )
 
@@ -49,6 +51,7 @@ __all__ = [
     "normalize_omni_ja",
     "patch_omni_ja",
     "rebrand",
+    "running_profiles",
     "slice_icons",
 ]
 
