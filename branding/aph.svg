@@ -1,12 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 456 456">
-  <!-- Aph mark — a plain capital A in Inter Bold.
+  <!-- Aph mark — a plain capital A in Inter Bold with a flat-cut apex.
        Near-black tile (#0a0a0e) with a faint light hairline so the
        icon keeps a silhouette on dark chrome; letter flat Purple
        #8e4ec6 (no pretend gradient — one hue, full strength).
-       Simple by design: one system voice, one hue, one tile.
-       The A is a real glyph (Inter 700, branding/fonts/), not a
-       hand-drawn polygon — hinting keeps the counter open at 16px,
-       so all masters render the same construction.
+       The one ownable move is subtractive: a tile-colored rect shears
+       8 units off the apex, leaving a ~72px flat (30% of cap width,
+       ~2.5px at 16px — unmistakable at every size, still plainly an A).
+       Subtraction keeps the <text> a real glyph (Inter 700,
+       branding/fonts/), so hinting keeps the counter open at 16px and
+       all masters render the same construction — the cut is paint over
+       the live letter, never outline surgery.
        CANONICAL SOURCE: branding/aph.png, branding/aph-small.png and
        docs/aph.png are Pillow renders of this file with the same font
        (scripts/render_logo.py — keep GEOMETRY in sync; tests enforce it).
@@ -26,4 +29,5 @@
   <rect width="456" height="456" rx="100" fill="url(#aphTile)"/>
   <rect x="1" y="1" width="454" height="454" rx="99" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="2"/>
   <text x="228" y="238" text-anchor="middle" dominant-baseline="central" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="336" font-weight="700" fill="url(#aphA)">A</text>
+  <rect x="189" y="106" width="78" height="17" fill="#0a0a0e"/>
 </svg>

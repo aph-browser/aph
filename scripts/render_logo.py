@@ -3,8 +3,9 @@
 
 No external rasterizer needed: the mark is a plain capital "A" in
 Inter Bold (branding/fonts/inter-700-latin.woff2, SIL OFL) centered on
-a near-black tile with a faint hairline ring. The same font file draws
-the PNGs here and the <text> element in branding/aph.svg, so the
+a near-black tile with a faint hairline ring, plus a flat-cut apex —
+a tile-colored subtraction over the live glyph (same file draws the
+PNGs here and the <text> element in branding/aph.svg, so the
 sources stay in sync (456-unit viewBox; tests_py/test_logo.py enforces
 the match). The letter is flat Purple at full strength; the tile is
 lifted a half-step off pure black with a 9% light ring so the icon
@@ -59,6 +60,18 @@ GEOMETRY = {
     "text_y": 238,
     "font_weight": 700,
     "font_family": "Inter",
+    # Apex cut: subtractive flat top, tile-colored over the live glyph
+    # (the glyph stays real text — hinting and fallback survive). The
+    # rect starts safely above the apex ink (tile-on-tile there is
+    # invisible) and bites 8 units into it; its half-width covers the
+    # resulting ~72px flat (30% of cap, ~2.5px at 16px) plus 3 units of
+    # overshoot per side so no antialiased sliver survives. Mirrors the
+    # trailing <rect> in branding/aph.svg exactly.
+    "apex_cut_x": 189,
+    "apex_cut_y": 106,
+    "apex_cut_w": 78,
+    "apex_cut_h": 17,
+    "apex_cut_flat": 72,
 }
 
 OUTPUTS = (
@@ -127,6 +140,20 @@ def render(size: int) -> Image.Image:
 
     letter = _vertical_gradient((size, size), g["grad_top"], g["grad_bottom"])
     im.paste(letter, (0, 0), shape)
+
+    # 2b. Apex cut: tile-colored subtraction over the live glyph. ViewBox
+    # coords scale to output pixels; the overshoot lands on bare tile
+    # (invisible) by construction.
+    cut = ImageDraw.Draw(im)
+    cut.rectangle(
+        [
+            round(g["apex_cut_x"] * unit),
+            round(g["apex_cut_y"] * unit),
+            round((g["apex_cut_x"] + g["apex_cut_w"]) * unit) - 1,
+            round((g["apex_cut_y"] + g["apex_cut_h"]) * unit) - 1,
+        ],
+        fill=_hex_rgb(g["base_top"]),
+    )
 
     # 3. Hairline: faint light ring so the tile holds an edge on dark
     #    chrome. Drawn as a rounded-rect outline, composited at low alpha.

@@ -46,16 +46,19 @@ def test_geometry_matches_svg_source() -> None:
     """GEOMETRY mirrors branding/aph.svg (single source).
 
     The SVG is one tile rect plus a hairline ring rect plus a single
-    <text>A</text> in Inter Bold, centered. The font file, size, weight,
-    and centering must equal the Pillow render inputs — a render change
-    without an SVG change (or the reverse) is drift. The <text> fallback
-    stack is deliberate: chrome SVGs don't get page @font-face, so
-    systems without Inter fall back to system bold, still centered via
-    text-anchor.
+    <text>A</text> in Inter Bold, centered, plus the apex-cut rect (a
+    tile-colored subtraction over the live glyph — the one ownable
+    move). The font file, size, weight, and centering must equal the
+    Pillow render inputs — a render change without an SVG change (or
+    the reverse) is drift. The <text> fallback stack is deliberate:
+    chrome SVGs don't get page @font-face, so systems without Inter
+    fall back to system bold, still centered via text-anchor.
     """
     svg = (BRANDING / "aph.svg").read_text(encoding="utf-8")
     rects = re.findall(r"<rect\s+([^/]*)/>", svg)
-    assert len(rects) == 2, f"aph.svg must hold tile + hairline rects, got {len(rects)} rects"
+    assert len(rects) == 3, (
+        f"aph.svg must hold tile + hairline + apex-cut rects, got {len(rects)} rects"
+    )
 
     def attrs(tag: str) -> dict[str, str]:
         return dict(re.findall(r'([\w-]+)="([^"]*)"', tag))
@@ -68,6 +71,33 @@ def test_geometry_matches_svg_source() -> None:
     ring = attrs(rects[1])
     assert ring["fill"] == "none", "hairline must not fill"
     assert "stroke" in ring, "hairline must carry a light stroke"
+
+    cut = attrs(rects[2])
+    cut_keys = {"x": "apex_cut_x", "y": "apex_cut_y", "width": "apex_cut_w", "height": "apex_cut_h"}
+    for attr, key in cut_keys.items():
+        assert cut[attr] == str(GEOMETRY[key]), f"apex-cut {key} drifted from GEOMETRY"
+    assert cut["fill"] == GEOMETRY["base_top"], "cut must be tile-colored (subtraction, not a mark)"
+    assert int(cut["x"]) + int(cut["width"]) // 2 == GEOMETRY["text_x"], (
+        "cut must center on the letter"
+    )
+    # The cut must start above the live apex ink and bite into it —
+    # measured from the same font file (a font swap re-anchors this, so
+    # the placement can never silently float off the letter).
+    from PIL import ImageDraw
+
+    size = GEOMETRY["size"]
+    probe = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(probe).text(
+        (GEOMETRY["text_x"], GEOMETRY["text_y"]),
+        "A",
+        font=load_font(GEOMETRY["font_size"]),
+        fill=255,
+        anchor="mm",
+    )
+    apex_top = probe.getbbox()[1]
+    assert int(cut["y"]) < apex_top < int(cut["y"]) + int(cut["height"]), (
+        "cut must start above the apex ink and bite into it"
+    )
 
     texts = re.findall(r"<text\s+([^>]*)>([^<]*)</text>", svg)
     assert len(texts) == 1, f"aph.svg must hold one letter text, got {len(texts)}"
@@ -132,6 +162,35 @@ def test_master_is_grid_not_flame() -> None:
     rgb = Image.open(BRANDING / "aph.png").convert("RGB")
     purple = sum(1 for p in rgb.get_flattened_data() if _is_letter(p))
     assert purple / (rgb.width * rgb.height) > 0.05, "accent letter went missing"
+
+
+def test_apex_cut_is_flat_and_centered() -> None:
+    """The subtraction leaves a level flat top, centered on the letter.
+
+    Topmost ink row lands at the cut bottom (not the old apex tip),
+    spans roughly the GEOMETRY flat width, and centers on the glyph —
+    the signature survives as geometry, not wishful rendering. At 16px
+    the apex column stays dark tile with the flat reading just below,
+    so the cut registers even at favicon size.
+    """
+    im = render(GEOMETRY["size"]).convert("RGB")
+    px = im.load()
+    size = GEOMETRY["size"]
+    top = next(y for y in range(size) if any(_is_letter(px[x, y]) for x in range(size)))
+    xs = [x for x in range(size) if _is_letter(px[x, top])]
+    flat, left, right = max(xs) - min(xs) + 1, min(xs), max(xs)
+    assert abs(top - (GEOMETRY["apex_cut_y"] + GEOMETRY["apex_cut_h"])) <= 1, (
+        f"topmost ink must sit at the cut bottom, got row {top}"
+    )
+    assert abs(flat - GEOMETRY["apex_cut_flat"]) <= 4, (
+        f"flat must span ~{GEOMETRY['apex_cut_flat']}px, got {flat}"
+    )
+    assert abs((left + right) / 2 - GEOMETRY["text_x"]) <= 3, "flat must center on the letter"
+
+    tiny = render(512).resize((16, 16), Image.LANCZOS).convert("RGB")
+    t = tiny.load()
+    assert not _is_letter(t[8, 2]), f"apex column must stay dark tile at 16px: {t[8, 2]}"
+    assert _is_letter(t[8, 4]), f"flat must read just below at 16px: {t[8, 4]}"
 
 
 def test_small_master_opens_the_counter() -> None:
