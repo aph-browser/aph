@@ -51,6 +51,39 @@ def test_seed_never_overwrites(tmp_path: Path) -> None:
         assert dst.read_text(encoding="utf-8") == "// user edit\n", name
 
 
+def _stamped(text: str, version: int) -> str:
+    return f"/* aph-seed-version: {version} */\n{text}"
+
+
+def test_seed_migrates_chrome_on_version_bump(tmp_path: Path) -> None:
+    """A newer bundled chrome seed backs the profile copy up to .bak and
+    migrates; same-version user edits still persist; user.js stays
+    seed-once (never versioned, never migrated)."""
+    share = _make_share(tmp_path)
+    for name in ("userChrome.css", "userContent.css"):
+        (share / name).write_text(_stamped(f"/* bundled {name} */\n", 2), encoding="utf-8")
+    profile = tmp_path / "profile"
+    (profile / "chrome").mkdir(parents=True)
+    for name in ("userChrome.css", "userContent.css"):
+        (profile / "chrome" / name).write_text(_stamped("/* user edit */\n", 1), encoding="utf-8")
+    (profile / "user.js").write_text("// user prefs\n", encoding="utf-8")
+    result = _run_seed(share, profile)
+    assert result.returncode == 0, result.stderr
+    for name in ("userChrome.css", "userContent.css"):
+        dst = profile / "chrome" / name
+        assert dst.read_text(encoding="utf-8") == _stamped(f"/* bundled {name} */\n", 2), name
+        bak = profile / "chrome" / f"{name}.bak"
+        assert bak.read_text(encoding="utf-8") == _stamped("/* user edit */\n", 1), bak
+    assert (profile / "user.js").read_text(encoding="utf-8") == "// user prefs\n"
+    # Second run holds: same versions, no new backups, no churn.
+    result = _run_seed(share, profile)
+    assert result.returncode == 0, result.stderr
+    for name in ("userChrome.css", "userContent.css"):
+        assert (profile / "chrome" / name).read_text(encoding="utf-8") == _stamped(
+            f"/* bundled {name} */\n", 2
+        ), name
+
+
 def test_posix_launchers_defer_to_shared_script() -> None:
     apprun = (ROOT / "packaging" / "AppRun").read_text(encoding="utf-8")
     flatpak = (ROOT / "packaging" / "flatpak" / "aph").read_text(encoding="utf-8")

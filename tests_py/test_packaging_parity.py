@@ -49,6 +49,20 @@ def test_windows_launchers_seed_chrome() -> None:
             assert name in text, (rel, name)
 
 
+def test_seed_version_parity_across_launchers() -> None:
+    """All three seeders (sh, bat, dev.py) implement the same versioned
+    contract: read the aph-seed-version stamp, migrate with a .bak backup
+    only when bundled is newer, never touch user.js versioning."""
+    sh = (ROOT / "packaging" / "seed-profile.sh").read_text(encoding="utf-8")
+    bat = (ROOT / "packaging" / "aph.bat").read_text(encoding="utf-8")
+    dev = (ROOT / "scripts" / "dev.py").read_text(encoding="utf-8")
+    for text, name in ((sh, "seed-profile.sh"), (bat, "aph.bat"), (dev, "dev.py")):
+        assert "aph-seed-version" in text, f"{name}: stamp read missing"
+        assert ".bak" in text, f"{name}: migrate backup missing"
+    # user.js stays seed-once everywhere: no version logic may touch it.
+    assert "user.js.bak" not in sh + bat
+
+
 def test_install_local_launcher_matches_dev_freshness() -> None:
     """install-local must delegate to dev.py --daily (not a frozen copy of
     its seed logic), so installs get seed/policies/rebrand parity with dev

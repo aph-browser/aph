@@ -11,6 +11,7 @@ defaults over a profile on purpose, run: just sync-prefs
 import contextlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -202,23 +203,71 @@ def seed_user_js(root: Path, profile: Path) -> str:
     return _seed_file(root / "config" / "user.js", profile / "user.js")
 
 
-def seed_chrome_css(root: Path, profile: Path) -> str:
-    """Seed profile/chrome/ once: userChrome.css (menu accents) plus
-    userContent.css (new-tab backdrop, so the page is never flat when
-    the wallpaper feed is unreachable).
+_CHROME_SEED_VERSION_RE = re.compile(r"aph-seed-version:\s*(\d+)")
 
-    Same seed-once contract as seed_user_js: never overwrite user edits.
-    Returns "seeded" (either file fresh), "kept", or "missing-source".
+
+def _chrome_seed_version(path: Path) -> int:
+    """Seed stamp carried on the css first line (0 when absent).
+
+    Unversioned files predate the scheme and compare equal, so existing
+    seed-once behavior is unchanged until the bundled copy bumps.
     """
-    first = _seed_file(root / "branding" / "userChrome.css", profile / "chrome" / "userChrome.css")
-    second = _seed_file(
-        root / "branding" / "userContent.css", profile / "chrome" / "userContent.css"
-    )
-    if "seeded" in (first, second):
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    m = _CHROME_SEED_VERSION_RE.search(text)
+    return int(m.group(1)) if m else 0
+
+
+def _seed_chrome_file(src: Path, dst: Path, profile: Path) -> str:
+    """Seed one chrome CSS file with version migration.
+
+    Fresh profiles copy once ("seeded"). When the bundled seed version is
+    newer than the profile copy, the profile copy is backed up to *.bak
+    and overwritten ("migrated") — this is how chrome fixes reach
+    existing profiles without stranding them on stale CSS. Same version
+    (or newer profile) is never overwritten: user edits persist ("kept").
+    Migration refuses while Firefox holds the profile lock ("locked" —
+    retried on the next fresh launch).
+    """
+    if not src.is_file():
+        return "missing-source"
+    if not dst.exists():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
         return "seeded"
-    if "missing-source" in (first, second):
-        return "missing-source" if first == second else "kept"
+    if _chrome_seed_version(src) > _chrome_seed_version(dst):
+        if profile_locked(profile):
+            return "locked"
+        shutil.copy2(dst, dst.parent / (dst.name + ".bak"))
+        shutil.copy2(src, dst)
+        return "migrated"
     return "kept"
+
+
+def seed_chrome_css(root: Path, profile: Path) -> str:
+    """Seed profile/chrome/ once, migrating on seed-version bumps:
+    userChrome.css (menu accents) plus userContent.css (new-tab backdrop,
+    so the page is never flat when the wallpaper feed is unreachable).
+
+    Returns "seeded" (either file fresh), "migrated" (either file moved
+    to a newer bundled version, previous saved as *.bak), "locked" (a
+    migration was due but Firefox holds the profile — retried next
+    launch), "kept", or "missing-source".
+    """
+    results = {
+        _seed_chrome_file(
+            root / "branding" / "userChrome.css", profile / "chrome" / "userChrome.css", profile
+        ),
+        _seed_chrome_file(
+            root / "branding" / "userContent.css", profile / "chrome" / "userContent.css", profile
+        ),
+    }
+    for status in ("seeded", "migrated", "locked", "kept"):
+        if status in results:
+            return status
+    return "missing-source"
 
 
 # Caches that can outlive the defaults they were built from. cache2 holds
@@ -442,8 +491,11 @@ def main() -> None:
     if seed_user_js(root, profile) == "seeded":
         print(f"Seeded first-run prefs: {profile / 'user.js'}")
     # Seed-once menu accents (same contract: never overwrite user edits).
-    if seed_chrome_css(root, profile) == "seeded":
+    chrome_status = seed_chrome_css(root, profile)
+    if chrome_status == "seeded":
         print(f"Seeded menu accents: {profile / 'chrome' / 'userChrome.css'}")
+    elif chrome_status == "migrated":
+        print("Migrated menu accents to the bundled seed (previous saved as *.bak)")
 
     # One-time migration: drop Aph's retired defaults from profiles
     # seeded before their removal. Skips while Firefox holds the profile.
