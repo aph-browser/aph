@@ -1,6 +1,6 @@
 pkgbase = aph-bin
 	pkgdesc = Firefox-based, workspaces-first web browser
-	pkgver = 0.4.0
+	pkgver = 0.5.0
 	pkgrel = 1
 	url = https://github.com/aph-browser/aph
 	arch = x86_64
@@ -14,7 +14,7 @@ pkgbase = aph-bin
 	depends = nss
 	depends = nspr
 	optdepends = libpulse: audio playback
-	source = aph-x86_64.AppImage::https://github.com/aph-browser/aph/releases/download/v0.4.0/aph-x86_64.AppImage
+	source = aph-x86_64.AppImage::https://github.com/aph-browser/aph/releases/download/v0.5.0/aph-x86_64.AppImage
 	source = aph.sh
 	sha256sums = 1c90d11c338c7d18bde8917dfdd67046a404f8fae68dc2708056dd9a706b536d
 	sha256sums = SKIP
