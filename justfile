@@ -42,6 +42,12 @@ rebrand:
 build-assets:
     uv run python scripts/build_assets.py
 
+# Build the update payload (Aph-owned bytes + version.json) from a
+# rebranded tree (`just rebrand` first). Release CI publishes the output
+# as aph-payload-<ver>.zip; Windows installs self-apply it on launch.
+payload:
+    uv run python scripts/build_payload.py --out build/payload
+
 # Re-render logo PNG masters from branding/aph.svg geometry
 # (scripts/render_logo.py; tests_py/test_logo.py guards drift)
 render-logo:

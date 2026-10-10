@@ -211,12 +211,14 @@ jobs:
           cp branding/userChrome.css build/win-portable/config/userChrome.css
           cp branding/userContent.css build/win-portable/config/userContent.css
           cp packaging/aph.bat build/win-portable/aph.bat
+          cp packaging/aph-update.ps1 build/win-portable/aph-update.ps1
 
       - name: Smoke test
         run: |
           test -f build/win-portable/firefox/firefox.exe
           test -f build/win-portable/firefox/browser/omni.ja
           test -f build/win-portable/aph.bat
+          test -f build/win-portable/aph-update.ps1
           python -c "import sys; sys.exit(0 if open('build/win-portable/firefox/browser/omni.ja','rb').read().find(b'Aph') != -1 else 1)"
 
       - name: Build installer
@@ -258,3 +260,26 @@ jobs:
           name: aph-win64-setup
           path: packaging/Output/Aph-Setup-*.exe
           retention-days: 7
+
+  update-e2e:
+    # Updater end-to-end on real Windows PowerShell (5.1): synthetic omni
+    # trees + a loopback stub channel, no Firefox download. The same file
+    # also runs under cross-platform pwsh wherever it exists
+    # (tests skip cleanly without it).
+    runs-on: windows-latest
+    needs: lint
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps
+        run: pip install pytest
+
+      - name: Updater end-to-end
+        run: python -m pytest tests_py/test_update_e2e.py -q

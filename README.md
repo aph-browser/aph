@@ -4,8 +4,9 @@ Aph is a Firefox-based, workspaces-first web browser: it repackages upstream Fir
 
 Website: <https://aph-browser.github.io/> · [Releases](https://github.com/aph-browser/aph/releases)
 
-> **Beta:** Aph 0.x is unsigned and has no auto-update yet. Each release is
-> a manual re-download. Windows users will see a SmartScreen warning on
+> **Beta:** Aph 0.x is unsigned and has no auto-update yet. Full upgrades
+> are manual re-downloads (Windows payload updates already apply on
+> launch). Windows users will see a SmartScreen warning on
 > first launch — this is expected for unsigned software.
 
 ## Features
@@ -49,6 +50,12 @@ flatpak run io.github.aph_browser.Aph
 Run `Aph-Setup-*.exe` (per-user install, no admin rights needed), or
 extract `aph-win64-portable.zip` anywhere and run `aph.bat`. Nothing is
 written outside the install folder except your profile.
+
+Windows installs self-update on launch: each start checks the release
+channel (at most once a day) and silently applies verified Aph payload
+updates — branding and features, same Firefox underneath. Set
+`APH_NO_UPDATE=1` to opt out. A new Firefox base still arrives as an
+installer (the launcher tells you when one is staged).
 
 ## First run & profiles
 

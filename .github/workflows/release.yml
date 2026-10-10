@@ -125,6 +125,18 @@ jobs:
           path: firefox-version.txt
           retention-days: 1
 
+      - name: Build update payload
+        run: |
+          python scripts/build_payload.py --out build/payload-out
+          ls build/payload-out/
+
+      - name: Hand off payload to publish
+        uses: actions/upload-artifact@v7
+        with:
+          name: rel-payload
+          path: build/payload-out/
+          retention-days: 1
+
   flatpak:
     runs-on: ubuntu-latest
     needs: lint
@@ -224,6 +236,7 @@ jobs:
           cp branding/userChrome.css build/win-portable/config/userChrome.css
           cp branding/userContent.css build/win-portable/config/userContent.css
           cp packaging/aph.bat build/win-portable/aph.bat
+          cp packaging/aph-update.ps1 build/win-portable/aph-update.ps1
 
       - name: Smoke test
         run: |
@@ -279,8 +292,9 @@ jobs:
           cp dist/rel-appimage/aph-x86_64.AppImage release/
           cp dist/rel-flatpak/aph-x86_64.flatpak release/
           cp dist/rel-wininstaller/Aph-Setup-*.exe release/
+          cp dist/rel-payload/aph-payload-*.zip dist/rel-payload/version.json release/
           python -c "import shutil; shutil.make_archive('release/aph-win64-portable', 'zip', root_dir='dist/rel-winportable')"
-          (cd release && sha256sum aph-x86_64.AppImage aph-x86_64.flatpak aph-win64-portable.zip Aph-Setup-*.exe > SHA256SUMS)
+          (cd release && sha256sum aph-x86_64.AppImage aph-x86_64.flatpak aph-win64-portable.zip Aph-Setup-*.exe aph-payload-*.zip version.json > SHA256SUMS)
           cat release/SHA256SUMS
 
       - name: Write release notes
@@ -299,8 +313,10 @@ jobs:
           cat > notes.md <<'EOF'
            ## Aph __VER__
 
-           Unsigned builds with no auto-update
-           yet; each release is a manual re-download.
+           Unsigned builds; full upgrades stay manual re-downloads.
+           Windows installs self-update the Aph payload on launch
+           (branding only, verified — opt out with APH_NO_UPDATE=1);
+           new Firefox bases still ship as installers.
 
            - Aph version: __VER__
            - Firefox base: __FXVER__ (recorded from application.ini at build time)
@@ -372,11 +388,11 @@ jobs:
           sha256sum -c SHA256SUMS
           ```
 
-          ### Known limitations
+           ### Known limitations
 
-          - Unsigned binaries: Windows SmartScreen warns on first launch (expected).
-          - No auto-update channel yet.
-          - See README for details and [SECURITY.md](https://github.com/aph-browser/aph/blob/main/SECURITY.md) to report vulnerabilities.
+           - Unsigned binaries: Windows SmartScreen warns on first launch (expected).
+           - Payload auto-update covers Windows only so far (Linux/macOS formats stay manual).
+           - See README for details and [SECURITY.md](https://github.com/aph-browser/aph/blob/main/SECURITY.md) to report vulnerabilities.
           EOF
           sed -i "s/__VER__/${VER}/g; s/__FXVER__/${FXVER}/g" notes.md
           cat notes.md
@@ -388,6 +404,6 @@ jobs:
           set -eu
           gh release create "$TAG" --title "Aph $VER" --notes-file notes.md \
             release/aph-x86_64.AppImage release/aph-x86_64.flatpak \
-            release/aph-win64-portable.zip release/Aph-Setup-*.exe release/SHA256SUMS
+            release/aph-win64-portable.zip release/Aph-Setup-*.exe release/aph-payload-*.zip release/version.json release/SHA256SUMS
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

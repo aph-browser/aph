@@ -8,6 +8,12 @@ setlocal
 set "PROFILE=%APH_PROFILE%"
 if "%PROFILE%"=="" set "PROFILE=%APPDATA%\Aph\profile"
 if not exist "%PROFILE%" mkdir "%PROFILE%"
+rem Payload auto-update: verified, silent, never blocks launch (opt out:
+rem APH_NO_UPDATE=1). Runs before seeding so a fresh payload's seeds
+rem migrate through the versioned copy below in the same launch.
+if not defined APH_NO_UPDATE (
+  where powershell >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0aph-update.ps1" -InstallDir "%~dp0"
+)
 rem Seed-once defaults: never overwrite an existing user.js (user edits persist).
 if not exist "%PROFILE%\user.js" copy /Y "%~dp0config\user.js" "%PROFILE%\user.js" >nul
 rem Versioned chrome seeds: copy once, migrate with .bak when bundled is newer.
