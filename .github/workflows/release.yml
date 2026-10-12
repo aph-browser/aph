@@ -325,55 +325,64 @@ jobs:
 
            ### What's new in __VER__
 
-           Stash (was Archive)
-           - Renamed across UI, prefs (`aph.stash.*`), and pages
-             (`aph-stash.html`); existing stashes migrate
-             automatically and old keys are cleared.
-           - Workspace snapshots: periodic + safety auto-stash of
-             changed workspaces, with cadence and bulk-close
-             threshold in Settings under Stash.
-           - Stash search stays fuzzy with workspace + container
-             restore and staleness control.
+           Payload channel (Windows self-updates)
+           - Releases now publish `aph-payload-__VER__.zip` +
+             `version.json` next to the full installers: exactly the
+             Aph-owned delta (omni.ja entries diffed against pristine,
+             plus the profile seeds).
+           - Windows installs self-apply the payload on launch when the
+             installed Firefox matches the channel's build base —
+             branding updates without re-downloading the base. Silent,
+             at most once a day, and every failure path yields to
+             launch (opt out with APH_NO_UPDATE=1).
+           - A base mismatch stages the full installer for the user
+             instead; it is never auto-run from under a live session.
 
-           Split view & focus mode
-           - Split view (`Ctrl+Alt+\` or palette): native
-             side-by-side panes with the most-recently-viewed
-             same-workspace tab; switching workspaces separates
-             the pair, both tabs stay open.
-           - Focus mode (`Ctrl+Alt+F` or palette): hides all
-             chrome and leaves only the page; session-only and
-             per-window, palette stays reachable.
+           Chrome
+           - v2 shell: floating pill bar, load-storm rings, cross-window
+             theme presets, and a reworked dock, indicators, and focus mode.
+           - The dock is a plain bottom toolbar now (1px hairline divider,
+             depth stays on the pills) with an in-place New Tab in its
+             menu; its mark is the real Inter A, one mark with the app icon.
+           - Focus mode's exit pill fades after 4s idle and returns on
+             activity — focus chrome never becomes the furniture it hides.
+           - Vertical tabs pack tighter: zero inter-tab air, 28px rows.
+           - Theme tokens overhauled (scale, five preset rooms, spring
+             motion with reduced-motion mirrors); home wears brand purple
+             as the default first hue.
 
-           Workspaces & settings
-           - Per-workspace accent overrides (16 hues) alongside
-             names, tags, and Lucide icons.
-           - Switch keeps the staggered arrival plus the
-             directional rim-bloom glide and respects
-             reduced-motion.
-           - Auto-unload is on by default and workspace-agnostic;
-             Settings gains Accounts & Passwords toggles (off by
-             default) and persists through profile/user.js.
-           - Sync and the password manager are re-enabled;
-             removed policies are pruned via last-applied
-             snapshot; single POSIX seed-once implementation.
+           Logo
+           - Plain Inter Bold A in flat brand purple on a hairline tile,
+             with a subtractive flat-cut apex — still plainly an A at 16px.
+
+           Launch & seeds
+           - Rebrand refuses under a running browser (quit-first, same
+             contract as nuke/sync); a running daily driver warns instead
+             of vetoing, and launch refuses stale forwards.
+           - Seed-once chrome CSS is version-stamped now: a newer bundled
+             copy backs the profile copy up to `.bak` and migrates it,
+             while user edits at the same version are never overwritten.
+
+           Stash
+           - Workspace snapshots grow container + workspace restore,
+             staleness tracking, and workspace-agnostic auto sweeps.
 
            Upstream robustness
            - Drift detector pins every stock selector/token/pref Aph
              depends on against the packaged Firefox (fails loud on
              upstream removal).
-           - Firefox base stays at 157.0 (current at release time,
+           - Firefox base moves to 157.0.1 (current at release time,
              recorded from application.ini during the build).
 
-           ### Heads-up upgrading from 0.3.x
+           ### Heads-up upgrading from 0.4.x
 
            - Drop-in re-download: no profile move, no shortcut
              changes. Stash migration is automatic.
-           - Removed: the extension first-run silencer
-             (`aph.addons.silenceFirstRun`) — extension welcome
-             tabs will open again.
-           - For the 0.2.x notes, see the 0.3.0 release; for the
-             0.1.x notes (profile move, `Alt+1..9` shortcut,
-             tree-style tabs removal), see the 0.2.0 release.
+           - Windows installs from this release on self-update the Aph
+             payload on launch; new Firefox bases still ship as installers.
+           - For the 0.3.x notes (stash rename, split view, focus mode),
+             see the 0.4.0 release; for the 0.2.x notes, see the 0.3.0
+             release.
 
            ### Install
 
