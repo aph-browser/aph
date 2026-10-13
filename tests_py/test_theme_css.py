@@ -1178,7 +1178,10 @@ def test_pending_tabs_read_parked() -> None:
     unreadable. Pending unselected tabs must step the icon down AND
     desaturate it, plus step the label down (opacity only, never
     layout); selected stays exempt. The icon holds 0.6 — parked, not
-    gone (0.45 read as a broken favicon)."""
+    gone (0.45 read as a broken favicon). The label holds 0.9, pinned
+    separately: opacity multiplies on the already-dimmed 80/20 base, so
+    the old shared 0.6 landed pending rows below the contrast gate
+    (~3.9:1 dark, ~2.5:1 paper)."""
     css = _css()
     icon_sel = ".tabbrowser-tab[pending]:not([selected]) .tab-icon-image"
     head = css.find(icon_sel)
@@ -1189,7 +1192,9 @@ def test_pending_tabs_read_parked() -> None:
     label_sel = ".tabbrowser-tab[pending]:not([selected]) .tab-label"
     lhead = css.find(label_sel)
     assert lhead != -1, "pending label rule missing"
-    assert "opacity: 0.6" in css[lhead : css.find("}", lhead)]
+    label_body = css[lhead : css.find("}", lhead)]
+    assert "opacity: 0.9" in label_body
+    assert "opacity: 0.6" not in label_body, "label must not share the icon's 0.6"
 
 
 def test_icon_to_label_gap() -> None:

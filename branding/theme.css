@@ -477,9 +477,14 @@ tab[usercontextid]:not([data-aph-bound-match="1"]):not([selected]) .tab-context-
    the icon AND steps icon + label down together (opacity, never a
    smaller size or italic, so rows stay legible and scannable). The icon
    holds 0.6 — parked, not gone (the old 0.45 read as a broken favicon).
-   Opacity only (never layout) so horizontal / vertical / collapsed
-   geometry never shifts. Selected is exempt: pending+selected is
-   transient (reload fires on select).
+   The label holds 0.9, not 0.6: opacity multiplies, and the unselected
+   base is already an 80/20 dim mix, so 0.6 on top landed pending rows at
+   ~3.9:1 dark / ~2.5:1 paper — below the 4.5:1 gate and the "almost
+   unreadable" report. 0.9 restores ~7.2 dark / ~4.5 paper while staying
+   a full tier under loaded (~8.6 / ~5.5), and the grayed icon still owns
+   the parked-at-a-glance signal. Opacity only (never layout) so
+   horizontal / vertical / collapsed geometry never shifts. Selected is
+   exempt: pending+selected is transient (reload fires on select).
    ========================================================================== */
 
 /* Pending = parked: the favicon steps down + fully desaturates while the
@@ -493,7 +498,7 @@ tab[pending]:not([selected]) .tab-icon-image,
 }
 tab[pending]:not([selected]) .tab-label,
 .tabbrowser-tab[pending]:not([selected]) .tab-label {
-  opacity: 0.6 !important;
+  opacity: 0.9 !important;
 }
 
 /* ==========================================================================
