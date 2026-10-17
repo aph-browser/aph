@@ -919,6 +919,10 @@
   function fidelityOf(tab, cid) {
     const out = {};
     try {
+      // Space folder membership (workspaces bundle 77-spaces.js owns the
+      // key; duplicated here by design — aphStarred precedent above). Kept
+      // loose here, strict in sanitizeSnapTab: a hand-edited id still
+      // captures, and only well-formed ids survive a reload.
       let star = false;
       try {
         if (readTabValue(tab, "aphStarred") === "1") {
@@ -949,6 +953,12 @@
         const lv = Number(readTabValue(tab, "aphLastViewed"));
         if (Number.isFinite(lv) && lv > 0) {
           out.lastViewed = Math.floor(lv);
+        }
+      } catch (e) {}
+      try {
+        const sp = readTabValue(tab, "aphSpace");
+        if (sp && String(sp)) {
+          out.space = String(sp).slice(0, 40);
         }
       } catch (e) {}
       try {
@@ -1135,6 +1145,9 @@
             }
             if (f.lastViewed) {
               rec.lastViewed = f.lastViewed;
+            }
+            if (typeof f.space === "string" && f.space) {
+              rec.space = f.space;
             }
             if (f.favicon) {
               rec.favicon = f.favicon;
@@ -1328,6 +1341,12 @@
       }
       if (typeof rec.lastViewed === "number" && rec.lastViewed > 0) {
         writeTabValue(tab, "aphLastViewed", String(Math.floor(rec.lastViewed)));
+      }
+      // Space folder membership restores as a bare tab value; the folder
+      // header itself repaints on the next header sync (77-spaces.js reads
+      // the same values). Unknown ids are harmless — paint drops them.
+      if (typeof rec.space === "string" && rec.space) {
+        writeTabValue(tab, "aphSpace", rec.space.slice(0, 40));
       }
     } catch (e) {}
   }
@@ -1730,6 +1749,9 @@
             }
             if (f.lastViewed) {
               rec.lastViewed = f.lastViewed;
+            }
+            if (typeof f.space === "string" && f.space) {
+              rec.space = f.space;
             }
             if (f.favicon) {
               rec.favicon = f.favicon;

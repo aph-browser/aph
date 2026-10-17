@@ -33,6 +33,7 @@ EXPECTED_PREFS = {
 
 READONLY_PREFS = {
     "aph.workspaces.names",
+    "aph.spaces",
     "aph.workspaces.containerBindings",
     "aph.workspaces.domainRoutes",
     "aph.workspaces.accents",

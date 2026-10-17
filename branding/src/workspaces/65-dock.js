@@ -480,8 +480,7 @@
 
   // Single creation path: switchTo funnels through finishWorkspaceSwitch
   // → reconcile, which opens (and selects) the bound tab for an empty
-  // workspace. An explicit openBoundTab here used to race it into two
-  // new tabs, cleaned up only by a later switch's prune.
+  // workspace.
   function plusToWorkspace() {
     try {
       const free = lowestInactiveId(getActiveIds());

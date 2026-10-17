@@ -1199,7 +1199,7 @@ def test_pending_tabs_read_parked() -> None:
 
 def test_icon_to_label_gap() -> None:
     """Tab icon→text gap is stock-owned (tabs.css: 16px image with
-    margin-inline-end: var(--tab-icon-end-margin) — default 5.5px,
+    margin-inline-end: var(--tab-icon-margin-inline-end) — default 5.5px,
     vertical-expanded 7.5px, muted 2px, pinned/collapsed 0 via selector
     scoping). A fixed px box with margin:0 severed the token: pinned
     gained a gap it shouldn't have, muted crowded its speaker overlay.
@@ -1211,7 +1211,7 @@ def test_icon_to_label_gap() -> None:
     label gap into its box and sits off-glyph toward the label."""
     css = _css()
     code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-    assert "--tab-icon-end-margin:" in code, "tab gap token missing"
+    assert "--tab-icon-margin-inline-end:" in code, "tab gap token missing"
     assert "--aph-icon-label-gap" in code and "6px" in code, "icon gap must read the shared token"
     assert '#tabbrowser-tabs[orient="vertical"][expanded]' in code, (
         "vertical-expanded override missing — strip would keep stock 7.5px"

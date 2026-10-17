@@ -82,9 +82,6 @@
       try {
         reconcile(isValidId(current) ? current : "1", Array.from(gBrowser.tabs));
       } catch (e) {}
-      try {
-        pruneExtraNewTabs(isValidId(current) ? current : "1");
-      } catch (e) {}
       return;
     }
     // Window-scoped landing: each window restores its own saved workspace

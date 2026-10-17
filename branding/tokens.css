@@ -59,7 +59,7 @@
 
   /* Icons — one grid. sm = pills/indicator glyphs, md = Aph-key/menu/urlbar
      glyphs. Label gap documents the intentional 6px icon→text rhyme
-     (indicator svg margin + tab-icon-end-margin); not a space-* stop. */
+     (indicator svg margin + tab-icon-margin-inline-end); not a space-* stop. */
   --aph-icon-sm: 14px;
   --aph-icon-md: 16px;
   --aph-icon-label-gap: 6px;

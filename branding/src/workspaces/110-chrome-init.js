@@ -135,11 +135,19 @@
         Services.prefs.removeObserver(WS_ACCENTS_PREF, wsAccentObserver);
       }
     } catch (e) {}
+    try {
+      if (typeof spacesObserver !== "undefined" && spacesObserver) {
+        Services.prefs.removeObserver(SPACES_PREF, spacesObserver);
+      }
+    } catch (e) {}
     bindingObserver = null;
     routeObserver = null;
     nameObserver = null;
     wsIconObserver = null;
     wsAccentObserver = null;
+    try {
+      spacesObserver = null;
+    } catch (e) {}
     try {
       if (startupRestoreObserver && Services.obs) {
         Services.obs.removeObserver(
@@ -305,6 +313,12 @@
         sendTabTo,
         sendGroupTo,
         cycleWorkspace,
+        cycleMru: typeof cycleMru === "function" ? cycleMru : () => {},
+        getMruOrder: typeof getMruOrder === "function" ? getMruOrder : () => [],
+        cycleTabMru: typeof cycleTabMru === "function" ? cycleTabMru : () => {},
+        getTabWalkOrder: typeof getTabWalkOrder === "function" ? getTabWalkOrder : () => [],
+        groupSelectedTabs:
+          typeof groupSelectedTabs === "function" ? groupSelectedTabs : () => false,
         toggleLastWorkspace,
         getActiveWorkspaces: getActiveIds,
         getLastWorkspace: () => lastUsed,
@@ -329,6 +343,21 @@
         wsIconLabel: (k) => WS_ICON_LABELS[k] || String(k || ""),
         wsIconSearch: (k) => WS_ICON_SEARCH[k] || "",
         wsIconSvg: (k, s) => makeWsIconSvg(k, s),
+        getSpace: typeof getSpace === "function" ? getSpace : () => null,
+        listSpaces: typeof listSpaces === "function" ? listSpaces : () => [],
+        createSpace: typeof createSpace === "function" ? createSpace : () => "",
+        renameSpace: typeof renameSpace === "function" ? renameSpace : () => false,
+        deleteSpace: typeof deleteSpace === "function" ? deleteSpace : () => false,
+        assignGroupToSpace:
+          typeof assignGroupToSpace === "function" ? assignGroupToSpace : () => false,
+        unassignGroup: typeof unassignGroup === "function" ? unassignGroup : () => false,
+        assignTabToSpace:
+          typeof assignTabToSpace === "function" ? assignTabToSpace : () => false,
+        unassignTabFromSpace:
+          typeof unassignTabFromSpace === "function" ? unassignTabFromSpace : () => false,
+        getTabSpace: typeof getTabSpace === "function" ? getTabSpace : () => "",
+        spaceOfGroup: typeof spaceOfGroup === "function" ? spaceOfGroup : () => "",
+        syncSpaces: typeof syncSpaces === "function" ? syncSpaces : () => {},
         getCurrent: () => current,
         getWs,
         stampLastViewed,
@@ -557,6 +586,27 @@
       Services.prefs.addObserver(WS_ACCENTS_PREF, wsAccentObserver);
     } catch (e) {
       wsAccentObserver = null;
+    }
+    // Cross-window/cross-document space sync: the palette writes aph.spaces
+    // directly, so without this a folder created here paints nowhere else
+    // until the next header sync there. Drop the cache and repaint this
+    // window's folders at once (names/icons/accents precedent above).
+    try {
+      spacesObserver = {
+        observe() {
+          try {
+            aphSpaces = null;
+          } catch (e) {}
+          try {
+            if (isValidId(current) && typeof syncSpaces === "function") {
+              syncSpaces(current);
+            }
+          } catch (e) {}
+        },
+      };
+      Services.prefs.addObserver(SPACES_PREF, spacesObserver);
+    } catch (e) {
+      spacesObserver = null;
     }
     try {
       initRouteListener();

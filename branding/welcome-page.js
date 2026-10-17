@@ -29,9 +29,9 @@ var AphWelcomeLogic = (function () {
           desc: "Move to the next or previous workspace.",
         },
         {
-          keys: ["Alt+Shift+Tab"],
-          title: "Last-used workspace",
-          desc: "Hop straight back to where you just were.",
+          keys: ["Ctrl+`", "Ctrl+Shift+`"],
+          title: "Last-used tabs",
+          desc: "Walk MRU tabs forward and back across workspaces — repeated presses walk deeper.",
         },
       ],
     },

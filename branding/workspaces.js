@@ -1,7 +1,7 @@
 /* GENERATED — do not edit by hand. Edit branding/src/, then run: python scripts/build_assets.py */
 /* Aph workspaces: IDs "1"-"9", zero UI. Alt+1..9 jumps to a workspace,
  * Alt+Shift+]/Right cycles next active, Alt+Shift+[/Left cycles previous,
- * Alt+Shift+Tab toggles the last two used (MRU),
+ * Ctrl+` walks MRU tabs workspace-safe (Ctrl+Shift+` walks reverse),
  * Window-scoped model (Vivaldi/Zen): every window has its own workspaces
  * 1-9 and tabs belong to the window they live in. The same workspace id
  * may show in two windows at once — independent tab sets, never shared.
@@ -18,6 +18,14 @@
  * stock Firefox assumes hidden pinned tabs never exist and vertical-tab
  * drag/drop breaks when they do); native tab groups
  * live inside workspaces (one shared tag, header synced, collapsed kept).
+ * Spaces (77): named folders holding tabs inside one workspace (hue wash
+ * + name line on every member row; no collapse of their own). Membership
+ * rides a per-tab aphSpace value; paint is attribute-only — a tab inside
+ * a native group paints like a loose one, the header lands on the first
+ * member row or the group's label container, and a grouped folder's
+ * group quietly gives up its own color pill/rail while keeping its name
+ * and collapse (theme.css §27b). Managed from the palette, the tab
+ * context menu (62) and drag-to-join on a folder head.
  * Container bindings: each workspace may be bound to one Firefox container
  * (Ctrl+Alt+B binds current WS to the selected tab's container,
  * Ctrl+Alt+Shift+B clears). Bound workspaces open new tabs (Ctrl+T,
@@ -50,7 +58,11 @@
   const WIN_KEY = "aphWsCurrent";
   let current = "1";
   const lastSelected = Object.create(null); // workspaceId -> last tab
-  let lastUsed = null; // MRU workspace for Alt+Shift+Tab toggle
+  let lastUsed = null; // compat alias: mru[1] (kept for getLastWorkspace/tests)
+  // MRU visit order for Ctrl+` walk: mru[0] === current always, mru[1] is
+  // last-used. Explicit switches push front; walk switches rotate so
+  // repeated presses walk deeper instead of toggling. In-memory per window.
+  let mru = ["1"];
   // Tabs that arrived via cross-window drag (TabOpen detail.adoptedTab).
   // They join the destination's visible workspace; anchorGroup lets them
   // drag the whole group instead of being healed back to the source tag.
@@ -1158,6 +1170,92 @@
     }
   }
 
+  // Group the live multiselection via stock addTabGroup (Ctrl+Alt+G):
+  // selectedTabs/multiselectedTabs when present, else the selected tab.
+  // Pinned tabs are excluded (Firefox forbids grouping pins); needs 2+
+  // groupable tabs, otherwise pulses instead of acting. Already-one-group
+  // is a no-op pulse. Tag healing rides the existing TabGroupCreate ->
+  // unifyGroup path; headers sync here for immediate paint. Fail-silent.
+  function groupSelectedTabs() {
+    let set = [];
+    try {
+      if (typeof resolveSendBase === "function") {
+        set = resolveSendBase(null) || [];
+      }
+    } catch (e) {
+      set = [];
+    }
+    if (!set.length) {
+      try {
+        const sel = gBrowser.selectedTab;
+        if (sel && !sel.closing) {
+          set = [sel];
+        }
+      } catch (e) {}
+    }
+    const seen = new Set();
+    const tabs = [];
+    try {
+      for (const t of set) {
+        try {
+          if (t && !t.closing && !t.pinned && !seen.has(t)) {
+            seen.add(t);
+            tabs.push(t);
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    if (tabs.length < 2) {
+      try {
+        pulseWorkspaceIndicator();
+      } catch (e) {}
+      return false;
+    }
+    try {
+      const first = tabs[0] && tabs[0].group;
+      if (first) {
+        let same = true;
+        try {
+          for (const t of tabs) {
+            if (t.group !== first) {
+              same = false;
+              break;
+            }
+          }
+        } catch (e) {
+          same = false;
+        }
+        if (same) {
+          try {
+            pulseWorkspaceIndicator();
+          } catch (e) {}
+          return false;
+        }
+      }
+    } catch (e) {}
+    let grouped = false;
+    try {
+      if (gBrowser && typeof gBrowser.addTabGroup === "function") {
+        const g = gBrowser.addTabGroup(tabs, { insertBefore: tabs[0] });
+        grouped = !!g;
+      }
+    } catch (e) {
+      grouped = false;
+    }
+    if (!grouped) {
+      try {
+        pulseWorkspaceIndicator();
+      } catch (e) {}
+      return false;
+    }
+    try {
+      if (typeof syncGroupHeaders === "function" && isValidId(current)) {
+        syncGroupHeaders(current);
+      }
+    } catch (e) {}
+    return true;
+  }
+
   function rememberCurrent(tabs) {
     if (!isValidId(current)) {
       return;
@@ -1191,6 +1289,8 @@
   // A <tab-group> renders its label regardless of member visibility, so hide
   // the element itself when it holds no target tabs. Collapse is group-level
   // CSS, untouched here, so groups never expand as a side effect.
+  // Space folders (77) repaint on the same pass: every entry that converges
+  // group headers converges folder headers too, so no new listener exists.
   function syncGroupHeaders(target) {
     let groups = [];
     try {
@@ -1206,6 +1306,11 @@
         } catch (e) {}
       }
     }
+    try {
+      if (typeof syncSpaces === "function" && isValidId(target)) {
+        syncSpaces(target);
+      }
+    } catch (e) {}
   }
 
   // A group lives in exactly one workspace: majority of real tags wins (never
@@ -1358,9 +1463,7 @@
       // so retry once shown — but ONLY when the live selection is still
       // outside the target. Never yank a valid selection to `focus`: a tab
       // opened + selected after the last switch (first-run welcome, routed
-      // foreground tab) must keep focus. Seen live: reconcile re-selected
-      // a stale lastSelected blank, and the following prune then read the
-      // welcome tab's still-blank face as a spare newtab and closed it.
+      // foreground tab) must keep focus.
       try {
         const now = gBrowser.selectedTab;
         if (now !== focus && (!now || now.closing || getWs(now) !== target)) {
@@ -1401,10 +1504,21 @@
     } catch (e) {
       lastSelected[target] = focus;
     }
+    // Spaces repaint late (second converging pass): during session restore
+    // the early pass can hit a half-populated strip and the fail-closed
+    // candidate resolution clears valid folder paint; by this point the
+    // selection has settled, so the strip is the ground truth. Also covers
+    // startup (reconcile runs there without any group event to lean on).
+    try {
+      if (typeof syncSpaces === "function" && isValidId(target)) {
+        syncSpaces(target);
+      }
+    } catch (e) {}
   }
 
   // Close unused new tabs in `target`, never the active tab.
   // Keeps at most 1 new tab total (preferring the selected one).
+  // Shared with the unload guards (never unload a newtab).
   function isNewTab(tab) {
     try {
       const uri = tab.linkedBrowser?.currentURI?.spec;
@@ -1413,94 +1527,6 @@
       }
     } catch (e) {}
     return false;
-  }
-
-  // A newborn tab wears its predecessor's face until the first document
-  // commits (addTrustedTab births about:blank; the real URL lands later).
-  // Pruning on that transient face closes real pages — the first-run
-  // welcome died exactly this way (seen live: blank face at prune time).
-  // Tabs younger than this settle first; the next sweep takes them once
-  // their URL is real. Deferral only, never exemption.
-  const PRUNE_SETTLE_MS = 10000;
-
-  function pruneExtraNewTabs(target) {
-    if (!isValidId(target)) {
-      return;
-    }
-    let sel = null;
-    try {
-      sel = gBrowser.selectedTab;
-    } catch (e) {}
-    const selIsNew = !!(sel && isNewTab(sel) && getWs(sel) === target);
-    let keep = selIsNew ? 0 : 1; // inactive spares allowed beyond selected
-    let tabs = [];
-    try {
-      tabs = Array.from(gBrowser.tabs);
-    } catch (e) {
-      return;
-    }
-    for (const t of tabs) {
-      // Pinned tabs are never auto-closed, even empty ones.
-      if (t.pinned || t.closing || t === sel) {
-        continue;
-      }
-      // Restoring tabs are owned by SessionStore — never prune a tab
-      // whose URL/tag hasn't settled (its newtab face may be transient).
-      try {
-        if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
-          continue;
-        }
-      } catch (e) {}
-      // Unloaded/pending tabs haven't committed a URL yet either (lazy
-      // restore, discard): their blank face may be transient, and closing
-      // them destroys unloaded state. Same rule as the unload guards.
-      try {
-        if (typeof t.hasAttribute === "function" && t.hasAttribute("pending")) {
-          continue;
-        }
-      } catch (e) {}
-      // Fresh tabs still committing their first document (see
-      // PRUNE_SETTLE_MS above): never judge the transient blank face.
-      // Tabs without a birth stamp (restored tabs — restore deliberately
-      // stamps none — plus pre-existing survivors) are NEVER pruned:
-      // a restored-but-unloaded tab wears about:blank until its first
-      // commit, and closing it destroys unloaded session state (seen
-      // live: bulk restore + workspace switches pruning the whole
-      // backlog). Genuine newborn blanks always carry a stamp (TabOpen),
-      // so this only spares tabs Aph didn't birth. Under-prune, never
-      // over-prune: at most a spare restored newtab survives.
-      try {
-        const birth = (t && t.__aphBirth) || 0;
-        if (!birth) {
-          continue;
-        }
-        if (Date.now() - birth < PRUNE_SETTLE_MS) {
-          continue;
-        }
-      } catch (e) {}
-      if (getWs(t) !== target) {
-        continue;
-      }
-      if (!isNewTab(t)) {
-        continue;
-      }
-      if (keep > 0) {
-        keep--;
-        continue;
-      }
-      try {
-        if (typeof aphTabsLog === "function") {
-          aphTabsLog(`prune ws=${target} closing ${aphTabDesc(t)}`);
-        }
-      } catch (e) {}
-      try {
-        gBrowser.removeTab(t, { animate: false });
-      } catch (e) {
-        try {
-          gBrowser.removeTab(t);
-        } catch (_e) {}
-      }
-    }
   }
 
   // Tab unloading (memory): discard eligible tabs via gBrowser.discardBrowser
@@ -2743,6 +2769,7 @@
   let routeObserver = null;
   let nameObserver = null;
   let wsIconObserver = null;
+  let spacesObserver = null;
   let startupRestoreObserver = null;
   let navPopupObserver = null;
   // Original window.BrowserOpenTab, captured before initBoundNewTab wraps
@@ -3012,11 +3039,11 @@
   // too; this entry exists for callers that already claimed (startup
   // restore) and for console use. Returns "local"/"noop" so console
   // callers can confirm what ran (no UI effect).
-  function switchLocal(target) {
+  function switchLocal(target, walkDir) {
     if (!isValidId(target) || target === current) {
       return "noop";
     }
-    beginWorkspaceSwitch(target);
+    beginWorkspaceSwitch(target, walkDir || 0);
     finishWorkspaceSwitch(target);
     return "local";
   }
@@ -3052,10 +3079,11 @@
   // Commit this window's claim first: current + WIN_KEY + indicator. The
   // adopted-tab handler stamps arrivals to `current`, so the claim must
   // precede any pull — otherwise pulled tabs land in the old workspace.
-  function beginWorkspaceSwitch(target) {
+  function beginWorkspaceSwitch(target, walkDir) {
     if (!isValidId(target) || target === current) {
       return;
     }
+    const walk = walkDir === 1 || walkDir === -1 ? walkDir : 0;
     // Splits are session-scoped: dissolve first so a tab hidden by the
     // switch below can never keep painting inside the content card.
     // Both tabs stay open, each tagged to its own workspace.
@@ -3069,7 +3097,17 @@
       tabs = Array.from(gBrowser.tabs);
     } catch (e) {}
     rememberCurrent(tabs);
-    lastUsed = current;
+    try {
+      if (walk !== 0) {
+        recordWalkMru(target, walk);
+      } else {
+        recordExplicitMru(target);
+      }
+    } catch (e) {
+      try {
+        lastUsed = current;
+      } catch (_e) {}
+    }
     // Glide direction for finishWorkspaceSwitch: ascending rises from
     // below, descending sinks from above. Captured before the flip —
     // every entry path (switchTo, switchLocal, cycle, dock, palette,
@@ -3111,7 +3149,6 @@
     anchorAllGroups();
     reconcile(target, tabs);
     strikeBloom();
-    pruneExtraNewTabs(target);
     // Fresh snapshot: reconcile may have opened a tab for an empty
     // workspace, which the stale list above would miss.
     try {
@@ -3157,21 +3194,22 @@
   // consulted, pulled from, or focused. A workspace with no local tabs
   // opens a fresh tab via reconcile; same-id workspaces elsewhere are
   // independent tab sets. Returns "switched"/"local"/"noop" for console
-  // diagnosis (callers ignore it).
-  function switchTo(target) {
+  // diagnosis (callers ignore it). walkDir 1/-1 marks a Ctrl+` MRU walk
+  // (rotate) vs an explicit switch (push front).
+  function switchTo(target, walkDir) {
     if (!isValidId(target) || target === current) {
       return "noop";
     }
     try {
       if (typeof beginWorkspaceSwitch === "function") {
-        beginWorkspaceSwitch(target);
+        beginWorkspaceSwitch(target, walkDir || 0);
       }
     } catch (e) {}
     try {
       if (typeof finishWorkspaceSwitch === "function") {
         finishWorkspaceSwitch(target);
       } else {
-        switchLocal(target);
+        switchLocal(target, walkDir || 0);
       }
     } catch (e) {}
     return "switched";
@@ -3313,7 +3351,6 @@
       } catch (e) {}
       try {
         reconcile(current, Array.from(gBrowser.tabs));
-        pruneExtraNewTabs(current);
       } catch (e) {}
       try {
         if (typeof renderDock === "function") {
@@ -3324,6 +3361,212 @@
     } catch (e) {
       return 0;
     }
+  }
+
+  // MRU visit order for Ctrl+` walk (mru[0] === current, mru[1] = last-used).
+  // Explicit switches push front; walk switches rotate so repeated presses
+  // walk deeper instead of toggling. Filtered to active + current so walks
+  // never strand on empty workspaces; missing active IDs append by tab
+  // recency (max aphLastViewed per WS) so restored workspaces stay
+  // reachable in MRU-feeling order instead of numeric. Fail-silent.
+  function getMruOrder() {
+    try {
+      let active = [];
+      try {
+        active = typeof getActiveIds === "function" ? getActiveIds() : [];
+      } catch (e) {
+        active = [];
+      }
+      const out = [];
+      const seen = new Set();
+      const push = (id) => {
+        try {
+          if (isValidId(id) && !seen.has(id)) {
+            seen.add(id);
+            out.push(id);
+          }
+        } catch (e) {}
+      };
+      try {
+        if (isValidId(current)) {
+          push(current);
+        }
+      } catch (e) {}
+      try {
+        for (const id of mru || []) {
+          if (id === current) {
+            continue;
+          }
+          push(id);
+        }
+      } catch (e) {}
+      let filtered = [];
+      try {
+        const activeSet = new Set(active || []);
+        for (const id of out) {
+          try {
+            if (id === current) {
+              filtered.push(id);
+              continue;
+            }
+            if (activeSet.has(id)) {
+              filtered.push(id);
+            }
+          } catch (e) {}
+        }
+        try {
+          const missing = [];
+          try {
+            for (const id of active || []) {
+              if (!filtered.includes(id)) {
+                missing.push(id);
+              }
+            }
+          } catch (e) {}
+          // Most-recently-viewed workspace first (max aphLastViewed across
+          // its tabs); unviewed/unknown ties fall back to numeric order.
+          // Keeps the first-ever walk feeling like MRU instead of "next".
+          try {
+            const best = Object.create(null);
+            try {
+              for (const t of Array.from((typeof gBrowser !== "undefined" && gBrowser.tabs) || [])) {
+                let w = null;
+                try {
+                  w = typeof rawWs === "function" ? rawWs(t) : null;
+                } catch (e) {}
+                if (!isValidId(w) || !missing.includes(w)) {
+                  continue;
+                }
+                let v = 0;
+                try {
+                  v = typeof readUnloadLastViewed === "function" ? readUnloadLastViewed(t) : 0;
+                } catch (e) {
+                  v = 0;
+                }
+                try {
+                  if (Number.isFinite(v) && v > (best[w] || 0)) {
+                    best[w] = v;
+                  }
+                } catch (e) {}
+              }
+            } catch (e) {}
+            missing.sort((a, b) => {
+              const va = best[a] || 0;
+              const vb = best[b] || 0;
+              if (va !== vb) {
+                return vb - va;
+              }
+              return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
+            });
+          } catch (e) {}
+          try {
+            for (const id of missing) {
+              filtered.push(id);
+            }
+          } catch (e) {}
+        } catch (e) {}
+      } catch (e) {
+        filtered = out;
+      }
+      return filtered;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function syncLastUsed() {
+    try {
+      lastUsed = null;
+      try {
+        if (Array.isArray(mru) && mru.length > 1 && isValidId(mru[1]) && mru[1] !== current) {
+          lastUsed = mru[1];
+        } else if (Array.isArray(mru) && mru.length > 1 && isValidId(mru[1])) {
+          lastUsed = mru[1];
+        }
+      } catch (e) {}
+    } catch (e) {}
+  }
+
+  function recordExplicitMru(target) {
+    try {
+      if (!isValidId(target)) {
+        try {
+          lastUsed = current;
+        } catch (e) {}
+        return;
+      }
+      let order = [];
+      try {
+        order = getMruOrder();
+      } catch (e) {
+        order = [];
+      }
+      const rest = [];
+      try {
+        for (const id of order) {
+          if (id !== target && !rest.includes(id)) {
+            rest.push(id);
+          }
+        }
+      } catch (e) {}
+      let next = [target].concat(rest);
+      try {
+        next = next.filter((id) => isValidId(id)).slice(0, 9);
+      } catch (e) {}
+      try {
+        if (!next.includes(target)) {
+          next.unshift(target);
+        }
+      } catch (e) {}
+      mru = next.length ? next : [target];
+      syncLastUsed();
+    } catch (e) {
+      try {
+        lastUsed = current;
+      } catch (_e) {}
+    }
+  }
+
+  function recordWalkMru(target, dir) {
+    try {
+      if (!isValidId(target)) {
+        return;
+      }
+      let order = [];
+      try {
+        order = getMruOrder();
+      } catch (e) {
+        order = [];
+      }
+      if (!order.includes(target)) {
+        recordExplicitMru(target);
+        return;
+      }
+      let next = order;
+      try {
+        if (dir === -1) {
+          next = order.slice(-1).concat(order.slice(0, -1));
+        } else {
+          next = order.slice(1).concat(order.slice(0, 1));
+        }
+      } catch (e) {
+        next = order;
+      }
+      // Walk target must land front; fallback to explicit push on mismatch
+      // (e.g. current drifted from index 0).
+      try {
+        if (!next.length || next[0] !== target) {
+          recordExplicitMru(target);
+          return;
+        }
+      } catch (e) {}
+      try {
+        mru = next.filter((id) => isValidId(id)).slice(0, 9);
+      } catch (e) {
+        mru = next;
+      }
+      syncLastUsed();
+    } catch (e) {}
   }
 
   // Cycling: "active" = has a live unpinned tab (pins are global with a
@@ -3377,10 +3620,269 @@
     switchTo(ids[(i + dir + ids.length) % ids.length]);
   }
 
-  function toggleLastWorkspace() {
-    if (isValidId(lastUsed) && lastUsed !== current) {
-      switchTo(lastUsed);
+  // Workspace MRU walk (API-only; no default binding): each press goes to
+  // the next-most-recent workspace, wrapping. Repeated presses walk
+  // deeper (no toggle trap) via rotation in recordWalkMru. Filtered to
+  // active so walks never create stray newtabs; pulses when fewer than
+  // 2 reachable.
+  function cycleMru(dir) {
+    const step = dir === -1 ? -1 : 1;
+    let order = [];
+    try {
+      order = typeof getMruOrder === "function" ? getMruOrder() : getActiveIds();
+    } catch (e) {
+      order = [];
     }
+    if (!Array.isArray(order) || order.length < 2) {
+      try {
+        pulseWorkspaceIndicator();
+      } catch (e) {}
+      return;
+    }
+    let idx = -1;
+    try {
+      idx = order.indexOf(isValidId(current) ? current : "1");
+    } catch (e) {
+      idx = -1;
+    }
+    if (idx < 0) {
+      try {
+        switchTo(order[0]);
+      } catch (e) {}
+      return;
+    }
+    let target = null;
+    try {
+      target = order[(idx + step + order.length) % order.length];
+    } catch (e) {
+      target = null;
+    }
+    if (!isValidId(target) || target === current) {
+      return;
+    }
+    switchTo(target, step);
+  }
+
+  // Legacy exact toggle (console/API compat): hops to last-used without
+  // rotating, so it always flips the same pair. The Ctrl+` binding uses
+  // cycleTabMru instead (walks tabs); cycleMru stays API-only.
+  function toggleLastWorkspace() {
+    let dest = null;
+    try {
+      if (Array.isArray(mru) && mru.length > 1 && isValidId(mru[1])) {
+        dest = mru[1];
+      } else {
+        dest = lastUsed;
+      }
+    } catch (e) {
+      dest = lastUsed;
+    }
+    if (isValidId(dest) && dest !== current) {
+      switchTo(dest);
+    }
+  }
+
+  // Tab MRU walk for Ctrl+` (Ctrl+Shift+` reverses): each press selects
+  // the next-most-recently-viewed tab, wrapping. Workspace-safe: landing
+  // on a tab from another workspace switches there first (explicit, so
+  // the workspace MRU records the visit), then selects workspace-safely
+  // like the palette (expand collapsed group, show, select).
+  // Snapshot walk: the first press freezes lastViewed order (selected
+  // first); rapid repeats advance the frozen snapshot instead of
+  // re-sorting (re-sorting would toggle, since selecting re-stamps).
+  // After TAB_WALK_MS idle the snapshot rebuilds from live recency.
+  let tabWalkOrder = null;
+  let tabWalkIndex = -1;
+  let tabWalkAt = 0;
+  const TAB_WALK_MS = 1500;
+
+  function liveTabsForWalk() {
+    try {
+      const tabs = (typeof gBrowser !== "undefined" && gBrowser.tabs) || [];
+      return Array.from(tabs).filter((t) => t && !t.closing);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function tabLastViewed(t) {
+    try {
+      if (typeof readUnloadLastViewed === "function") {
+        return readUnloadLastViewed(t) || 0;
+      }
+    } catch (e) {}
+    return 0;
+  }
+
+  function getTabWalkOrder() {
+    try {
+      const live = liveTabsForWalk();
+      if (!live.length) {
+        return [];
+      }
+      let sel = null;
+      try {
+        sel = (typeof gBrowser !== "undefined" && gBrowser.selectedTab) || null;
+      } catch (e) {}
+      const scored = [];
+      try {
+        for (let i = 0; i < live.length; i++) {
+          scored.push({ t: live[i], v: tabLastViewed(live[i]), i });
+        }
+      } catch (e) {}
+      try {
+        scored.sort((a, b) => {
+          if (a.v !== b.v) {
+            return b.v - a.v;
+          }
+          return a.i - b.i;
+        });
+      } catch (e) {}
+      let order = scored.map((s) => s.t);
+      // Selected first so index 0 is always current (stamps can tie in
+      // tests or miss on restored tabs).
+      try {
+        if (sel && order.includes(sel)) {
+          order = [sel].concat(order.filter((t) => t !== sel));
+        }
+      } catch (e) {}
+      return order;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function selectTabWalkSafe(t) {
+    try {
+      if (!t || t.closing) {
+        return false;
+      }
+    } catch (e) {
+      return false;
+    }
+    // Pinned tabs are global: never switch workspace for them.
+    let pinned = false;
+    try {
+      pinned = !!t.pinned;
+    } catch (e) {}
+    if (!pinned) {
+      try {
+        const ws = typeof getWs === "function" ? getWs(t) : null;
+        if (isValidId(ws) && ws !== current) {
+          switchTo(ws);
+        }
+      } catch (e) {}
+    }
+    try {
+      if (t.group && t.group.collapsed) {
+        t.group.collapsed = false;
+      }
+    } catch (e) {}
+    try {
+      if (t.hidden) {
+        if (typeof aphShowTab === "function") {
+          aphShowTab(t);
+        } else if (gBrowser && typeof gBrowser.showTab === "function") {
+          gBrowser.showTab(t);
+        }
+      }
+    } catch (e) {}
+    try {
+      gBrowser.selectedTab = t;
+    } catch (e) {
+      return false;
+    }
+    // TabSelect stamps in chrome; the node harness setter does not fire
+    // listeners, so stamp explicitly (same ms, harmless in chrome).
+    try {
+      if (typeof stampLastViewed === "function") {
+        stampLastViewed(t);
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  function cycleTabMru(dir) {
+    const step = dir === -1 ? -1 : 1;
+    let now = 0;
+    try {
+      now = Date.now();
+    } catch (e) {}
+    let sel = null;
+    try {
+      sel = (typeof gBrowser !== "undefined" && gBrowser.selectedTab) || null;
+    } catch (e) {}
+    const live = liveTabsForWalk();
+    if (live.length < 2) {
+      try {
+        pulseWorkspaceIndicator();
+      } catch (e) {}
+      return;
+    }
+    const liveSet = new Set(live);
+    let order = tabWalkOrder;
+    let useSnapshot = false;
+    try {
+      useSnapshot =
+        Array.isArray(order) &&
+        order.length === live.length &&
+        now - tabWalkAt < TAB_WALK_MS &&
+        order.every((t) => liveSet.has(t));
+    } catch (e) {
+      useSnapshot = false;
+    }
+    if (!useSnapshot) {
+      try {
+        order = getTabWalkOrder();
+      } catch (e) {
+        order = [];
+      }
+      if (!Array.isArray(order) || order.length < 2) {
+        try {
+          pulseWorkspaceIndicator();
+        } catch (e) {}
+        return;
+      }
+      tabWalkOrder = order;
+      tabWalkIndex = 0;
+      try {
+        tabWalkAt = now;
+      } catch (e) {}
+    } else {
+      // Continuing a walk: advance from where the selection is. An
+      // explicit click since the last walk moves the base (no trap).
+      let base = tabWalkIndex;
+      try {
+        const cur = order.indexOf(sel);
+        if (cur >= 0) {
+          base = cur;
+        }
+      } catch (e) {}
+      tabWalkIndex = base;
+    }
+    let idx = tabWalkIndex;
+    try {
+      const cur = order.indexOf(sel);
+      if (cur >= 0) {
+        idx = cur;
+      }
+    } catch (e) {}
+    let target = null;
+    try {
+      target = order[(idx + step + order.length) % order.length];
+    } catch (e) {
+      target = null;
+    }
+    if (!target || target === sel) {
+      return;
+    }
+    try {
+      tabWalkIndex = (idx + step + order.length) % order.length;
+    } catch (e) {}
+    try {
+      tabWalkAt = now;
+    } catch (e) {}
+    selectTabWalkSafe(target);
   }
 
   // Send family helpers: native groups move as units, single tabs move
@@ -3545,7 +4047,6 @@
     anchorAllGroups();
     try {
       reconcile(current, Array.from(gBrowser.tabs));
-      pruneExtraNewTabs(current);
     } catch (e) {}
     // Dock counts are tag-based: repaint so pill counts follow the move
     // immediately (drag-mode expansion collapses on dragend).
@@ -3634,6 +4135,13 @@
   //   preserves whole groups).
   // - "Move Group to Workspace >" — only when the clicked tab sits in a
   //   native group of 2+; calls sendGroupTo (whole group, membership kept).
+  // Space variants ("Move Tab(s)/Group to Space >", 77-spaces.js folders)
+  // follow the same rule: rows are the CURRENT workspace's spaces; grouped
+  // targets tag every member (the group's folder resolves by plurality),
+  // and a group click rewrites all members. Current folder rows render
+  // disabled, "Remove from Space" clears values (folders and groups stay).
+  // Pinned tabs never join (assign refuses), so the tab submenu hides for
+  // a pinned click.
   // Labels carry workspace names + bound-container suffixes (palette wsFull
   // pattern, reimplemented here — the palette bundle is a separate scope).
   // XUL hosts need createXULElement (HTML-namespaced duds never render);
@@ -3866,6 +4374,148 @@
     }
   }
 
+  // Spaces of the current workspace as menu rows. showRemove is resolved
+  // by the caller from the RAW value (a stale id has no registry row, so
+  // the remove path must not depend on one). Returns rows appended to one
+  // submenu: each space (current one disabled), then a separator + remove.
+  function appendSpaceSubmenu(
+    menu,
+    topId,
+    topLabel,
+    spaces,
+    currentSid,
+    onAssign,
+    onRemove,
+    showRemove
+  ) {
+    try {
+      const sub = makeMoveMenuNode("menu", topId, topLabel, false);
+      if (!sub) {
+        return null;
+      }
+      const popup =
+        typeof document.createXULElement === "function"
+          ? document.createXULElement("menupopup")
+          : document.createElement("menupopup");
+      if (!popup || typeof popup.appendChild !== "function") {
+        return null;
+      }
+      for (const s of spaces) {
+        if (!s || !s.id) {
+          continue;
+        }
+        const item = makeMoveMenuNode(
+          "menuitem",
+          `${topId}-${s.id}`,
+          s.name || s.id,
+          s.id === currentSid
+        );
+        if (!item) {
+          continue;
+        }
+        if (typeof item.addEventListener === "function") {
+          const sid = s.id;
+          item.addEventListener("command", () => {
+            try {
+              onAssign(sid);
+            } catch (err) {}
+          });
+        }
+        try {
+          popup.appendChild(item);
+        } catch (e) {}
+      }
+      if (showRemove && typeof onRemove === "function") {
+        const sep = makeMoveMenuNode("menuseparator", `${topId}-sep`, "", false);
+        if (sep) {
+          try {
+            popup.appendChild(sep);
+          } catch (e) {}
+        }
+        const rm = makeMoveMenuNode(
+          "menuitem",
+          `${topId}-remove`,
+          "Remove from Space",
+          false
+        );
+        if (rm) {
+          if (typeof rm.addEventListener === "function") {
+            rm.addEventListener("command", () => {
+              try {
+                onRemove();
+              } catch (err) {}
+            });
+          }
+          try {
+            popup.appendChild(rm);
+          } catch (e) {}
+        }
+      }
+      try {
+        sub.appendChild(popup);
+      } catch (e) {
+        return null;
+      }
+      try {
+        menu.appendChild(sub);
+        moveMenuItems.push(sub);
+      } catch (e) {
+        return null;
+      }
+      return sub;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Current-workspace space rows, or null when the runtime has no spaces
+  // (older bundle shapes / tests). Registry reads only; assignment gates
+  // live in 77.
+  function moveMenuSpaces() {
+    try {
+      if (typeof listSpaces !== "function" || !isValidId(current)) {
+        return null;
+      }
+      const spaces = listSpaces(current) || [];
+      return spaces.length ? spaces : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // A group's folder for menu purposes: the plurality pick, else any
+  // member's raw value (a stale id still gets a remove row).
+  function moveMenuGroupSpace(group) {
+    try {
+      if (typeof spaceOfGroup === "function") {
+        const sid = spaceOfGroup(group) || "";
+        if (sid) {
+          return sid;
+        }
+      }
+      if (typeof getTabSpace === "function") {
+        let members = [];
+        try {
+          members =
+            typeof groupMembers === "function"
+              ? groupMembers(group)
+              : (group && group.tabs) || [];
+        } catch (e) {
+          members = [];
+        }
+        for (const m of members || []) {
+          try {
+            const sid = getTabSpace(m);
+            if (sid) {
+              return sid;
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    return "";
+  }
+
   function onMoveMenuShowing(e) {
     try {
       const menu = (e && (e.currentTarget || e.target)) || null;
@@ -3916,6 +4566,95 @@
               }
             } catch (err) {}
           });
+        }
+      } catch (err) {}
+      // Space variants (77-spaces.js folders inside the current
+      // workspace): tab first, then group — same layering as the
+      // workspace pair above. Rows list current-workspace spaces only;
+      // cross-workspace folders are refused by the assign APIs anyway.
+      try {
+        const spaces = moveMenuSpaces();
+        let showRemove = false;
+        if (typeof getTabSpace === "function") {
+          for (const t of targets) {
+            try {
+              if (getTabSpace(t)) {
+                showRemove = true;
+                break;
+              }
+            } catch (err) {}
+          }
+        }
+        if (!clicked.pinned && (spaces || showRemove)) {
+          const rows = (spaces || []).slice();
+          let curSid = "";
+          try {
+            if (typeof getTabSpace === "function") {
+              curSid = getTabSpace(clicked) || "";
+            }
+          } catch (err) {}
+          appendSpaceSubmenu(
+            menu,
+            "aph-move-space-tab",
+            n > 1 ? `Move ${n} Tabs to Space` : "Move Tab to Space",
+            rows,
+            curSid,
+            (sid) => {
+              if (typeof assignTabToSpace !== "function") {
+                return;
+              }
+              for (const t of targets) {
+                try {
+                  assignTabToSpace(t, sid);
+                } catch (err) {}
+              }
+            },
+            () => {
+              if (typeof unassignTabFromSpace !== "function") {
+                return;
+              }
+              for (const t of targets) {
+                try {
+                  unassignTabFromSpace(t);
+                } catch (err) {}
+              }
+            },
+            showRemove
+          );
+        }
+      } catch (err) {}
+      try {
+        const ginfo = moveMenuGroupOf(clicked);
+        const spaces = moveMenuSpaces();
+        if (ginfo) {
+          const curSid = moveMenuGroupSpace(ginfo.group);
+          const showRemove = !!curSid;
+          if (spaces || showRemove) {
+            appendSpaceSubmenu(
+              menu,
+              "aph-move-space-group",
+              `Move Group (${ginfo.members.length} Tabs) to Space`,
+              (spaces || []).slice(),
+              curSid,
+              (sid) => {
+                if (typeof assignGroupToSpace !== "function") {
+                  return;
+                }
+                try {
+                  assignGroupToSpace(ginfo.group, sid);
+                } catch (err) {}
+              },
+              () => {
+                if (typeof unassignGroup !== "function") {
+                  return;
+                }
+                try {
+                  unassignGroup(ginfo.group);
+                } catch (err) {}
+              },
+              showRemove
+            );
+          }
         }
       } catch (err) {}
       // Unload variant (Firefox 140 parity): discard the clicked tab via
@@ -4557,8 +5296,7 @@
 
   // Single creation path: switchTo funnels through finishWorkspaceSwitch
   // → reconcile, which opens (and selects) the bound tab for an empty
-  // workspace. An explicit openBoundTab here used to race it into two
-  // new tabs, cleaned up only by a later switch's prune.
+  // workspace.
   function plusToWorkspace() {
     try {
       const free = lowestInactiveId(getActiveIds());
@@ -7295,9 +8033,6 @@
         return;
       }
     } catch (err) {}
-    if (e.repeat) {
-      return;
-    }
     // Windows international keyboards: AltGr arrives as Ctrl+Alt, so bare
     // modifier checks can't tell "AltGr+Q → @" (German) apart from a real
     // Ctrl+Alt hotkey. The OS flags genuine AltGr composition via the
@@ -7311,6 +8046,23 @@
         return;
       }
     } catch (err) {}
+    // Ctrl+` walks MRU tabs (Ctrl+Shift+` walks reverse), workspace-safe:
+    // landing on another workspace's tab switches there first. e.code,
+    // not e.key: Shift turns "`" into "~". No editable-target skip (Ctrl
+    // types nothing) and repeat allowed so holding ` walks quickly.
+    if (e.ctrlKey && !e.altKey && !e.metaKey && e.code === "Backquote") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof cycleTabMru === "function") {
+          cycleTabMru(e.shiftKey ? -1 : 1);
+        }
+      } catch (err) {}
+      return;
+    }
+    if (e.repeat) {
+      return;
+    }
     // Ctrl/Cmd+W on a selected pinned or starred tab keeps it open
     // instead of closing — a drifted pin/star resets to its base URL in
     // place, one already at base parks (unload); the second press (now
@@ -7441,8 +8193,23 @@
       } catch (err) {}
       return;
     }
+    // Ctrl+Alt+G groups the selected tabs (native group = space). The
+    // combo types nothing, so no editable-target skip — the AltGraph
+    // guard above covers real AltGr layouts. Shift variant stays
+    // unbound (falls through to stock).
+    if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.code === "KeyG") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof groupSelectedTabs === "function") {
+          groupSelectedTabs();
+        }
+      } catch (err) {}
+      return;
+    }
     // Alt+Shift cycling: brackets always, arrows outside editable text
-    // (Alt+Shift+Left/Right selects words while typing), Tab toggles MRU.
+    // (Alt+Shift+Left/Right selects words while typing). MRU walk lives on
+    // Ctrl+` / Ctrl+Shift+` above (no Alt+Shift+Tab binding).
     // e.code, not e.key: Shift turns "[" into "{".
     if (!e.ctrlKey && e.shiftKey && !e.metaKey) {
       if (e.code === "BracketRight") {
@@ -7461,12 +8228,6 @@
         e.preventDefault();
         e.stopPropagation();
         cycleWorkspace(e.code === "ArrowRight" ? 1 : -1);
-        return;
-      }
-      if (e.code === "Tab") {
-        e.preventDefault();
-        e.stopPropagation();
-        toggleLastWorkspace();
         return;
       }
     }
@@ -8903,6 +9664,963 @@
   } else {
     window.addEventListener("load", initStar, { once: true });
   }
+  // Spaces: named folders holding tabs inside one workspace. One look for
+  // every member: a hue wash behind the row plus the folder name on the
+  // folder's head. A tab inside a native group paints exactly like a loose
+  // one; the head is the earliest member row, or the group's own label
+  // container when the folder starts with a group (so the space name sits
+  // above the group's label). Groups with painted members get a bare
+  // data-aph-space presence hook so the stylesheet can quiet the group's
+  // own color pill/rail and let the Space own the enclosure — the group
+  // keeps its stock name + collapse, it just sits inside. No collapse of
+  // its own, no accent/atmosphere (the window voice stays per-workspace
+  // via stampWindowWs; multiple spaces share the strip). Membership UI:
+  // palette rows, the tab context menu (62-move-menu.js), and drag-to-join
+  // on a folder head — where listener phase matters (see onSpaceDrop).
+  //
+  // Model: registry {spaceId: {ws, name}} persists in pref aph.spaces (same
+  // JSON-string-pref idiom as names/icons/accents); membership rides a
+  // per-tab SessionStore value aphSpace (same mechanism as workspace tags
+  // and aphStarred, so it survives session restore free — key duplicated in
+  // stash.js by design, aphStarred precedent). A group still resolves to
+  // one space by plurality of its members' values (anchorGroup precedent
+  // in 40) for menu/palette gating — but paint is strictly per-tab: stock
+  // gives groups no stable id, and stash restores recreate group objects
+  // from scratch, so no group-id dependency exists anywhere.
+  //
+  // Paint is attribute-only (no new DOM, no strip order assumptions):
+  // every member tab paints data-aph-space-tab + data-aph-space + hue on
+  // itself, loose or grouped alike; the head additionally carries name +
+  // first + hue, and the last member carries the bottom-air flag.
+  // Untagged tabs (and tabs whose folder belongs to another workspace)
+  // never match and render exactly as before. Cross-workspace sends keep
+  // the value (containers are immutable, tags are cheap); paint is
+  // registry-ws-gated, so a moved group simply falls out of its old folder
+  // until reassigned — same dormancy as pins.
+  const SPACES_PREF = "aph.spaces";
+  const SPACE_TAB_KEY = "aphSpace";
+  const SPACE_NAME_MAX = 40;
+  const SPACE_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+  let aphSpaces = null; // lazy-loaded {spaceId: {ws, name}}
+
+  function loadSpaces() {
+    if (aphSpaces) {
+      return aphSpaces;
+    }
+    aphSpaces = Object.create(null);
+    try {
+      let raw = "";
+      try {
+        raw = Services.prefs.getStringPref(SPACES_PREF, "");
+      } catch (e) {}
+      if (raw) {
+        const obj = JSON.parse(raw);
+        for (const k of Object.keys(obj || {})) {
+          try {
+            const entry = obj[k] || {};
+            const name = String(entry.name || "").trim().slice(0, SPACE_NAME_MAX);
+            if (SPACE_ID_RE.test(k) && isValidId(entry.ws) && name) {
+              aphSpaces[k] = { ws: entry.ws, name };
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    return aphSpaces;
+  }
+
+  function saveSpaces() {
+    try {
+      const plain = {};
+      const map = loadSpaces();
+      for (const k of Object.keys(map)) {
+        plain[k] = { ws: map[k].ws, name: map[k].name };
+      }
+      Services.prefs.setStringPref(SPACES_PREF, JSON.stringify(plain));
+    } catch (e) {}
+  }
+
+  // Palette command rows cache space membership per window (40-items
+  // getCachedCommands). Palette-driven mutations invalidate themselves;
+  // context-menu and drag-to-join paths land here, so every successful
+  // membership change drops the cache through the public API (the two
+  // bundles are separate scopes — window.AphPalette is the seam).
+  function invalidateSpacePalette() {
+    try {
+      if (
+        window.AphPalette &&
+        typeof window.AphPalette.invalidate === "function"
+      ) {
+        window.AphPalette.invalidate();
+      }
+    } catch (e) {}
+  }
+
+  function getSpace(id) {
+    try {
+      const entry = loadSpaces()[id] || null;
+      if (!entry) {
+        return null;
+      }
+      return { ws: entry.ws, name: entry.name };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Every space, or only one workspace's, in registry (insertion) order.
+  function listSpaces(wsArg) {
+    const out = [];
+    try {
+      const map = loadSpaces();
+      for (const k of Object.keys(map)) {
+        try {
+          if (wsArg && map[k].ws !== wsArg) {
+            continue;
+          }
+          out.push({ id: k, ws: map[k].ws, name: map[k].name });
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  function makeSpaceId() {
+    try {
+      const map = loadSpaces();
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const id =
+          "sp" +
+          Date.now().toString(36) +
+          Math.floor(Math.random() * 0xffffff).toString(36);
+        if (SPACE_ID_RE.test(id) && !Object.hasOwn(map, id)) {
+          return id;
+        }
+      }
+    } catch (e) {}
+    return "";
+  }
+
+  // Returns the new id, or "" when the name/ws is unusable.
+  function createSpace(name, wsArg) {
+    const ws = isValidId(wsArg) ? wsArg : isValidId(current) ? current : "1";
+    const trimmed = String(name || "").trim().slice(0, SPACE_NAME_MAX);
+    if (!trimmed) {
+      return "";
+    }
+    const id = makeSpaceId();
+    if (!id) {
+      return "";
+    }
+    try {
+      loadSpaces()[id] = { ws, name: trimmed };
+      saveSpaces();
+    } catch (e) {
+      return "";
+    }
+    return id;
+  }
+
+  function renameSpace(id, name) {
+    try {
+      const entry = loadSpaces()[id];
+      if (!entry) {
+        return false;
+      }
+      const trimmed = String(name || "").trim().slice(0, SPACE_NAME_MAX);
+      if (!trimmed) {
+        return false;
+      }
+      entry.name = trimmed;
+      saveSpaces();
+    } catch (e) {
+      return false;
+    }
+    try {
+      if (isValidId(current)) {
+        syncSpaces(current);
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  // The folder goes, the groups stay (ungrouped visually, tabs untouched).
+  function deleteSpace(id) {
+    if (!id) {
+      return false;
+    }
+    try {
+      if (!Object.hasOwn(loadSpaces(), id)) {
+        return false;
+      }
+      delete loadSpaces()[id];
+      saveSpaces();
+    } catch (e) {
+      return false;
+    }
+    try {
+      for (const t of Array.from((gBrowser && gBrowser.tabs) || [])) {
+        try {
+          if (t && !t.closing && rawSpace(t) === id) {
+            clearSpace(t);
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    try {
+      if (isValidId(current)) {
+        syncSpaces(current);
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  // Plausible membership value (registry-checked at paint, not here, so a
+  // cross-window registry lag never disenfranchises a vote mid-restore).
+  function rawSpace(tab) {
+    try {
+      const v = SessionStore.getCustomTabValue(tab, SPACE_TAB_KEY);
+      return typeof v === "string" && SPACE_ID_RE.test(v) ? v : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function setSpace(tab, id) {
+    try {
+      SessionStore.setCustomTabValue(tab, SPACE_TAB_KEY, id);
+    } catch (e) {}
+  }
+
+  function clearSpace(tab) {
+    try {
+      if (!tab) {
+        return;
+      }
+      if (SessionStore && typeof SessionStore.deleteCustomTabValue === "function") {
+        SessionStore.deleteCustomTabValue(tab, SPACE_TAB_KEY);
+      } else {
+        SessionStore.setCustomTabValue(tab, SPACE_TAB_KEY, "");
+      }
+    } catch (e) {}
+  }
+
+  // A group resolves to at most one space: plurality of members' values,
+  // ties to the earliest member in strip order. "" means unassigned (or
+  // unknown ids). Paint is per-tab and never consults this — it exists
+  // for menu/palette gating ("which folder is this group in").
+  function spaceOfGroup(group) {
+    try {
+      const members = groupMembers(group).filter((t) => !t.pinned);
+      if (!members.length) {
+        return "";
+      }
+      const votes = Object.create(null);
+      const firstIdx = Object.create(null);
+      members.forEach((m, i) => {
+        let s = "";
+        try {
+          s = rawSpace(m);
+        } catch (e) {}
+        if (!s) {
+          return;
+        }
+        votes[s] = (votes[s] || 0) + 1;
+        if (!(s in firstIdx)) {
+          firstIdx[s] = i;
+        }
+      });
+      let best = "";
+      for (const s of Object.keys(votes)) {
+        if (
+          !best ||
+          votes[s] > votes[best] ||
+          (votes[s] === votes[best] && firstIdx[s] < firstIdx[best])
+        ) {
+          best = s;
+        }
+      }
+      return best;
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // A group's workspace by the same plurality rule (anchorGroup precedent,
+  // read-only here — healing stays in 40). "" while any member is
+  // tagless/restoring, so assignGroupToSpace never writes a folder across
+  // windows off a half-restored group's votes.
+  function spaceGroupWs(group) {
+    try {
+      const members = groupMembers(group).filter((t) => !t.pinned);
+      if (!members.length) {
+        return "";
+      }
+      for (const m of members) {
+        try {
+          if (!rawWs(m)) {
+            return "";
+          }
+          if (typeof isRestoringTab === "function" && isRestoringTab(m)) {
+            return "";
+          }
+        } catch (e) {
+          return "";
+        }
+      }
+      const votes = Object.create(null);
+      for (const m of members) {
+        const w = rawWs(m);
+        if (w) {
+          votes[w] = (votes[w] || 0) + 1;
+        }
+      }
+      let best = "";
+      for (const w of Object.keys(votes).sort()) {
+        if (!best || votes[w] > votes[best]) {
+          best = w;
+        }
+      }
+      return best;
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Folder hue: stable per space id (polynomial hash mod 360) so a
+  // folder keeps its color across restarts and windows. Painted as an
+  // inline custom property — CSS attr() can't carry numbers into colors,
+  // and hue utilities live above JS anyway. Insight: tabs' harness mocks
+  // often lack .style; the guard makes hue painting best-effort there,
+  // CSS falls back to its default (260).
+  function spaceHue(sid) {
+    try {
+      let h = 0;
+      for (let i = 0; i < String(sid).length; i++) {
+        h = (h * 31 + String(sid).charCodeAt(i)) % 360;
+      }
+      return h;
+    } catch (e) {
+      return 260;
+    }
+  }
+
+  function setSpaceHue(el, sid) {
+    try {
+      if (!el || !el.style || typeof el.style.setProperty !== "function") {
+        return;
+      }
+      const h = String(spaceHue(sid));
+      if (
+        typeof el.style.getPropertyValue === "function" &&
+        el.style.getPropertyValue("--aph-space-hue") === h
+      ) {
+        return;
+      }
+      el.style.setProperty("--aph-space-hue", h);
+    } catch (e) {}
+  }
+
+  // Attribute writes are value-guarded: syncSpaces runs on every header
+  // pass (group events, workspace switches, focus), and on a ~150-tab
+  // strip the unconditional set/remove churn was the dominant cost —
+  // most passes repaint the same values. Reads first, mutate only on
+  // change; CSS only ever sees the settled state either way.
+  function setSpaceAttr(el, k, v) {
+    try {
+      if (!el || typeof el.setAttribute !== "function") {
+        return;
+      }
+      const sv = String(v);
+      if (typeof el.getAttribute === "function" && el.getAttribute(k) === sv) {
+        return;
+      }
+      el.setAttribute(k, sv);
+    } catch (e) {}
+  }
+
+  function clearSpaceAttr(el, k) {
+    try {
+      if (!el || typeof el.removeAttribute !== "function") {
+        return;
+      }
+      if (typeof el.getAttribute === "function" && el.getAttribute(k) === null) {
+        return;
+      }
+      el.removeAttribute(k);
+    } catch (e) {}
+  }
+
+  function clearSpaceHue(el) {
+    try {
+      if (el && el.style && typeof el.style.removeProperty === "function") {
+        el.style.removeProperty("--aph-space-hue");
+      }
+    } catch (e) {}
+  }
+
+  // Membership paint lives on tab elements and, for the header, on the
+  // group's label container; clearing wipes the full attr set. A still-
+  // assigned member re-stamps idempotently right after in the same pass.
+  function clearTabSpace(tab) {
+    clearSpaceAttr(tab, "data-aph-space");
+    clearSpaceAttr(tab, "data-aph-space-tab");
+    clearSpaceAttr(tab, "data-aph-space-name");
+    clearSpaceAttr(tab, "data-aph-space-first");
+  }
+
+  // Stamp folder attributes for one workspace's strip pass. Every member
+  // tab paints on itself — loose or grouped is the same treatment. The
+  // header (name + hue + first flag) goes to the earliest member in strip
+  // order: a loose member row when one leads, else the group's own label
+  // container, so the space name always sits above the group's label.
+  // Groups with painted members get a bare data-aph-space hook so the
+  // stylesheet can quiet their own color pill/rail inside the folder (the
+  // Space owns the enclosure; the group is structure inside it). Stale
+  // headers (an old element that no longer leads its folder) are cleared
+  // against the previous pass's list.
+  let spaceHeaderEls = [];
+
+  function spaceHeaderFor(tab) {
+    try {
+      let g = null;
+      try {
+        g = tab.group || null;
+      } catch (e) {
+        g = null;
+      }
+      if (g && typeof g.querySelector === "function") {
+        const label = g.querySelector(".tab-group-label-container");
+        if (label) {
+          return label;
+        }
+      }
+    } catch (e) {}
+    return tab;
+  }
+
+  function stampSpaceHeader(el, sid, name) {
+    setSpaceAttr(el, "data-aph-space", sid);
+    setSpaceAttr(el, "data-aph-space-name", name);
+    setSpaceAttr(el, "data-aph-space-first", "1");
+    setSpaceHue(el, sid);
+  }
+
+  function syncSpaces(target) {
+    try {
+      if (!isValidId(target)) {
+        return;
+      }
+      let tabs = [];
+      try {
+        tabs = Array.from(gBrowser.tabs);
+      } catch (e) {
+        return;
+      }
+      const seen = Object.create(null);
+      const nextHeaders = new Set();
+      const paintedGroups = new Map(); // group -> sid (CSS hover only)
+      const lastMemberBySpace = new Map(); // sid -> last painted member
+      for (const t of tabs) {
+        try {
+          if (!t || t.closing) {
+            continue;
+          }
+          const sid = rawSpace(t);
+          const reg = sid ? getSpace(sid) : null;
+          if (reg && reg.ws === target) {
+            setSpaceAttr(t, "data-aph-space-tab", "1");
+            setSpaceAttr(t, "data-aph-space", sid);
+            setSpaceHue(t, sid);
+            let g = null;
+            try {
+              g = t.group || null;
+            } catch (e) {
+              g = null;
+            }
+            if (g) {
+              setSpaceHue(g, sid);
+              if (!paintedGroups.has(g)) {
+                paintedGroups.set(g, sid);
+              }
+            }
+            if (!seen[sid]) {
+              seen[sid] = true;
+              const head = spaceHeaderFor(t);
+              stampSpaceHeader(head, sid, reg.name);
+              nextHeaders.add(head);
+              if (head !== t) {
+                clearSpaceAttr(t, "data-aph-space-first");
+                clearSpaceAttr(t, "data-aph-space-name");
+              }
+            } else {
+              clearSpaceAttr(t, "data-aph-space-first");
+            }
+            lastMemberBySpace.set(sid, t);
+          } else {
+            clearTabSpace(t);
+          }
+        } catch (e) {
+          try {
+            clearTabSpace(t);
+          } catch (_e) {}
+        }
+      }
+      // Anything that led a folder in the previous pass but doesn't now
+      // is wiped (flag, name, hue; a moored label container also loses
+      // its sid/drop-head, while a tab keeps its member markers).
+      try {
+        const tabSet = new Set(tabs);
+        for (const el of spaceHeaderEls) {
+          if (!el || nextHeaders.has(el)) {
+            continue;
+          }
+          clearSpaceAttr(el, "data-aph-space-first");
+          clearSpaceAttr(el, "data-aph-space-name");
+          clearSpaceHue(el);
+          if (!tabSet.has(el)) {
+            clearSpaceAttr(el, "data-aph-space");
+          }
+        }
+      } catch (e) {}
+      spaceHeaderEls = Array.from(nextHeaders);
+      // Group quieting hook: presence only (CSS: label pill + rail give
+      // way to the folder hue). Cleared for groups without painted
+      // members this pass.
+      try {
+        for (const g of gBrowser.tabGroups || []) {
+          if (paintedGroups.has(g)) {
+            setSpaceAttr(g, "data-aph-space", "1");
+          } else {
+            clearSpaceAttr(g, "data-aph-space");
+            clearSpaceHue(g);
+          }
+        }
+      } catch (e) {}
+      // Last member per space gets the bottom spacer («air after the
+      // folder»). The current holder keeps its flag untouched — clearing
+      // first would be a remove + re-set pair every pass even when the
+      // strip did not move. Only a displaced flag is cleared (a reorder
+      // can move the last member mid-strip), then the holder is stamped.
+      try {
+        for (const t of tabs) {
+          try {
+            if (
+              !t ||
+              t.closing ||
+              typeof t.getAttribute !== "function" ||
+              t.getAttribute("data-aph-space-last") !== "1"
+            ) {
+              continue;
+            }
+            const sid = t.getAttribute("data-aph-space") || "";
+            if (sid && lastMemberBySpace.get(sid) === t) {
+              continue;
+            }
+            clearSpaceAttr(t, "data-aph-space-last");
+          } catch (e) {}
+        }
+        for (const t of lastMemberBySpace.values()) {
+          try {
+            setSpaceAttr(t, "data-aph-space-last", "1");
+          } catch (e) {}
+        }
+      } catch (e) {}
+    } catch (e) {}
+  }
+
+  // Whole-group assignment: every live member carries the folder, so the
+  // plurality vote survives member churn and session restore. Refuses
+  // cross-workspace folders (paint would drop them anyway — fail loud at
+  // the API instead of silently unpainted).
+  function assignGroupToSpace(group, sid) {
+    try {
+      const reg = getSpace(sid);
+      if (!reg) {
+        return false;
+      }
+      const members = groupMembers(group).filter((t) => t && !t.closing);
+      if (!members.length) {
+        return false;
+      }
+      if (spaceGroupWs(group) && spaceGroupWs(group) !== reg.ws) {
+        return false;
+      }
+      for (const m of members) {
+        setSpace(m, sid);
+      }
+    } catch (e) {
+      return false;
+    }
+    try {
+      if (isValidId(current)) {
+        syncSpaces(current);
+      }
+    } catch (e) {}
+    invalidateSpacePalette();
+    return true;
+  }
+
+  function unassignGroup(group) {
+    let had = false;
+    try {
+      for (const m of groupMembers(group)) {
+        try {
+          if (m && !m.closing && rawSpace(m)) {
+            had = true;
+            clearSpace(m);
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    try {
+      if (isValidId(current)) {
+        syncSpaces(current);
+      }
+    } catch (e) {}
+    if (had) {
+      invalidateSpacePalette();
+    }
+    return had;
+  }
+
+  // The tab's own membership value (not registry-checked): palette rows
+  // gate "Remove … from Space" visibility on it, same raw read as
+  // spaceOfGroup's votes.
+  function getTabSpace(tab) {
+    try {
+      return rawSpace(tab) || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Single-tab assignment for loose members (spaces hold plain tabs): same
+  // rules as the group path — cross-workspace folders refused (paint would
+  // drop them anyway; fail loud at the API), pinned tabs refused (they are
+  // global like stash targets), tagless/new tabs allowed (paint gates them
+  // later). Grouped tabs accept too: the value is a member vote, and the
+  // row paints like any other — same semantics as half-selecting a group.
+  function assignTabToSpace(tab, sid) {
+    try {
+      const reg = getSpace(sid);
+      if (!reg || !tab || tab.closing || tab.pinned) {
+        return false;
+      }
+      const w = rawWs(tab);
+      if (w && w !== reg.ws) {
+        return false;
+      }
+      setSpace(tab, sid);
+    } catch (e) {
+      return false;
+    }
+    try {
+      if (isValidId(current)) {
+        syncSpaces(current);
+      }
+    } catch (e) {}
+    invalidateSpacePalette();
+    return true;
+  }
+
+  function unassignTabFromSpace(tab) {
+    let had = false;
+    try {
+      if (tab && !tab.closing && rawSpace(tab)) {
+        had = true;
+        clearSpace(tab);
+      }
+    } catch (e) {
+      return had;
+    }
+    try {
+      if (isValidId(current)) {
+        syncSpaces(current);
+      }
+    } catch (e) {}
+    if (had) {
+      invalidateSpacePalette();
+    }
+    return had;
+  }
+
+  // Drag-to-join (65-dock.js tracker precedent): the stock strip keeps its
+  // own drop ride (move/reorder under the cursor); we ADD assignment —
+  // dropping a dragged tab (or multiselection, or a dragged group header's
+  // whole group) ON a folder HEAD joins that folder (user call: row drops
+  // are reorder-only, so ordinary drags never surprise-join). Payload
+  // tracking is pattern-copied from onDockDragStart/closest resolution;
+  // data flavors are never parsed (a tracked null just means "not ours").
+  //
+  // Listener phase is load-bearing. Stock's drop handler (tabs.mjs ->
+  // drag-and-drop.js handle_drop) sits on this same gBrowser.tabContainer
+  // node, bubble phase, registered at element construction — before this
+  // bundle. It computes _getDropIndex from LIVE getBoundingClientRect()
+  // and moves tabs synchronously (or kicks an animated deferred move).
+  // Our repaint changes layout (spacer borders, header line), so a CAPTURE
+  // handler here would mutate the strip before stock measures it and the
+  // dropped tab could land a row off from the indicator. Registering drop
+  // WITHOUT capture puts us after stock on the same node (listener order =
+  // registration order), i.e. after placement is decided. dragover stays
+  // capture: the hover ring is box-shadow only, layout-neutral.
+  let spaceDragTab = null;
+  let spaceDragGroup = null;
+  let spaceHoverEl = null;
+
+  function resolveSpaceDragTabs() {
+    try {
+      if (spaceDragGroup) {
+        let members = [];
+        try {
+          members =
+            typeof groupMembers === "function"
+              ? groupMembers(spaceDragGroup)
+              : Array.from(spaceDragGroup.tabs || []);
+        } catch (e) {
+          members = [];
+        }
+        let live = [];
+        try {
+          live = Array.from((gBrowser && gBrowser.tabs) || []);
+        } catch (e) {}
+        const liveSet = new Set(live);
+        try {
+          members = members.filter((t) => t && !t.closing && liveSet.has(t));
+        } catch (e) {}
+        if (members.length) {
+          return members;
+        }
+        // Stale group ref (closed mid-drag): fall through to tab logic.
+      }
+      if (!spaceDragTab || spaceDragTab.closing) {
+        return [];
+      }
+      let live = [];
+      try {
+        live = Array.from((gBrowser && gBrowser.tabs) || []);
+      } catch (e) {
+        return [];
+      }
+      if (!live.includes(spaceDragTab)) {
+        return [];
+      }
+      // Same multiselection rule as the dock (resolveDockDragTabs): a
+      // dragged tab that is part of the live selection drags its peers.
+      try {
+        const multi = (gBrowser && (gBrowser.selectedTabs || gBrowser.multiselectedTabs)) || null;
+        if (Array.isArray(multi) && multi.length > 1) {
+          try {
+            if (multi.includes(spaceDragTab)) {
+              const liveSet = new Set(live);
+              const filtered = multi.filter(
+                (t) => t && !t.closing && liveSet.has(t)
+              );
+              if (filtered.length) {
+                return filtered;
+              }
+            }
+          } catch (e) {}
+        }
+      } catch (e) {}
+      return [spaceDragTab];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function clearSpaceHover() {
+    try {
+      if (spaceHoverEl && typeof spaceHoverEl.removeAttribute === "function") {
+        spaceHoverEl.removeAttribute("data-aph-space-hover");
+      }
+    } catch (e) {}
+    spaceHoverEl = null;
+  }
+
+  // Drop heads are the ONLY join targets: a dragged tab joins a folder by
+  // dropping on that folder's head — its first member row, or the group's
+  // label container when the folder starts with a native group (the
+  // container carries the space sid while it heads the folder).
+  // Everything else (plain member rows, unowned tabs, strip gaps) is pure
+  // stock reorder territory, so ordinary drags keep stock behavior
+  // untouched. Returns [headEl, sid] or [null, ""].
+  function spaceTargetUnderPointer(e) {
+    try {
+      const t = e && e.target;
+      let label = null;
+      try {
+        label = t && typeof t.closest === "function"
+          ? t.closest(".tab-group-label-container")
+          : null;
+      } catch (err) {
+        label = null;
+      }
+      if (label && typeof label.getAttribute === "function") {
+        const sid = label.getAttribute("data-aph-space") || "";
+        if (sid) {
+          return [label, sid];
+        }
+      }
+      let tabEl = null;
+      try {
+        tabEl = t && typeof t.closest === "function" ? t.closest("tab") : null;
+      } catch (err) {
+        tabEl = null;
+      }
+      if (tabEl && tabEl.getAttribute) {
+        const sid = tabEl.getAttribute("data-aph-space") || "";
+        if (sid && tabEl.getAttribute("data-aph-space-first") === "1") {
+          return [tabEl, sid];
+        }
+      }
+    } catch (err) {}
+    return [null, ""];
+  }
+
+  function onSpaceDragStart(e) {
+    try {
+      spaceDragTab = null;
+      spaceDragGroup = null;
+      const t = e && e.target;
+      let tabEl = null;
+      try {
+        tabEl = t && typeof t.closest === "function" ? t.closest("tab") : null;
+      } catch (e) {
+        tabEl = null;
+      }
+      if (tabEl && !tabEl.closing) {
+        spaceDragTab = tabEl;
+        return;
+      }
+      let grpEl = null;
+      try {
+        grpEl = t && typeof t.closest === "function" ? t.closest("tab-group") : null;
+      } catch (e) {
+        grpEl = null;
+      }
+      if (grpEl) {
+        spaceDragGroup = grpEl;
+      }
+    } catch (e) {}
+  }
+
+  function onSpaceDragOver(e) {
+    // Tracked tab drags only: other drag sources (links, text) never paint.
+    if (!spaceDragTab && !spaceDragGroup) {
+      return;
+    }
+    try {
+      const pair = spaceTargetUnderPointer(e);
+      const el = pair[0];
+      if (el !== spaceHoverEl) {
+        clearSpaceHover();
+        if (el) {
+          try {
+            el.setAttribute("data-aph-space-hover", "1");
+          } catch (e) {}
+          spaceHoverEl = el;
+        }
+      }
+    } catch (e) {}
+  }
+
+  function onSpaceDrop(e) {
+    let el = null;
+    let sid = "";
+    try {
+      const pair = spaceTargetUnderPointer(e);
+      el = pair[0];
+      sid = pair[1];
+    } catch (e) {}
+    try {
+      if (el && sid) {
+        const tabs = resolveSpaceDragTabs();
+        for (const t of tabs) {
+          try {
+            // Same-space drop is a plain strip reorder (stock handles it).
+            if (rawSpace(t) === sid) {
+              continue;
+            }
+            if (spaceDragGroup && t.group) {
+              // Whole-group drag: every member joins (the folder keeps its
+              // one-space rule via the plurality vote).
+              assignGroupToSpace(assertGroup(t.group), sid);
+              break;
+            }
+            assignTabToSpace(t, sid);
+          } catch (err) {}
+        }
+      }
+    } catch (e) {}
+  }
+
+  function assertGroup(g) {
+    try {
+      if (g && typeof g.tabs !== "undefined") {
+        return g;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function onSpaceDragEnd() {
+    try {
+      clearSpaceHover();
+    } catch (e) {}
+    spaceDragTab = null;
+    spaceDragGroup = null;
+  }
+
+  function cleanupSpaces() {
+    try {
+      clearSpaceHover();
+    } catch (e) {}
+    spaceDragTab = null;
+    spaceDragGroup = null;
+    spaceHeaderEls = [];
+  }
+
+  function initSpaces() {
+    try {
+      const tc = gBrowser && gBrowser.tabContainer;
+      if (tc && typeof tc.addEventListener === "function") {
+        try {
+          tc.addEventListener("dragstart", onSpaceDragStart, true);
+        } catch (e) {}
+        try {
+          tc.addEventListener("dragover", onSpaceDragOver, true);
+        } catch (e) {}
+        try {
+          // Bubble phase on purpose: stock's drop handler is on this same
+          // node and must decide the landing index before we repaint.
+          tc.addEventListener("drop", onSpaceDrop, false);
+        } catch (e) {}
+        try {
+          tc.addEventListener("dragleave", clearSpaceHover, true);
+        } catch (e) {}
+      }
+      try {
+        window.addEventListener("dragstart", onSpaceDragStart, true);
+      } catch (e) {}
+      try {
+        window.addEventListener("dragend", onSpaceDragEnd);
+      } catch (e) {}
+      try {
+        window.addEventListener("unload", cleanupSpaces, { once: true });
+      } catch (e) {}
+    } catch (e) {}
+  }
+
+  // Same eager/lazy shape as initDock(): chrome runs the bundle before
+  // the document settles, so the strip listener may not exist yet.
+  if (typeof document !== "undefined" && document.readyState === "complete") {
+    initSpaces();
+  } else {
+    try {
+      window.addEventListener("load", initSpaces, { once: true });
+    } catch (e) {}
+  }
   // Native dual split-view (Firefox 149+ tab-split-view-wrapper engine).
   // Aph only drives stock entry points: creation through
   // gBrowser.addTabSplitView, teardown through wrapper.unsplitTabs, and
@@ -9321,23 +11039,13 @@
       return;
     }
     // Session restore owns this tab until SSTabRestored: extData (aphWs)
-    // has not been applied yet, so every write below — birth
-    // age, last-viewed, fresh flag, container repair, stamp —
+    // has not been applied yet, so every write below — last-viewed,
+    // fresh flag, container repair, stamp —
     // would race the restore and freeze a tagless WS3 tab to the current
     // workspace. Let onTabRestored settle it.
     try {
       if (typeof isRestoringTab === "function" && isRestoringTab(tab)) {
         return;
-      }
-    } catch (err) {}
-    // Birth stamp for the prune settle window (a newborn tab wears
-    // about:blank until its first document commits — pruning on that
-    // transient face would close real pages). Every live tab passes here;
-    // restored tabs (SSTabRestored) deliberately get none so they stay on
-    // the old prune path (adopted tabs arrive with live content).
-    try {
-      if (tab) {
-        tab.__aphBirth = Date.now();
       }
     } catch (err) {}
     // Birth counts as viewed for auto-stash staleness.
@@ -9519,6 +11227,14 @@
       }
       if (typeof stampLastViewed === "function") {
         stampLastViewed(tab);
+      }
+    } catch (err) {}
+    // Folder paint self-heal on focus (spaces): selection is the cheapest
+    // heartbeat available; an interim attr wipe (mid-restore clears, strip
+    // rebuilds) converges here without a dedicated listener.
+    try {
+      if (isValidId(current) && typeof syncSpaces === "function") {
+        syncSpaces(current);
       }
     } catch (err) {}
   }
@@ -10104,9 +11820,6 @@
       try {
         reconcile(isValidId(current) ? current : "1", Array.from(gBrowser.tabs));
       } catch (e) {}
-      try {
-        pruneExtraNewTabs(isValidId(current) ? current : "1");
-      } catch (e) {}
       return;
     }
     // Window-scoped landing: each window restores its own saved workspace
@@ -10462,11 +12175,19 @@
         Services.prefs.removeObserver(WS_ACCENTS_PREF, wsAccentObserver);
       }
     } catch (e) {}
+    try {
+      if (typeof spacesObserver !== "undefined" && spacesObserver) {
+        Services.prefs.removeObserver(SPACES_PREF, spacesObserver);
+      }
+    } catch (e) {}
     bindingObserver = null;
     routeObserver = null;
     nameObserver = null;
     wsIconObserver = null;
     wsAccentObserver = null;
+    try {
+      spacesObserver = null;
+    } catch (e) {}
     try {
       if (startupRestoreObserver && Services.obs) {
         Services.obs.removeObserver(
@@ -10632,6 +12353,12 @@
         sendTabTo,
         sendGroupTo,
         cycleWorkspace,
+        cycleMru: typeof cycleMru === "function" ? cycleMru : () => {},
+        getMruOrder: typeof getMruOrder === "function" ? getMruOrder : () => [],
+        cycleTabMru: typeof cycleTabMru === "function" ? cycleTabMru : () => {},
+        getTabWalkOrder: typeof getTabWalkOrder === "function" ? getTabWalkOrder : () => [],
+        groupSelectedTabs:
+          typeof groupSelectedTabs === "function" ? groupSelectedTabs : () => false,
         toggleLastWorkspace,
         getActiveWorkspaces: getActiveIds,
         getLastWorkspace: () => lastUsed,
@@ -10656,6 +12383,21 @@
         wsIconLabel: (k) => WS_ICON_LABELS[k] || String(k || ""),
         wsIconSearch: (k) => WS_ICON_SEARCH[k] || "",
         wsIconSvg: (k, s) => makeWsIconSvg(k, s),
+        getSpace: typeof getSpace === "function" ? getSpace : () => null,
+        listSpaces: typeof listSpaces === "function" ? listSpaces : () => [],
+        createSpace: typeof createSpace === "function" ? createSpace : () => "",
+        renameSpace: typeof renameSpace === "function" ? renameSpace : () => false,
+        deleteSpace: typeof deleteSpace === "function" ? deleteSpace : () => false,
+        assignGroupToSpace:
+          typeof assignGroupToSpace === "function" ? assignGroupToSpace : () => false,
+        unassignGroup: typeof unassignGroup === "function" ? unassignGroup : () => false,
+        assignTabToSpace:
+          typeof assignTabToSpace === "function" ? assignTabToSpace : () => false,
+        unassignTabFromSpace:
+          typeof unassignTabFromSpace === "function" ? unassignTabFromSpace : () => false,
+        getTabSpace: typeof getTabSpace === "function" ? getTabSpace : () => "",
+        spaceOfGroup: typeof spaceOfGroup === "function" ? spaceOfGroup : () => "",
+        syncSpaces: typeof syncSpaces === "function" ? syncSpaces : () => {},
         getCurrent: () => current,
         getWs,
         stampLastViewed,
@@ -10884,6 +12626,27 @@
       Services.prefs.addObserver(WS_ACCENTS_PREF, wsAccentObserver);
     } catch (e) {
       wsAccentObserver = null;
+    }
+    // Cross-window/cross-document space sync: the palette writes aph.spaces
+    // directly, so without this a folder created here paints nowhere else
+    // until the next header sync there. Drop the cache and repaint this
+    // window's folders at once (names/icons/accents precedent above).
+    try {
+      spacesObserver = {
+        observe() {
+          try {
+            aphSpaces = null;
+          } catch (e) {}
+          try {
+            if (isValidId(current) && typeof syncSpaces === "function") {
+              syncSpaces(current);
+            }
+          } catch (e) {}
+        },
+      };
+      Services.prefs.addObserver(SPACES_PREF, spacesObserver);
+    } catch (e) {
+      spacesObserver = null;
     }
     try {
       initRouteListener();

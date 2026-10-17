@@ -327,9 +327,6 @@
         return;
       }
     } catch (err) {}
-    if (e.repeat) {
-      return;
-    }
     // Windows international keyboards: AltGr arrives as Ctrl+Alt, so bare
     // modifier checks can't tell "AltGr+Q → @" (German) apart from a real
     // Ctrl+Alt hotkey. The OS flags genuine AltGr composition via the
@@ -343,6 +340,23 @@
         return;
       }
     } catch (err) {}
+    // Ctrl+` walks MRU tabs (Ctrl+Shift+` walks reverse), workspace-safe:
+    // landing on another workspace's tab switches there first. e.code,
+    // not e.key: Shift turns "`" into "~". No editable-target skip (Ctrl
+    // types nothing) and repeat allowed so holding ` walks quickly.
+    if (e.ctrlKey && !e.altKey && !e.metaKey && e.code === "Backquote") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof cycleTabMru === "function") {
+          cycleTabMru(e.shiftKey ? -1 : 1);
+        }
+      } catch (err) {}
+      return;
+    }
+    if (e.repeat) {
+      return;
+    }
     // Ctrl/Cmd+W on a selected pinned or starred tab keeps it open
     // instead of closing — a drifted pin/star resets to its base URL in
     // place, one already at base parks (unload); the second press (now
@@ -473,8 +487,23 @@
       } catch (err) {}
       return;
     }
+    // Ctrl+Alt+G groups the selected tabs (native group = space). The
+    // combo types nothing, so no editable-target skip — the AltGraph
+    // guard above covers real AltGr layouts. Shift variant stays
+    // unbound (falls through to stock).
+    if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.code === "KeyG") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof groupSelectedTabs === "function") {
+          groupSelectedTabs();
+        }
+      } catch (err) {}
+      return;
+    }
     // Alt+Shift cycling: brackets always, arrows outside editable text
-    // (Alt+Shift+Left/Right selects words while typing), Tab toggles MRU.
+    // (Alt+Shift+Left/Right selects words while typing). MRU walk lives on
+    // Ctrl+` / Ctrl+Shift+` above (no Alt+Shift+Tab binding).
     // e.code, not e.key: Shift turns "[" into "{".
     if (!e.ctrlKey && e.shiftKey && !e.metaKey) {
       if (e.code === "BracketRight") {
@@ -493,12 +522,6 @@
         e.preventDefault();
         e.stopPropagation();
         cycleWorkspace(e.code === "ArrowRight" ? 1 : -1);
-        return;
-      }
-      if (e.code === "Tab") {
-        e.preventDefault();
-        e.stopPropagation();
-        toggleLastWorkspace();
         return;
       }
     }

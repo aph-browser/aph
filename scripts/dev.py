@@ -213,8 +213,11 @@ def _chrome_seed_version(path: Path) -> int:
     seed-once behavior is unchanged until the bundled copy bumps.
     """
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
+        # Profile CSS is user-editable: read with surrogateescape so a
+        # non-UTF8 byte (latin-1 editor, etc.) can't crash the launch.
+        # The stamp itself is ASCII, so it still matches.
+        text = path.read_text(encoding="utf-8", errors="surrogateescape")
+    except (OSError, UnicodeError):
         return 0
     m = _CHROME_SEED_VERSION_RE.search(text)
     return int(m.group(1)) if m else 0
@@ -413,8 +416,14 @@ def _is_retired_stale(line: str) -> bool:
 def _scrub_lines(path: Path) -> bool:
     """Remove retired-default lines from path. Returns True if changed."""
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
+        # prefs.js is Firefox-managed and can contain non-UTF8 bytes
+        # (e.g. latin-1 tab titles like "Send Active Tab to Workspace # ·
+        # Banking"). surrogateescape round-trips those bytes exactly, so
+        # scrubbing retired (pure-ASCII) lines never corrupts the rest —
+        # and, critically, never crashes the launch (system launchers
+        # show no traceback, the click just silently does nothing).
+        text = path.read_text(encoding="utf-8", errors="surrogateescape")
+    except (OSError, UnicodeError):
         return False
     lines = text.splitlines()
     kept = [line for line in lines if not _is_retired_stale(line)]
@@ -424,8 +433,8 @@ def _scrub_lines(path: Path) -> bool:
     if text.endswith("\n"):
         out += "\n"
     try:
-        path.write_text(out, encoding="utf-8")
-    except OSError as e:
+        path.write_text(out, encoding="utf-8", errors="surrogateescape")
+    except (OSError, UnicodeError) as e:
         print(f"Warning: could not scrub {path}: {e}", file=sys.stderr)
         return False
     return True
@@ -445,9 +454,12 @@ def scrub_retired_prefs(profile: Path) -> list[str]:
     if user_js.is_file():
         try:
             has_stale = any(
-                _is_retired_stale(line) for line in user_js.read_text(encoding="utf-8").splitlines()
+                _is_retired_stale(line)
+                for line in user_js.read_text(
+                    encoding="utf-8", errors="surrogateescape"
+                ).splitlines()
             )
-        except OSError:
+        except (OSError, UnicodeError):
             has_stale = False
         if has_stale:
             bak = profile / "user.js.bak"

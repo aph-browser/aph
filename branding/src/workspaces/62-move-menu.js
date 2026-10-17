@@ -6,6 +6,13 @@
   //   preserves whole groups).
   // - "Move Group to Workspace >" — only when the clicked tab sits in a
   //   native group of 2+; calls sendGroupTo (whole group, membership kept).
+  // Space variants ("Move Tab(s)/Group to Space >", 77-spaces.js folders)
+  // follow the same rule: rows are the CURRENT workspace's spaces; grouped
+  // targets tag every member (the group's folder resolves by plurality),
+  // and a group click rewrites all members. Current folder rows render
+  // disabled, "Remove from Space" clears values (folders and groups stay).
+  // Pinned tabs never join (assign refuses), so the tab submenu hides for
+  // a pinned click.
   // Labels carry workspace names + bound-container suffixes (palette wsFull
   // pattern, reimplemented here — the palette bundle is a separate scope).
   // XUL hosts need createXULElement (HTML-namespaced duds never render);
@@ -238,6 +245,148 @@
     }
   }
 
+  // Spaces of the current workspace as menu rows. showRemove is resolved
+  // by the caller from the RAW value (a stale id has no registry row, so
+  // the remove path must not depend on one). Returns rows appended to one
+  // submenu: each space (current one disabled), then a separator + remove.
+  function appendSpaceSubmenu(
+    menu,
+    topId,
+    topLabel,
+    spaces,
+    currentSid,
+    onAssign,
+    onRemove,
+    showRemove
+  ) {
+    try {
+      const sub = makeMoveMenuNode("menu", topId, topLabel, false);
+      if (!sub) {
+        return null;
+      }
+      const popup =
+        typeof document.createXULElement === "function"
+          ? document.createXULElement("menupopup")
+          : document.createElement("menupopup");
+      if (!popup || typeof popup.appendChild !== "function") {
+        return null;
+      }
+      for (const s of spaces) {
+        if (!s || !s.id) {
+          continue;
+        }
+        const item = makeMoveMenuNode(
+          "menuitem",
+          `${topId}-${s.id}`,
+          s.name || s.id,
+          s.id === currentSid
+        );
+        if (!item) {
+          continue;
+        }
+        if (typeof item.addEventListener === "function") {
+          const sid = s.id;
+          item.addEventListener("command", () => {
+            try {
+              onAssign(sid);
+            } catch (err) {}
+          });
+        }
+        try {
+          popup.appendChild(item);
+        } catch (e) {}
+      }
+      if (showRemove && typeof onRemove === "function") {
+        const sep = makeMoveMenuNode("menuseparator", `${topId}-sep`, "", false);
+        if (sep) {
+          try {
+            popup.appendChild(sep);
+          } catch (e) {}
+        }
+        const rm = makeMoveMenuNode(
+          "menuitem",
+          `${topId}-remove`,
+          "Remove from Space",
+          false
+        );
+        if (rm) {
+          if (typeof rm.addEventListener === "function") {
+            rm.addEventListener("command", () => {
+              try {
+                onRemove();
+              } catch (err) {}
+            });
+          }
+          try {
+            popup.appendChild(rm);
+          } catch (e) {}
+        }
+      }
+      try {
+        sub.appendChild(popup);
+      } catch (e) {
+        return null;
+      }
+      try {
+        menu.appendChild(sub);
+        moveMenuItems.push(sub);
+      } catch (e) {
+        return null;
+      }
+      return sub;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Current-workspace space rows, or null when the runtime has no spaces
+  // (older bundle shapes / tests). Registry reads only; assignment gates
+  // live in 77.
+  function moveMenuSpaces() {
+    try {
+      if (typeof listSpaces !== "function" || !isValidId(current)) {
+        return null;
+      }
+      const spaces = listSpaces(current) || [];
+      return spaces.length ? spaces : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // A group's folder for menu purposes: the plurality pick, else any
+  // member's raw value (a stale id still gets a remove row).
+  function moveMenuGroupSpace(group) {
+    try {
+      if (typeof spaceOfGroup === "function") {
+        const sid = spaceOfGroup(group) || "";
+        if (sid) {
+          return sid;
+        }
+      }
+      if (typeof getTabSpace === "function") {
+        let members = [];
+        try {
+          members =
+            typeof groupMembers === "function"
+              ? groupMembers(group)
+              : (group && group.tabs) || [];
+        } catch (e) {
+          members = [];
+        }
+        for (const m of members || []) {
+          try {
+            const sid = getTabSpace(m);
+            if (sid) {
+              return sid;
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    return "";
+  }
+
   function onMoveMenuShowing(e) {
     try {
       const menu = (e && (e.currentTarget || e.target)) || null;
@@ -288,6 +437,95 @@
               }
             } catch (err) {}
           });
+        }
+      } catch (err) {}
+      // Space variants (77-spaces.js folders inside the current
+      // workspace): tab first, then group — same layering as the
+      // workspace pair above. Rows list current-workspace spaces only;
+      // cross-workspace folders are refused by the assign APIs anyway.
+      try {
+        const spaces = moveMenuSpaces();
+        let showRemove = false;
+        if (typeof getTabSpace === "function") {
+          for (const t of targets) {
+            try {
+              if (getTabSpace(t)) {
+                showRemove = true;
+                break;
+              }
+            } catch (err) {}
+          }
+        }
+        if (!clicked.pinned && (spaces || showRemove)) {
+          const rows = (spaces || []).slice();
+          let curSid = "";
+          try {
+            if (typeof getTabSpace === "function") {
+              curSid = getTabSpace(clicked) || "";
+            }
+          } catch (err) {}
+          appendSpaceSubmenu(
+            menu,
+            "aph-move-space-tab",
+            n > 1 ? `Move ${n} Tabs to Space` : "Move Tab to Space",
+            rows,
+            curSid,
+            (sid) => {
+              if (typeof assignTabToSpace !== "function") {
+                return;
+              }
+              for (const t of targets) {
+                try {
+                  assignTabToSpace(t, sid);
+                } catch (err) {}
+              }
+            },
+            () => {
+              if (typeof unassignTabFromSpace !== "function") {
+                return;
+              }
+              for (const t of targets) {
+                try {
+                  unassignTabFromSpace(t);
+                } catch (err) {}
+              }
+            },
+            showRemove
+          );
+        }
+      } catch (err) {}
+      try {
+        const ginfo = moveMenuGroupOf(clicked);
+        const spaces = moveMenuSpaces();
+        if (ginfo) {
+          const curSid = moveMenuGroupSpace(ginfo.group);
+          const showRemove = !!curSid;
+          if (spaces || showRemove) {
+            appendSpaceSubmenu(
+              menu,
+              "aph-move-space-group",
+              `Move Group (${ginfo.members.length} Tabs) to Space`,
+              (spaces || []).slice(),
+              curSid,
+              (sid) => {
+                if (typeof assignGroupToSpace !== "function") {
+                  return;
+                }
+                try {
+                  assignGroupToSpace(ginfo.group, sid);
+                } catch (err) {}
+              },
+              () => {
+                if (typeof unassignGroup !== "function") {
+                  return;
+                }
+                try {
+                  unassignGroup(ginfo.group);
+                } catch (err) {}
+              },
+              showRemove
+            );
+          }
         }
       } catch (err) {}
       // Unload variant (Firefox 140 parity): discard the clicked tab via

@@ -62,7 +62,15 @@ const sb = {
       discarded.push(t.label);
       t.setAttribute("pending", "");
     },
-    ungroupTab() {},
+    ungroupTab(t) { if (t) t.group = null; },
+    addTabGroup(tabs, opts) {
+      const live = (tabs || []).filter((t) => t && !t.closing);
+      if (live.length < 2) return null;
+      const ng = { tabs: live.slice(), label: "", color: "", collapsed: false };
+      for (const t of live) t.group = ng;
+      sb.gBrowser.tabGroups.push(ng);
+      return ng;
+    },
     replaceInSuccession() {},
     setSuccessor() {},
     _updateMultiselectedTabCloseButtonTooltip() {},
@@ -610,82 +618,12 @@ describe("global pins", () => {
   });
 });
 
-describe("newtab pruning", () => {
-  it("never auto-closes pending (unloaded) tabs", () => {    // Lazy-restored / discarded tabs wear a blank face until they load;
-    // pruning them as "extra newtabs" would destroy unloaded state on
-    // every switch. Regression guard for the pending skip.
-    const start = api.getCurrent();
-    if (start !== "1") api.switchTo("1");
-    const base = sb.gBrowser.tabs.length;
-    const prevSel = sb.gBrowser.selectedTab;
-    const p1 = makeTab(tabVals, { label: "pend1", ws: "2", spec: "about:newtab", pending: true });
-    const p2 = makeTab(tabVals, { label: "pend2", ws: "2", spec: "about:newtab", pending: true });
-    sb.gBrowser.tabs.push(p1, p2);
-    try {
-      api.switchTo("2");
-      assert.ok(sb.gBrowser.tabs.includes(p1), "pending newtab survives the switch");
-      assert.ok(sb.gBrowser.tabs.includes(p2), "second pending newtab survives too");
-    } finally {
-      for (const t of [p1, p2]) {
-        const i = sb.gBrowser.tabs.indexOf(t);
-        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
-      }
-      while (sb.gBrowser.tabs.length > base) sb.gBrowser.tabs.pop();
-      sb.gBrowser.selectedTab = prevSel;
-      if (api.getCurrent() !== start) api.switchTo(start);
-    }
-  });
-
-  it("spares blank-faced tabs younger than the settle window", () => {
-    // A newborn tab wears about:blank until its first document commits
-    // (addTrustedTab births blank; the real URL lands later). Pruning on
-    // that transient face closed the first-run welcome mid-load (seen
-    // live in the Browser Console: prune killed a chrome:// tab reading
-    // as about:blank). Tabs born <10s ago settle first; older stamped
-    // spares still prune exactly as before. Tabs without a birth stamp
-    // (restored tabs — restore deliberately stamps none) are never
-    // pruned: a restored-but-unloaded tab wears about:blank until its
-    // first commit, and closing it destroys unloaded session state (seen
-    // live: bulk restore + workspace switches pruning the backlog).
-    const start = api.getCurrent();
-    if (start !== "1") api.switchTo("1");
-    const prevSel = sb.gBrowser.selectedTab;
-    const ws2 = makeTab(tabVals, { label: "prune-ws2", ws: "2", spec: "https://ws2.example/" });
-    const keeper = makeTab(tabVals, { label: "keeper", ws: "1", spec: "https://keeper.example/" });
-    const fresh = makeTab(tabVals, { label: "fresh", ws: "1", spec: "about:blank" });
-    fresh.__aphBirth = Date.now();
-    const old1 = makeTab(tabVals, { label: "old1", ws: "1", spec: "about:blank" });
-    old1.__aphBirth = Date.now() - 60000;
-    const old2 = makeTab(tabVals, { label: "old2", ws: "1", spec: "about:blank" });
-    old2.__aphBirth = Date.now() - 60000;
-    const restored1 = makeTab(tabVals, { label: "restored1", ws: "1", spec: "about:blank" });
-    const restored2 = makeTab(tabVals, { label: "restored2", ws: "1", spec: "about:blank" });
-    sb.gBrowser.tabs.push(ws2, keeper, fresh, old1, old2, restored1, restored2);
-    sb.gBrowser.selectedTab = keeper;
-    try {
-      api.switchTo("2");
-      api.switchTo("1");
-      assert.ok(sb.gBrowser.tabs.includes(fresh), "newborn blank face survives the switch");
-      assert.ok(sb.gBrowser.tabs.includes(restored1), "unstamped restored blank survives the switch");
-      assert.ok(sb.gBrowser.tabs.includes(restored2), "second unstamped restored blank survives too");
-      assert.ok(sb.gBrowser.tabs.includes(old1) || sb.gBrowser.tabs.includes(old2), "one settled stamped spare survives (keep=1)");
-      assert.ok(!(sb.gBrowser.tabs.includes(old1) && sb.gBrowser.tabs.includes(old2)), "second settled stamped spare still prunes");
-    } finally {
-      for (const t of [ws2, keeper, fresh, old1, old2, restored1, restored2]) {
-        const i = sb.gBrowser.tabs.indexOf(t);
-        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
-      }
-      sb.gBrowser.selectedTab = prevSel;
-      if (api.getCurrent() !== start) api.switchTo(start);
-    }
-  });
-
+describe("reconcile selection", () => {
   it("reconcile keeps a valid live selection instead of yanking to lastSelected", () => {
     // resolveTargetTab prefers the remembered tab, but reconcile then
     // forced selection onto it even when the live selection already
     // belonged to the target workspace — burying just-opened foreground
-    // tabs (the welcome tab lost selection this way, and the following
-    // prune read its blank face as spare). Switching away and back lands
+    // tabs. Switching away and back lands
     // on lastSelected as before; reconcile alone must not steal.
     const start = api.getCurrent();
     if (start !== "1") api.switchTo("1");
@@ -1470,6 +1408,173 @@ describe("restore guards (routing)", () => {
     } finally {
       const i = sb.gBrowser.tabs.indexOf(t);
       if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+    }
+  });
+});
+
+describe("workspace mru walk (API-only)", () => {
+  function ensureWs(id, label) {
+    let t = sb.gBrowser.tabs.find((x) => wsOf(x) === id && !x.closing && !x.pinned);
+    if (t) return t;
+    t = makeTab(tabVals, { label: label || `mru-${id}`, ws: id, spec: `https://example.com/${id}` });
+    sb.gBrowser.tabs.push(t);
+    return t;
+  }
+  it("walks MRU order forward and reverse with rotation", () => {
+    const t2 = ensureWs("2");
+    const t3 = ensureWs("3");
+    const t4 = ensureWs("4");
+    try {
+      api.switchTo("1");
+      api.switchTo("2");
+      api.switchTo("3");
+      api.switchTo("4");
+      assert.equal(api.getCurrent(), "4");
+      const order = api.getMruOrder();
+      assert.equal(JSON.stringify(order.slice(0, 4)), JSON.stringify(["4", "3", "2", "1"]));
+      assert.equal(api.getLastWorkspace(), "3");
+      api.cycleMru(1);
+      assert.equal(api.getCurrent(), "3");
+      api.cycleMru(1);
+      assert.equal(api.getCurrent(), "2");
+      api.cycleMru(1);
+      assert.equal(api.getCurrent(), "1");
+      api.cycleMru(1);
+      assert.equal(api.getCurrent(), "4");
+      api.cycleMru(-1);
+      assert.equal(api.getCurrent(), "1");
+      api.cycleMru(-1);
+      assert.equal(api.getCurrent(), "2");
+    } finally {
+      for (const t of [t2, t3, t4]) {
+        // keep fixture tabs; only reset position
+      }
+      api.switchTo("1");
+    }
+  });
+
+  it("explicit switches push front; legacy toggle still flips pair", () => {
+    ensureWs("2");
+    api.switchTo("1");
+    api.switchTo("2");
+    assert.equal(api.getLastWorkspace(), "1");
+    api.toggleLastWorkspace();
+    assert.equal(api.getCurrent(), "1");
+    api.toggleLastWorkspace();
+    assert.equal(api.getCurrent(), "2");
+  });
+});
+
+describe("tab mru walk (Ctrl+`)", () => {
+  function stamp(t, n) {
+    const o = tabVals.get(t) || {};
+    o.aphLastViewed = String(n);
+    tabVals.set(t, o);
+  }
+  function neutralizeExcept(keep) {
+    const now = Date.now();
+    for (const t of sb.gBrowser.tabs) {
+      if (!keep.includes(t)) {
+        stamp(t, 1);
+      }
+    }
+    return now;
+  }
+  it("walks tabs by recency with selected first, wrapping", () => {
+    const a = makeTab(tabVals, { label: "tm-a", ws: "1", spec: "https://tm-a.example/" });
+    const b = makeTab(tabVals, { label: "tm-b", ws: "1", spec: "https://tm-b.example/" });
+    sb.gBrowser.tabs.push(a, b);
+    try {
+      api.switchTo("1");
+      sb.gBrowser.selectedTab = home;
+      const now = neutralizeExcept([home, a, b]);
+      stamp(home, now - 3000);
+      stamp(a, now - 100);
+      stamp(b, now - 200);
+      const order = api.getTabWalkOrder().map((t) => t.label);
+      assert.equal(JSON.stringify(order.slice(0, 3)), JSON.stringify(["home", "tm-a", "tm-b"]));
+      api.cycleTabMru(1);
+      assert.equal(sb.gBrowser.selectedTab, a);
+      api.cycleTabMru(1);
+      assert.equal(sb.gBrowser.selectedTab, b);
+      api.cycleTabMru(-1);
+      assert.equal(sb.gBrowser.selectedTab, a);
+    } finally {
+      for (const t of [a, b]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+      sb.gBrowser.selectedTab = home;
+      api.switchTo("1");
+    }
+  });
+
+  it("landing on another workspace's tab switches there first", () => {
+    const far = makeTab(tabVals, { label: "tm-far", ws: "2", spec: "https://tm-far.example/" });
+    sb.gBrowser.tabs.push(far);
+    try {
+      api.switchTo("1");
+      sb.gBrowser.selectedTab = home;
+      const now = neutralizeExcept([home, far]);
+      stamp(home, now - 3000);
+      stamp(far, now - 100);
+      api.cycleTabMru(1);
+      assert.equal(sb.gBrowser.selectedTab, far);
+      assert.equal(api.getCurrent(), "2");
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(far);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      sb.gBrowser.selectedTab = home;
+      api.switchTo("1");
+    }
+  });
+});
+
+describe("group selected tabs (Ctrl+Alt+G)", () => {
+  function cleanup(tabs) {
+    for (const t of tabs) {
+      const i = sb.gBrowser.tabs.indexOf(t);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      t.group = null;
+    }
+    for (let i = sb.gBrowser.tabGroups.length - 1; i >= 0; i--) {
+      const g = sb.gBrowser.tabGroups[i];
+      if (g.tabs.some((t) => tabs.includes(t))) {
+        sb.gBrowser.tabGroups.splice(i, 1);
+      }
+    }
+    delete sb.gBrowser.selectedTabs;
+    sb.gBrowser.selectedTab = home;
+    api.switchTo("1");
+  }
+  it("groups the multiselection, skipping pins", () => {
+    const a = makeTab(tabVals, { label: "gs-a", ws: "1", spec: "https://gsa.example/" });
+    const b = makeTab(tabVals, { label: "gs-b", ws: "1", spec: "https://gsb.example/" });
+    const p = makeTab(tabVals, { label: "gs-p", ws: "1", pinned: true, spec: "https://gsp.example/" });
+    sb.gBrowser.tabs.push(a, b, p);
+    sb.gBrowser.selectedTabs = [a, b, p];
+    try {
+      assert.equal(api.groupSelectedTabs(), true);
+      assert.ok(a.group && a.group === b.group, "ungrouped pair shares one group");
+      assert.equal(p.group, null, "pinned tab stays ungrouped");
+    } finally {
+      cleanup([a, b, p]);
+    }
+  });
+  it("needs two groupable tabs; already-grouped is a no-op", () => {
+    api.switchTo("1");
+    sb.gBrowser.selectedTab = home;
+    delete sb.gBrowser.selectedTabs;
+    assert.equal(api.groupSelectedTabs(), false, "single tab groups nothing");
+    const a = makeTab(tabVals, { label: "gs-c", ws: "1", spec: "https://gsc.example/" });
+    const b = makeTab(tabVals, { label: "gs-d", ws: "1", spec: "https://gsd.example/" });
+    sb.gBrowser.tabs.push(a, b);
+    sb.gBrowser.selectedTabs = [a, b];
+    try {
+      assert.equal(api.groupSelectedTabs(), true);
+      assert.equal(api.groupSelectedTabs(), false, "same pair regroups nothing");
+    } finally {
+      cleanup([a, b]);
     }
   });
 });

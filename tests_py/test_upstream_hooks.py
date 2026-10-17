@@ -56,7 +56,7 @@ BROWSER_HOOKS = (
     (
         "browser",
         "chrome/browser/skin/classic/browser/tabbrowser/tab.tokens.css",
-        "--tab-icon-end-margin",
+        "--tab-icon-margin-inline-end",
         "theme.css §22 favicon gap token",
     ),
     (

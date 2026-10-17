@@ -1,6 +1,6 @@
 /* Aph workspaces: IDs "1"-"9", zero UI. Alt+1..9 jumps to a workspace,
  * Alt+Shift+]/Right cycles next active, Alt+Shift+[/Left cycles previous,
- * Alt+Shift+Tab toggles the last two used (MRU),
+ * Ctrl+` walks MRU tabs workspace-safe (Ctrl+Shift+` walks reverse),
  * Window-scoped model (Vivaldi/Zen): every window has its own workspaces
  * 1-9 and tabs belong to the window they live in. The same workspace id
  * may show in two windows at once — independent tab sets, never shared.
@@ -17,6 +17,14 @@
  * stock Firefox assumes hidden pinned tabs never exist and vertical-tab
  * drag/drop breaks when they do); native tab groups
  * live inside workspaces (one shared tag, header synced, collapsed kept).
+ * Spaces (77): named folders holding tabs inside one workspace (hue wash
+ * + name line on every member row; no collapse of their own). Membership
+ * rides a per-tab aphSpace value; paint is attribute-only — a tab inside
+ * a native group paints like a loose one, the header lands on the first
+ * member row or the group's label container, and a grouped folder's
+ * group quietly gives up its own color pill/rail while keeping its name
+ * and collapse (theme.css §27b). Managed from the palette, the tab
+ * context menu (62) and drag-to-join on a folder head.
  * Container bindings: each workspace may be bound to one Firefox container
  * (Ctrl+Alt+B binds current WS to the selected tab's container,
  * Ctrl+Alt+Shift+B clears). Bound workspaces open new tabs (Ctrl+T,
@@ -49,7 +57,11 @@
   const WIN_KEY = "aphWsCurrent";
   let current = "1";
   const lastSelected = Object.create(null); // workspaceId -> last tab
-  let lastUsed = null; // MRU workspace for Alt+Shift+Tab toggle
+  let lastUsed = null; // compat alias: mru[1] (kept for getLastWorkspace/tests)
+  // MRU visit order for Ctrl+` walk: mru[0] === current always, mru[1] is
+  // last-used. Explicit switches push front; walk switches rotate so
+  // repeated presses walk deeper instead of toggling. In-memory per window.
+  let mru = ["1"];
   // Tabs that arrived via cross-window drag (TabOpen detail.adoptedTab).
   // They join the destination's visible workspace; anchorGroup lets them
   // drag the whole group instead of being healed back to the source tag.

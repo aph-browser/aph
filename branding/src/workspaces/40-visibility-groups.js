@@ -78,6 +78,92 @@
     }
   }
 
+  // Group the live multiselection via stock addTabGroup (Ctrl+Alt+G):
+  // selectedTabs/multiselectedTabs when present, else the selected tab.
+  // Pinned tabs are excluded (Firefox forbids grouping pins); needs 2+
+  // groupable tabs, otherwise pulses instead of acting. Already-one-group
+  // is a no-op pulse. Tag healing rides the existing TabGroupCreate ->
+  // unifyGroup path; headers sync here for immediate paint. Fail-silent.
+  function groupSelectedTabs() {
+    let set = [];
+    try {
+      if (typeof resolveSendBase === "function") {
+        set = resolveSendBase(null) || [];
+      }
+    } catch (e) {
+      set = [];
+    }
+    if (!set.length) {
+      try {
+        const sel = gBrowser.selectedTab;
+        if (sel && !sel.closing) {
+          set = [sel];
+        }
+      } catch (e) {}
+    }
+    const seen = new Set();
+    const tabs = [];
+    try {
+      for (const t of set) {
+        try {
+          if (t && !t.closing && !t.pinned && !seen.has(t)) {
+            seen.add(t);
+            tabs.push(t);
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    if (tabs.length < 2) {
+      try {
+        pulseWorkspaceIndicator();
+      } catch (e) {}
+      return false;
+    }
+    try {
+      const first = tabs[0] && tabs[0].group;
+      if (first) {
+        let same = true;
+        try {
+          for (const t of tabs) {
+            if (t.group !== first) {
+              same = false;
+              break;
+            }
+          }
+        } catch (e) {
+          same = false;
+        }
+        if (same) {
+          try {
+            pulseWorkspaceIndicator();
+          } catch (e) {}
+          return false;
+        }
+      }
+    } catch (e) {}
+    let grouped = false;
+    try {
+      if (gBrowser && typeof gBrowser.addTabGroup === "function") {
+        const g = gBrowser.addTabGroup(tabs, { insertBefore: tabs[0] });
+        grouped = !!g;
+      }
+    } catch (e) {
+      grouped = false;
+    }
+    if (!grouped) {
+      try {
+        pulseWorkspaceIndicator();
+      } catch (e) {}
+      return false;
+    }
+    try {
+      if (typeof syncGroupHeaders === "function" && isValidId(current)) {
+        syncGroupHeaders(current);
+      }
+    } catch (e) {}
+    return true;
+  }
+
   function rememberCurrent(tabs) {
     if (!isValidId(current)) {
       return;
@@ -111,6 +197,8 @@
   // A <tab-group> renders its label regardless of member visibility, so hide
   // the element itself when it holds no target tabs. Collapse is group-level
   // CSS, untouched here, so groups never expand as a side effect.
+  // Space folders (77) repaint on the same pass: every entry that converges
+  // group headers converges folder headers too, so no new listener exists.
   function syncGroupHeaders(target) {
     let groups = [];
     try {
@@ -126,6 +214,11 @@
         } catch (e) {}
       }
     }
+    try {
+      if (typeof syncSpaces === "function" && isValidId(target)) {
+        syncSpaces(target);
+      }
+    } catch (e) {}
   }
 
   // A group lives in exactly one workspace: majority of real tags wins (never
@@ -278,9 +371,7 @@
       // so retry once shown — but ONLY when the live selection is still
       // outside the target. Never yank a valid selection to `focus`: a tab
       // opened + selected after the last switch (first-run welcome, routed
-      // foreground tab) must keep focus. Seen live: reconcile re-selected
-      // a stale lastSelected blank, and the following prune then read the
-      // welcome tab's still-blank face as a spare newtab and closed it.
+      // foreground tab) must keep focus.
       try {
         const now = gBrowser.selectedTab;
         if (now !== focus && (!now || now.closing || getWs(now) !== target)) {
@@ -321,10 +412,21 @@
     } catch (e) {
       lastSelected[target] = focus;
     }
+    // Spaces repaint late (second converging pass): during session restore
+    // the early pass can hit a half-populated strip and the fail-closed
+    // candidate resolution clears valid folder paint; by this point the
+    // selection has settled, so the strip is the ground truth. Also covers
+    // startup (reconcile runs there without any group event to lean on).
+    try {
+      if (typeof syncSpaces === "function" && isValidId(target)) {
+        syncSpaces(target);
+      }
+    } catch (e) {}
   }
 
   // Close unused new tabs in `target`, never the active tab.
   // Keeps at most 1 new tab total (preferring the selected one).
+  // Shared with the unload guards (never unload a newtab).
   function isNewTab(tab) {
     try {
       const uri = tab.linkedBrowser?.currentURI?.spec;
@@ -333,93 +435,5 @@
       }
     } catch (e) {}
     return false;
-  }
-
-  // A newborn tab wears its predecessor's face until the first document
-  // commits (addTrustedTab births about:blank; the real URL lands later).
-  // Pruning on that transient face closes real pages — the first-run
-  // welcome died exactly this way (seen live: blank face at prune time).
-  // Tabs younger than this settle first; the next sweep takes them once
-  // their URL is real. Deferral only, never exemption.
-  const PRUNE_SETTLE_MS = 10000;
-
-  function pruneExtraNewTabs(target) {
-    if (!isValidId(target)) {
-      return;
-    }
-    let sel = null;
-    try {
-      sel = gBrowser.selectedTab;
-    } catch (e) {}
-    const selIsNew = !!(sel && isNewTab(sel) && getWs(sel) === target);
-    let keep = selIsNew ? 0 : 1; // inactive spares allowed beyond selected
-    let tabs = [];
-    try {
-      tabs = Array.from(gBrowser.tabs);
-    } catch (e) {
-      return;
-    }
-    for (const t of tabs) {
-      // Pinned tabs are never auto-closed, even empty ones.
-      if (t.pinned || t.closing || t === sel) {
-        continue;
-      }
-      // Restoring tabs are owned by SessionStore — never prune a tab
-      // whose URL/tag hasn't settled (its newtab face may be transient).
-      try {
-        if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
-          continue;
-        }
-      } catch (e) {}
-      // Unloaded/pending tabs haven't committed a URL yet either (lazy
-      // restore, discard): their blank face may be transient, and closing
-      // them destroys unloaded state. Same rule as the unload guards.
-      try {
-        if (typeof t.hasAttribute === "function" && t.hasAttribute("pending")) {
-          continue;
-        }
-      } catch (e) {}
-      // Fresh tabs still committing their first document (see
-      // PRUNE_SETTLE_MS above): never judge the transient blank face.
-      // Tabs without a birth stamp (restored tabs — restore deliberately
-      // stamps none — plus pre-existing survivors) are NEVER pruned:
-      // a restored-but-unloaded tab wears about:blank until its first
-      // commit, and closing it destroys unloaded session state (seen
-      // live: bulk restore + workspace switches pruning the whole
-      // backlog). Genuine newborn blanks always carry a stamp (TabOpen),
-      // so this only spares tabs Aph didn't birth. Under-prune, never
-      // over-prune: at most a spare restored newtab survives.
-      try {
-        const birth = (t && t.__aphBirth) || 0;
-        if (!birth) {
-          continue;
-        }
-        if (Date.now() - birth < PRUNE_SETTLE_MS) {
-          continue;
-        }
-      } catch (e) {}
-      if (getWs(t) !== target) {
-        continue;
-      }
-      if (!isNewTab(t)) {
-        continue;
-      }
-      if (keep > 0) {
-        keep--;
-        continue;
-      }
-      try {
-        if (typeof aphTabsLog === "function") {
-          aphTabsLog(`prune ws=${target} closing ${aphTabDesc(t)}`);
-        }
-      } catch (e) {}
-      try {
-        gBrowser.removeTab(t, { animate: false });
-      } catch (e) {
-        try {
-          gBrowser.removeTab(t);
-        } catch (_e) {}
-      }
-    }
   }
 

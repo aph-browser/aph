@@ -52,7 +52,7 @@ describe("tour content", () => {
 
   it("teaches the core shortcuts", () => {
     const hay = JSON.stringify(L.SECTIONS);
-    for (const keys of ["Alt+1", "Alt+Shift+Tab", "Ctrl+K", "?", "Ctrl+Alt+T", "Ctrl+W"]) {
+    for (const keys of ["Alt+1", "Ctrl+`", "Ctrl+K", "?", "Ctrl+Alt+T", "Ctrl+W"]) {
       assert.ok(hay.includes(keys), `tour never teaches ${keys}`);
     }
   });

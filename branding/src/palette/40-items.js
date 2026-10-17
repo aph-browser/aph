@@ -42,7 +42,7 @@
 
   function isWorkspaceCommandTitle(title) {
     try {
-      return /^(Switch to |Send (Active|Group|\d+ Tabs)|Route |Bind |Rename |Set Icon )/i.test(
+      return /^(Switch to |Send (Active|Group|\d+ Tabs)|Route |Bind |Rename |Set Icon |Create Space|New Space from|Add Selected Tabs to Space|Move Group to Space|Remove (Group|Selected Tabs) from Space|Delete Space )/i.test(
         String(title || "")
       );
     } catch (e) {
@@ -1187,6 +1187,142 @@
           keepOpen: true,
           run: () => startIconPick(cur),
         });
+        try {
+          if (api && api.listSpaces && api.createSpace) {
+            const spaces = api.listSpaces(cur) || [];
+            cmds.push({
+              title: "Create Space…",
+              hint: "",
+              sub: `Named folder for loose tabs and groups in ${wsFull(api, cur)} · no drag, no collapse of its own`,
+              keepOpen: true,
+              run: () => createSpacePrompt(),
+            });
+            // Selection-scoped rows: spaces hold plain tabs, so a native
+            // group is never required — pick tabs, name the folder, done.
+            let selTabs = [];
+            try {
+              selTabs = (
+                Array.isArray(gBrowser.selectedTabs) && gBrowser.selectedTabs.length
+                  ? gBrowser.selectedTabs
+                  : [gBrowser && gBrowser.selectedTab]
+              ).filter((t) => t && !t.closing && !t.pinned);
+            } catch (e) {}
+            if (selTabs.length && api.assignTabToSpace) {
+              cmds.push({
+                title: "New Space from Selected Tabs…",
+                hint: "",
+                sub:
+                  selTabs.length === 1
+                    ? `${wsFull(api, cur)} · selected tab joins straight away`
+                    : `${wsFull(api, cur)} · ${selTabs.length} tabs join straight away`,
+                keepOpen: true,
+                run: () => createSpaceFromSelectionPrompt(),
+              });
+            }
+            // Group-scoped rows only surface when the selection owns that
+            // structure (same gating as the Send Group rows above).
+            let selGroup = null;
+            try {
+              const sel = gBrowser && gBrowser.selectedTab;
+              selGroup = (sel && sel.group) || null;
+            } catch (e) {}
+            if (selGroup) {
+              let curSid = "";
+              try {
+                curSid = (api.spaceOfGroup && api.spaceOfGroup(selGroup)) || "";
+              } catch (e) {}
+              for (const s of spaces) {
+                if (!s || s.id === curSid) {
+                  continue;
+                }
+                cmds.push({
+                  title: `Move Group to Space ${s.name}`,
+                  hint: "",
+                  sub: "Puts every tab in the native group in that folder",
+                  run: () => {
+                    try {
+                      api.assignGroupToSpace(selGroup, s.id);
+                    } catch (e) {}
+                    invalidatePaletteCache();
+                  },
+                });
+              }
+              if (curSid) {
+                cmds.push({
+                  title: "Remove Group from Space",
+                  hint: "",
+                  sub: "The group stays, the folder link goes",
+                  run: () => {
+                    try {
+                      api.unassignGroup(selGroup);
+                    } catch (e) {}
+                    invalidatePaletteCache();
+                  },
+                });
+              }
+            }
+            // Tab-level rows for the selection (mixed selection ok: loose
+            // tabs join directly, grouped tabs vote via majority paint).
+            if (selTabs.length && api.assignTabToSpace) {
+              for (const s of spaces) {
+                cmds.push({
+                  title: `Add Selected Tabs to Space ${s.name}`,
+                  hint: "",
+                  sub: "Picked tabs join · loose tabs paint themselves, groups vote by majority",
+                  run: () => {
+                    try {
+                      for (const t of selTabs) {
+                        api.assignTabToSpace(t, s.id);
+                      }
+                    } catch (e) {}
+                    invalidatePaletteCache();
+                  },
+                });
+              }
+              let tagged = false;
+              try {
+                tagged = selTabs.some((t) => api.getTabSpace && api.getTabSpace(t));
+              } catch (e) {}
+              if (tagged) {
+                cmds.push({
+                  title: "Remove Selected Tabs from Space",
+                  hint: "",
+                  sub: "Tabs stay exactly where they are",
+                  run: () => {
+                    try {
+                      for (const t of selTabs) {
+                        api.unassignTabFromSpace(t);
+                      }
+                    } catch (e) {}
+                    invalidatePaletteCache();
+                  },
+                });
+              }
+            }
+            for (const s of spaces) {
+              if (!s) {
+                continue;
+              }
+              cmds.push({
+                title: `Rename Space ${s.name}…`,
+                hint: "",
+                keepOpen: true,
+                run: () => renameSpacePrompt(s.id),
+              });
+              cmds.push({
+                title: `Delete Space ${s.name}`,
+                hint: "",
+                sub: "Groups and tabs stay, the folder goes",
+                run: () => {
+                  try {
+                    api.deleteSpace(s.id);
+                  } catch (e) {}
+                  invalidatePaletteCache();
+                },
+              });
+            }
+          }
+        } catch (e) {}
       }
     } catch (e) {}
     cmds.push({

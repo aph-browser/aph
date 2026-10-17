@@ -45,23 +45,13 @@
       return;
     }
     // Session restore owns this tab until SSTabRestored: extData (aphWs)
-    // has not been applied yet, so every write below — birth
-    // age, last-viewed, fresh flag, container repair, stamp —
+    // has not been applied yet, so every write below — last-viewed,
+    // fresh flag, container repair, stamp —
     // would race the restore and freeze a tagless WS3 tab to the current
     // workspace. Let onTabRestored settle it.
     try {
       if (typeof isRestoringTab === "function" && isRestoringTab(tab)) {
         return;
-      }
-    } catch (err) {}
-    // Birth stamp for the prune settle window (a newborn tab wears
-    // about:blank until its first document commits — pruning on that
-    // transient face would close real pages). Every live tab passes here;
-    // restored tabs (SSTabRestored) deliberately get none so they stay on
-    // the old prune path (adopted tabs arrive with live content).
-    try {
-      if (tab) {
-        tab.__aphBirth = Date.now();
       }
     } catch (err) {}
     // Birth counts as viewed for auto-stash staleness.
@@ -243,6 +233,14 @@
       }
       if (typeof stampLastViewed === "function") {
         stampLastViewed(tab);
+      }
+    } catch (err) {}
+    // Folder paint self-heal on focus (spaces): selection is the cheapest
+    // heartbeat available; an interim attr wipe (mid-restore clears, strip
+    // rebuilds) converges here without a dedicated listener.
+    try {
+      if (isValidId(current) && typeof syncSpaces === "function") {
+        syncSpaces(current);
       }
     } catch (err) {}
   }

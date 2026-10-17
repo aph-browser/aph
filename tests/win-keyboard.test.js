@@ -56,7 +56,15 @@ const sb = {
       if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
     },
     discardBrowser() {},
-    ungroupTab() {},
+    ungroupTab(t) { if (t) t.group = null; },
+    addTabGroup(tabs, opts) {
+      const live = (tabs || []).filter((t) => t && !t.closing);
+      if (live.length < 2) return null;
+      const ng = { tabs: live.slice(), label: "", color: "", collapsed: false };
+      for (const t of live) t.group = ng;
+      sb.gBrowser.tabGroups.push(ng);
+      return ng;
+    },
     replaceInSuccession() {},
     setSuccessor() {},
     _updateMultiselectedTabCloseButtonTooltip() {},
@@ -237,6 +245,159 @@ describe("Alt+digit workspace switching", () => {
     fireKey({ code: "Digit3", altKey: true, altGraph: false });
     assert.equal(tabVals.get(home).aphWs, "1", "switch must retag nothing");
     assert.equal(api().getCurrent(), "3");
+  });
+});
+
+describe("tab mru keybinding (Ctrl+` walks tabs workspace-safe)", () => {
+  const api = () => sb.window.AphWorkspaces;
+  function reset() {
+    tabVals.get(home).aphWs = "1";
+    sb.gBrowser.selectedTab = home;
+    if (api().getCurrent() !== "1") api().switchTo("1");
+    sb.document.getElementById = () => null;
+  }
+  function stamp(t, n) {
+    const o = tabVals.get(t) || {};
+    o.aphLastViewed = String(n);
+    tabVals.set(t, o);
+  }
+
+  it("Ctrl+` selects the last-viewed tab", () => {
+    reset();
+    const a = makeTab(tabVals, { label: "tk-a", ws: "1", spec: "https://a.example/" });
+    const b = makeTab(tabVals, { label: "tk-b", ws: "1", spec: "https://b.example/" });
+    sb.gBrowser.tabs.push(a, b);
+    try {
+      sb.gBrowser.selectedTab = b;
+      stamp(b, 1000);
+      stamp(a, 3000);
+      stamp(home, 2000);
+      const e = fireKey({ code: "Backquote", ctrlKey: true, altGraph: false });
+      assert.equal(e._pd, true, "Ctrl+` must be claimed");
+      assert.equal(e._ps, true);
+      assert.equal(sb.gBrowser.selectedTab, a);
+    } finally {
+      for (const t of [a, b]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+      reset();
+    }
+  });
+
+  it("repeated presses walk deeper, Ctrl+Shift+` reverses", () => {
+    reset();
+    const a = makeTab(tabVals, { label: "tk-c", ws: "1", spec: "https://c.example/" });
+    const b = makeTab(tabVals, { label: "tk-d", ws: "1", spec: "https://d.example/" });
+    sb.gBrowser.tabs.push(a, b);
+    try {
+      sb.gBrowser.selectedTab = home;
+      stamp(home, 1000);
+      stamp(a, 3000);
+      stamp(b, 2000);
+      // order: [home, a, b] -> walk -> a -> b
+      fireKey({ code: "Backquote", ctrlKey: true, altGraph: false });
+      assert.equal(sb.gBrowser.selectedTab, a);
+      fireKey({ code: "Backquote", ctrlKey: true, altGraph: false });
+      assert.equal(sb.gBrowser.selectedTab, b);
+      const e = fireKey({ code: "Backquote", ctrlKey: true, shiftKey: true, altGraph: false });
+      assert.equal(e._pd, true);
+      assert.equal(sb.gBrowser.selectedTab, a);
+    } finally {
+      for (const t of [a, b]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+      reset();
+    }
+  });
+
+  it("landing on another workspace's tab switches there first", () => {
+    reset();
+    const far = makeTab(tabVals, { label: "tk-far", ws: "2", spec: "https://far.example/" });
+    sb.gBrowser.tabs.push(far);
+    try {
+      sb.gBrowser.selectedTab = home;
+      stamp(home, 1000);
+      stamp(far, 5000);
+      fireKey({ code: "Backquote", ctrlKey: true, altGraph: false });
+      assert.equal(sb.gBrowser.selectedTab, far);
+      assert.equal(api().getCurrent(), "2");
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(far);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      reset();
+    }
+  });
+
+  it("Alt+Shift+Tab still passes through unclaimed", () => {
+    reset();
+    const cur = api().getCurrent();
+    const sel = sb.gBrowser.selectedTab;
+    const e = fireKey({ code: "Tab", altKey: true, shiftKey: true, altGraph: false });
+    assert.equal(e._pd, false, "old binding must pass through");
+    assert.equal(e._ps, false);
+    assert.equal(api().getCurrent(), cur);
+    assert.equal(sb.gBrowser.selectedTab, sel);
+  });
+});
+
+describe("Ctrl+Alt+G group selected tabs", () => {
+  const api = () => sb.window.AphWorkspaces;
+  function reset() {
+    tabVals.get(home).aphWs = "1";
+    sb.gBrowser.selectedTab = home;
+    if (api().getCurrent() !== "1") api().switchTo("1");
+    sb.document.getElementById = () => null;
+    delete sb.gBrowser.selectedTabs;
+  }
+
+  it("groups the multiselection", () => {
+    reset();
+    const a = makeTab(tabVals, { label: "grp-a", ws: "1", spec: "https://ga.example/" });
+    const b = makeTab(tabVals, { label: "grp-b", ws: "1", spec: "https://gb.example/" });
+    sb.gBrowser.tabs.push(a, b);
+    sb.gBrowser.selectedTabs = [a, b];
+    try {
+      const e = fireKey({ code: "KeyG", ctrlKey: true, altKey: true, altGraph: false });
+      assert.equal(e._pd, true, "Ctrl+Alt+G must be claimed");
+      assert.equal(e._ps, true);
+      assert.ok(a.group && a.group === b.group, "both tabs share one group");
+    } finally {
+      for (const t of [a, b]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+        t.group = null;
+      }
+      for (let i = sb.gBrowser.tabGroups.length - 1; i >= 0; i--) {
+        const g = sb.gBrowser.tabGroups[i];
+        if (g.tabs.includes(a) || g.tabs.includes(b)) {
+          sb.gBrowser.tabGroups.splice(i, 1);
+        }
+      }
+      reset();
+    }
+  });
+
+  it("single tab pulses without grouping (still claimed)", () => {
+    reset();
+    const nBefore = sb.gBrowser.tabGroups.length;
+    const e = fireKey({ code: "KeyG", ctrlKey: true, altKey: true, altGraph: false });
+    assert.equal(e._pd, true);
+    assert.equal(sb.gBrowser.tabGroups.length, nBefore, "no group for a single tab");
+    reset();
+  });
+
+  it("AltGr+G passes through, Shift variant stays unclaimed", () => {
+    reset();
+    const nBefore = sb.gBrowser.tabGroups.length;
+    const e1 = fireKey({ code: "KeyG", ctrlKey: true, altKey: true, altGraph: true });
+    assert.equal(e1._pd, false, "must not claim AltGr composition");
+    assert.equal(e1._ps, false);
+    const e2 = fireKey({ code: "KeyG", ctrlKey: true, altKey: true, shiftKey: true, altGraph: false });
+    assert.equal(e2._pd, false, "Shift variant must stay unclaimed");
+    assert.equal(sb.gBrowser.tabGroups.length, nBefore);
+    reset();
   });
 });
 

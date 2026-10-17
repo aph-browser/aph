@@ -11,7 +11,7 @@ Website: <https://aph-browser.github.io/> · [Releases](https://github.com/aph-b
 
 ## Features
 
-- **Workspaces 1–9** (`Alt+1..9`, `Alt+Shift+]/[` to cycle, `Alt+Shift+Tab` for last-used): window-scoped — every window has its own set, and the same number may show in two windows at once with independent tabs. Windows never move each other's tabs; cross-window moves are explicit (palette / tab right-click → Move Tab to Other Window, arrivals join that window's current workspace). Closing a window is native (SessionStore undo); session restore is per-window native.
+- **Workspaces 1–9** (`Alt+1..9`, `Alt+Shift+]/[` to cycle, `Ctrl+`` for MRU tabs, `Ctrl+Shift+`` for reverse): window-scoped — every window has its own set, and the same number may show in two windows at once with independent tabs. Windows never move each other's tabs; cross-window moves are explicit (palette / tab right-click → Move Tab to Other Window, arrivals join that window's current workspace). Closing a window is native (SessionStore undo); session restore is per-window native.
 - **Command palette** with workspace actions, tab search, bookmarks/history, and stash search.
 - **Stash** for tabs and whole workspaces: auto-sweep, workspace snapshots, container + workspace restore, and staleness tracking.
 - **Native tab groups** inside workspaces, **per-workspace container bindings**, **starred tabs**, and **tab unloading**.

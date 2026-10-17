@@ -1668,7 +1668,7 @@ tab[selected] .tab-label {
   font-weight: 600 !important;
 }
 
-/* Favicons ride stock geometry: 16px image + --tab-icon-end-margin gap
+/* Favicons ride stock geometry: 16px image + --tab-icon-margin-inline-end gap
    (tab.tokens.css default 5.5px, vertical-expanded 7.5px, muted 2px on
    the tab itself, pinned/collapsed 0 via tabs.css selector scoping).
    A prior fixed 20px stack + 14px image with margin:0 severed that
@@ -1684,7 +1684,7 @@ tab[selected] .tab-label {
    furniture instead of floating raw. */
 :root,
 #tabbrowser-tabs[orient="vertical"][expanded] {
-  --tab-icon-end-margin: var(--aph-icon-label-gap, 6px) !important;
+  --tab-icon-margin-inline-end: var(--aph-icon-label-gap, 6px) !important;
 }
 /* Favicon tile: the wash rides the glyph, never the stack. The stack
    measures its children's end margins into its own size (16px glyph +
@@ -2331,6 +2331,94 @@ sidebar-main #tabs-newtab-button,
       transparent
     ) !important;
   }
+}
+
+/* ==========================================================================
+   27b. Spaces: name + a connected-border box over the member rows
+   (77-spaces.js stamps data-aph-space-tab + data-aph-space + hue on every
+   member tab, loose or grouped alike; the head — the earliest member row —
+   also carries data-aph-space-first + name). Untagged tabs never match
+   and render exactly as before.
+
+   No wrapper DOM exists around a space's tabs, so the box is drawn from
+   the rows themselves: rows are already flush (§22d zeroes the stock gap
+   token), so every member row carries the hue wash plus the side edges,
+   square-sided, and the head/last rows cap the run with the card radius
+   — one seamless card for any shape of membership. The header line rides
+   the head row (own-line idiom: flex-wrap + flex: 0 0 100% pseudo).
+
+   Native tab groups are NOT part of the space's paint: no attrs, no hue,
+   no styling hooks on the group element, so a group keeps its full stock
+   look (label, color pill, rail) even when its tabs sit inside a Space.
+   The box simply wraps whatever rows carry the membership.
+
+   Everything is per-folder HUE: a stable hash of the space id rides
+   --aph-space-hue (77 stamps it inline; fallback 260 keeps the palette
+   visible when JS was hindered).
+
+   Geometry is unconditional: no :not([selected]) gates hiding paint
+   (V3 slipped when the first row was selected).
+   ========================================================================== */
+tab[data-aph-space-tab="1"][data-aph-space-first="1"],
+.tabbrowser-tab[data-aph-space-tab="1"][data-aph-space-first="1"] {
+  border-block-start: 14px solid transparent !important;
+  flex-wrap: wrap !important;
+}
+
+tab[data-aph-space-tab="1"][data-aph-space-last="1"],
+.tabbrowser-tab[data-aph-space-tab="1"][data-aph-space-last="1"] {
+  border-block-end: 10px solid transparent !important;
+}
+
+/* One seamless card per member run: side edges on every row, rounded caps
+   on head/last. */
+tab[data-aph-space-tab="1"] > .tab-stack > .tab-background,
+.tabbrowser-tab[data-aph-space-tab="1"] > .tab-stack > .tab-background {
+  background-color: oklch(55% 0.03 var(--aph-space-hue, 260) / 0.09) !important;
+  border-block: 0 !important;
+  border-inline: 1px solid oklch(62% 0.06 var(--aph-space-hue, 260) / 0.45) !important;
+  border-radius: 0 !important;
+}
+
+tab[data-aph-space-tab="1"][data-aph-space-first="1"] > .tab-stack > .tab-background,
+.tabbrowser-tab[data-aph-space-tab="1"][data-aph-space-first="1"] > .tab-stack > .tab-background {
+  border-block-start: 1px solid oklch(62% 0.06 var(--aph-space-hue, 260) / 0.45) !important;
+  border-start-start-radius: var(--aph-radius-card, 12px) !important;
+  border-start-end-radius: var(--aph-radius-card, 12px) !important;
+}
+
+tab[data-aph-space-tab="1"][data-aph-space-last="1"] > .tab-stack > .tab-background,
+.tabbrowser-tab[data-aph-space-tab="1"][data-aph-space-last="1"] > .tab-stack > .tab-background {
+  border-block-end: 1px solid oklch(62% 0.06 var(--aph-space-hue, 260) / 0.45) !important;
+  border-end-start-radius: var(--aph-radius-card, 12px) !important;
+  border-end-end-radius: var(--aph-radius-card, 12px) !important;
+}
+
+tab[data-aph-space-tab="1"][data-aph-space-first="1"]::before,
+.tabbrowser-tab[data-aph-space-tab="1"][data-aph-space-first="1"]::before {
+  content: attr(data-aph-space-name);
+  flex: 0 0 100% !important;
+  min-width: 0 !important;
+  padding: 0 8px 3px !important;
+  font-family: var(--aph-font-chrome) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 14px !important;
+  letter-spacing: 0.03em !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  color: var(--aph-ink-dim, #a3a8ba) !important;
+}
+
+/* Drag targeting: heads only — the first member row. Other member rows
+   and everything else stay reorder territory. The head lights up as the
+   drop surface (ring for that instant; cleared on dragover change/
+   dragend/leave, so it never outlives the drag session). */
+tab[data-aph-space-hover="1"] > .tab-stack > .tab-background,
+.tabbrowser-tab[data-aph-space-hover="1"] > .tab-stack > .tab-background {
+  box-shadow: inset 0 0 0 2px oklch(70% 0.12 var(--aph-space-hue, 260)) !important;
 }
 
 /* ==========================================================================

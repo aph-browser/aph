@@ -117,7 +117,7 @@ function makeWorld() {
 }
 
 describe("restore tag safety (3->2 scramble)", () => {
-  it("TabOpen on a restoring tab stamps nothing (no tag, no birth, no fresh)", () => {
+  it("TabOpen on a restoring tab stamps nothing (no tag, no fresh)", () => {
     const w = makeWorld();
     const t = makeTab(w.tabVals, { label: "rs", ws: undefined, spec: "https://ws3.example.com/" });
     w.tabVals.get(t).aphWs = undefined;
@@ -125,7 +125,6 @@ describe("restore tag safety (3->2 scramble)", () => {
     w.restoring.add(t);
     w.fire("TabOpen", t);
     assert.equal(w.wsOf(t), undefined, "restoring TabOpen must not stamp a tag");
-    assert.equal(t.__aphBirth, undefined, "restoring TabOpen must not age-gate birth");
     assert.ok(!t.__aphFresh, "restoring TabOpen must not mark fresh (router fuel)");
   });
 

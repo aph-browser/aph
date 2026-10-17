@@ -24,6 +24,7 @@
   let routeObserver = null;
   let nameObserver = null;
   let wsIconObserver = null;
+  let spacesObserver = null;
   let startupRestoreObserver = null;
   let navPopupObserver = null;
   // Original window.BrowserOpenTab, captured before initBoundNewTab wraps
@@ -293,11 +294,11 @@
   // too; this entry exists for callers that already claimed (startup
   // restore) and for console use. Returns "local"/"noop" so console
   // callers can confirm what ran (no UI effect).
-  function switchLocal(target) {
+  function switchLocal(target, walkDir) {
     if (!isValidId(target) || target === current) {
       return "noop";
     }
-    beginWorkspaceSwitch(target);
+    beginWorkspaceSwitch(target, walkDir || 0);
     finishWorkspaceSwitch(target);
     return "local";
   }
@@ -333,10 +334,11 @@
   // Commit this window's claim first: current + WIN_KEY + indicator. The
   // adopted-tab handler stamps arrivals to `current`, so the claim must
   // precede any pull — otherwise pulled tabs land in the old workspace.
-  function beginWorkspaceSwitch(target) {
+  function beginWorkspaceSwitch(target, walkDir) {
     if (!isValidId(target) || target === current) {
       return;
     }
+    const walk = walkDir === 1 || walkDir === -1 ? walkDir : 0;
     // Splits are session-scoped: dissolve first so a tab hidden by the
     // switch below can never keep painting inside the content card.
     // Both tabs stay open, each tagged to its own workspace.
@@ -350,7 +352,17 @@
       tabs = Array.from(gBrowser.tabs);
     } catch (e) {}
     rememberCurrent(tabs);
-    lastUsed = current;
+    try {
+      if (walk !== 0) {
+        recordWalkMru(target, walk);
+      } else {
+        recordExplicitMru(target);
+      }
+    } catch (e) {
+      try {
+        lastUsed = current;
+      } catch (_e) {}
+    }
     // Glide direction for finishWorkspaceSwitch: ascending rises from
     // below, descending sinks from above. Captured before the flip —
     // every entry path (switchTo, switchLocal, cycle, dock, palette,
@@ -392,7 +404,6 @@
     anchorAllGroups();
     reconcile(target, tabs);
     strikeBloom();
-    pruneExtraNewTabs(target);
     // Fresh snapshot: reconcile may have opened a tab for an empty
     // workspace, which the stale list above would miss.
     try {
@@ -438,21 +449,22 @@
   // consulted, pulled from, or focused. A workspace with no local tabs
   // opens a fresh tab via reconcile; same-id workspaces elsewhere are
   // independent tab sets. Returns "switched"/"local"/"noop" for console
-  // diagnosis (callers ignore it).
-  function switchTo(target) {
+  // diagnosis (callers ignore it). walkDir 1/-1 marks a Ctrl+` MRU walk
+  // (rotate) vs an explicit switch (push front).
+  function switchTo(target, walkDir) {
     if (!isValidId(target) || target === current) {
       return "noop";
     }
     try {
       if (typeof beginWorkspaceSwitch === "function") {
-        beginWorkspaceSwitch(target);
+        beginWorkspaceSwitch(target, walkDir || 0);
       }
     } catch (e) {}
     try {
       if (typeof finishWorkspaceSwitch === "function") {
         finishWorkspaceSwitch(target);
       } else {
-        switchLocal(target);
+        switchLocal(target, walkDir || 0);
       }
     } catch (e) {}
     return "switched";
@@ -594,7 +606,6 @@
       } catch (e) {}
       try {
         reconcile(current, Array.from(gBrowser.tabs));
-        pruneExtraNewTabs(current);
       } catch (e) {}
       try {
         if (typeof renderDock === "function") {
@@ -605,6 +616,212 @@
     } catch (e) {
       return 0;
     }
+  }
+
+  // MRU visit order for Ctrl+` walk (mru[0] === current, mru[1] = last-used).
+  // Explicit switches push front; walk switches rotate so repeated presses
+  // walk deeper instead of toggling. Filtered to active + current so walks
+  // never strand on empty workspaces; missing active IDs append by tab
+  // recency (max aphLastViewed per WS) so restored workspaces stay
+  // reachable in MRU-feeling order instead of numeric. Fail-silent.
+  function getMruOrder() {
+    try {
+      let active = [];
+      try {
+        active = typeof getActiveIds === "function" ? getActiveIds() : [];
+      } catch (e) {
+        active = [];
+      }
+      const out = [];
+      const seen = new Set();
+      const push = (id) => {
+        try {
+          if (isValidId(id) && !seen.has(id)) {
+            seen.add(id);
+            out.push(id);
+          }
+        } catch (e) {}
+      };
+      try {
+        if (isValidId(current)) {
+          push(current);
+        }
+      } catch (e) {}
+      try {
+        for (const id of mru || []) {
+          if (id === current) {
+            continue;
+          }
+          push(id);
+        }
+      } catch (e) {}
+      let filtered = [];
+      try {
+        const activeSet = new Set(active || []);
+        for (const id of out) {
+          try {
+            if (id === current) {
+              filtered.push(id);
+              continue;
+            }
+            if (activeSet.has(id)) {
+              filtered.push(id);
+            }
+          } catch (e) {}
+        }
+        try {
+          const missing = [];
+          try {
+            for (const id of active || []) {
+              if (!filtered.includes(id)) {
+                missing.push(id);
+              }
+            }
+          } catch (e) {}
+          // Most-recently-viewed workspace first (max aphLastViewed across
+          // its tabs); unviewed/unknown ties fall back to numeric order.
+          // Keeps the first-ever walk feeling like MRU instead of "next".
+          try {
+            const best = Object.create(null);
+            try {
+              for (const t of Array.from((typeof gBrowser !== "undefined" && gBrowser.tabs) || [])) {
+                let w = null;
+                try {
+                  w = typeof rawWs === "function" ? rawWs(t) : null;
+                } catch (e) {}
+                if (!isValidId(w) || !missing.includes(w)) {
+                  continue;
+                }
+                let v = 0;
+                try {
+                  v = typeof readUnloadLastViewed === "function" ? readUnloadLastViewed(t) : 0;
+                } catch (e) {
+                  v = 0;
+                }
+                try {
+                  if (Number.isFinite(v) && v > (best[w] || 0)) {
+                    best[w] = v;
+                  }
+                } catch (e) {}
+              }
+            } catch (e) {}
+            missing.sort((a, b) => {
+              const va = best[a] || 0;
+              const vb = best[b] || 0;
+              if (va !== vb) {
+                return vb - va;
+              }
+              return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
+            });
+          } catch (e) {}
+          try {
+            for (const id of missing) {
+              filtered.push(id);
+            }
+          } catch (e) {}
+        } catch (e) {}
+      } catch (e) {
+        filtered = out;
+      }
+      return filtered;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function syncLastUsed() {
+    try {
+      lastUsed = null;
+      try {
+        if (Array.isArray(mru) && mru.length > 1 && isValidId(mru[1]) && mru[1] !== current) {
+          lastUsed = mru[1];
+        } else if (Array.isArray(mru) && mru.length > 1 && isValidId(mru[1])) {
+          lastUsed = mru[1];
+        }
+      } catch (e) {}
+    } catch (e) {}
+  }
+
+  function recordExplicitMru(target) {
+    try {
+      if (!isValidId(target)) {
+        try {
+          lastUsed = current;
+        } catch (e) {}
+        return;
+      }
+      let order = [];
+      try {
+        order = getMruOrder();
+      } catch (e) {
+        order = [];
+      }
+      const rest = [];
+      try {
+        for (const id of order) {
+          if (id !== target && !rest.includes(id)) {
+            rest.push(id);
+          }
+        }
+      } catch (e) {}
+      let next = [target].concat(rest);
+      try {
+        next = next.filter((id) => isValidId(id)).slice(0, 9);
+      } catch (e) {}
+      try {
+        if (!next.includes(target)) {
+          next.unshift(target);
+        }
+      } catch (e) {}
+      mru = next.length ? next : [target];
+      syncLastUsed();
+    } catch (e) {
+      try {
+        lastUsed = current;
+      } catch (_e) {}
+    }
+  }
+
+  function recordWalkMru(target, dir) {
+    try {
+      if (!isValidId(target)) {
+        return;
+      }
+      let order = [];
+      try {
+        order = getMruOrder();
+      } catch (e) {
+        order = [];
+      }
+      if (!order.includes(target)) {
+        recordExplicitMru(target);
+        return;
+      }
+      let next = order;
+      try {
+        if (dir === -1) {
+          next = order.slice(-1).concat(order.slice(0, -1));
+        } else {
+          next = order.slice(1).concat(order.slice(0, 1));
+        }
+      } catch (e) {
+        next = order;
+      }
+      // Walk target must land front; fallback to explicit push on mismatch
+      // (e.g. current drifted from index 0).
+      try {
+        if (!next.length || next[0] !== target) {
+          recordExplicitMru(target);
+          return;
+        }
+      } catch (e) {}
+      try {
+        mru = next.filter((id) => isValidId(id)).slice(0, 9);
+      } catch (e) {
+        mru = next;
+      }
+      syncLastUsed();
+    } catch (e) {}
   }
 
   // Cycling: "active" = has a live unpinned tab (pins are global with a
@@ -658,10 +875,269 @@
     switchTo(ids[(i + dir + ids.length) % ids.length]);
   }
 
-  function toggleLastWorkspace() {
-    if (isValidId(lastUsed) && lastUsed !== current) {
-      switchTo(lastUsed);
+  // Workspace MRU walk (API-only; no default binding): each press goes to
+  // the next-most-recent workspace, wrapping. Repeated presses walk
+  // deeper (no toggle trap) via rotation in recordWalkMru. Filtered to
+  // active so walks never create stray newtabs; pulses when fewer than
+  // 2 reachable.
+  function cycleMru(dir) {
+    const step = dir === -1 ? -1 : 1;
+    let order = [];
+    try {
+      order = typeof getMruOrder === "function" ? getMruOrder() : getActiveIds();
+    } catch (e) {
+      order = [];
     }
+    if (!Array.isArray(order) || order.length < 2) {
+      try {
+        pulseWorkspaceIndicator();
+      } catch (e) {}
+      return;
+    }
+    let idx = -1;
+    try {
+      idx = order.indexOf(isValidId(current) ? current : "1");
+    } catch (e) {
+      idx = -1;
+    }
+    if (idx < 0) {
+      try {
+        switchTo(order[0]);
+      } catch (e) {}
+      return;
+    }
+    let target = null;
+    try {
+      target = order[(idx + step + order.length) % order.length];
+    } catch (e) {
+      target = null;
+    }
+    if (!isValidId(target) || target === current) {
+      return;
+    }
+    switchTo(target, step);
+  }
+
+  // Legacy exact toggle (console/API compat): hops to last-used without
+  // rotating, so it always flips the same pair. The Ctrl+` binding uses
+  // cycleTabMru instead (walks tabs); cycleMru stays API-only.
+  function toggleLastWorkspace() {
+    let dest = null;
+    try {
+      if (Array.isArray(mru) && mru.length > 1 && isValidId(mru[1])) {
+        dest = mru[1];
+      } else {
+        dest = lastUsed;
+      }
+    } catch (e) {
+      dest = lastUsed;
+    }
+    if (isValidId(dest) && dest !== current) {
+      switchTo(dest);
+    }
+  }
+
+  // Tab MRU walk for Ctrl+` (Ctrl+Shift+` reverses): each press selects
+  // the next-most-recently-viewed tab, wrapping. Workspace-safe: landing
+  // on a tab from another workspace switches there first (explicit, so
+  // the workspace MRU records the visit), then selects workspace-safely
+  // like the palette (expand collapsed group, show, select).
+  // Snapshot walk: the first press freezes lastViewed order (selected
+  // first); rapid repeats advance the frozen snapshot instead of
+  // re-sorting (re-sorting would toggle, since selecting re-stamps).
+  // After TAB_WALK_MS idle the snapshot rebuilds from live recency.
+  let tabWalkOrder = null;
+  let tabWalkIndex = -1;
+  let tabWalkAt = 0;
+  const TAB_WALK_MS = 1500;
+
+  function liveTabsForWalk() {
+    try {
+      const tabs = (typeof gBrowser !== "undefined" && gBrowser.tabs) || [];
+      return Array.from(tabs).filter((t) => t && !t.closing);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function tabLastViewed(t) {
+    try {
+      if (typeof readUnloadLastViewed === "function") {
+        return readUnloadLastViewed(t) || 0;
+      }
+    } catch (e) {}
+    return 0;
+  }
+
+  function getTabWalkOrder() {
+    try {
+      const live = liveTabsForWalk();
+      if (!live.length) {
+        return [];
+      }
+      let sel = null;
+      try {
+        sel = (typeof gBrowser !== "undefined" && gBrowser.selectedTab) || null;
+      } catch (e) {}
+      const scored = [];
+      try {
+        for (let i = 0; i < live.length; i++) {
+          scored.push({ t: live[i], v: tabLastViewed(live[i]), i });
+        }
+      } catch (e) {}
+      try {
+        scored.sort((a, b) => {
+          if (a.v !== b.v) {
+            return b.v - a.v;
+          }
+          return a.i - b.i;
+        });
+      } catch (e) {}
+      let order = scored.map((s) => s.t);
+      // Selected first so index 0 is always current (stamps can tie in
+      // tests or miss on restored tabs).
+      try {
+        if (sel && order.includes(sel)) {
+          order = [sel].concat(order.filter((t) => t !== sel));
+        }
+      } catch (e) {}
+      return order;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function selectTabWalkSafe(t) {
+    try {
+      if (!t || t.closing) {
+        return false;
+      }
+    } catch (e) {
+      return false;
+    }
+    // Pinned tabs are global: never switch workspace for them.
+    let pinned = false;
+    try {
+      pinned = !!t.pinned;
+    } catch (e) {}
+    if (!pinned) {
+      try {
+        const ws = typeof getWs === "function" ? getWs(t) : null;
+        if (isValidId(ws) && ws !== current) {
+          switchTo(ws);
+        }
+      } catch (e) {}
+    }
+    try {
+      if (t.group && t.group.collapsed) {
+        t.group.collapsed = false;
+      }
+    } catch (e) {}
+    try {
+      if (t.hidden) {
+        if (typeof aphShowTab === "function") {
+          aphShowTab(t);
+        } else if (gBrowser && typeof gBrowser.showTab === "function") {
+          gBrowser.showTab(t);
+        }
+      }
+    } catch (e) {}
+    try {
+      gBrowser.selectedTab = t;
+    } catch (e) {
+      return false;
+    }
+    // TabSelect stamps in chrome; the node harness setter does not fire
+    // listeners, so stamp explicitly (same ms, harmless in chrome).
+    try {
+      if (typeof stampLastViewed === "function") {
+        stampLastViewed(t);
+      }
+    } catch (e) {}
+    return true;
+  }
+
+  function cycleTabMru(dir) {
+    const step = dir === -1 ? -1 : 1;
+    let now = 0;
+    try {
+      now = Date.now();
+    } catch (e) {}
+    let sel = null;
+    try {
+      sel = (typeof gBrowser !== "undefined" && gBrowser.selectedTab) || null;
+    } catch (e) {}
+    const live = liveTabsForWalk();
+    if (live.length < 2) {
+      try {
+        pulseWorkspaceIndicator();
+      } catch (e) {}
+      return;
+    }
+    const liveSet = new Set(live);
+    let order = tabWalkOrder;
+    let useSnapshot = false;
+    try {
+      useSnapshot =
+        Array.isArray(order) &&
+        order.length === live.length &&
+        now - tabWalkAt < TAB_WALK_MS &&
+        order.every((t) => liveSet.has(t));
+    } catch (e) {
+      useSnapshot = false;
+    }
+    if (!useSnapshot) {
+      try {
+        order = getTabWalkOrder();
+      } catch (e) {
+        order = [];
+      }
+      if (!Array.isArray(order) || order.length < 2) {
+        try {
+          pulseWorkspaceIndicator();
+        } catch (e) {}
+        return;
+      }
+      tabWalkOrder = order;
+      tabWalkIndex = 0;
+      try {
+        tabWalkAt = now;
+      } catch (e) {}
+    } else {
+      // Continuing a walk: advance from where the selection is. An
+      // explicit click since the last walk moves the base (no trap).
+      let base = tabWalkIndex;
+      try {
+        const cur = order.indexOf(sel);
+        if (cur >= 0) {
+          base = cur;
+        }
+      } catch (e) {}
+      tabWalkIndex = base;
+    }
+    let idx = tabWalkIndex;
+    try {
+      const cur = order.indexOf(sel);
+      if (cur >= 0) {
+        idx = cur;
+      }
+    } catch (e) {}
+    let target = null;
+    try {
+      target = order[(idx + step + order.length) % order.length];
+    } catch (e) {
+      target = null;
+    }
+    if (!target || target === sel) {
+      return;
+    }
+    try {
+      tabWalkIndex = (idx + step + order.length) % order.length;
+    } catch (e) {}
+    try {
+      tabWalkAt = now;
+    } catch (e) {}
+    selectTabWalkSafe(target);
   }
 
   // Send family helpers: native groups move as units, single tabs move
@@ -826,7 +1302,6 @@
     anchorAllGroups();
     try {
       reconcile(current, Array.from(gBrowser.tabs));
-      pruneExtraNewTabs(current);
     } catch (e) {}
     // Dock counts are tag-based: repaint so pill counts follow the move
     // immediately (drag-mode expansion collapses on dragend).
