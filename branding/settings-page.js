@@ -76,7 +76,6 @@ var AphSettingsLogic = (function () {
 
   const FRECENCY_PREF = "aph.palette.frecency";
   const NAMES_PREF = "aph.workspaces.names";
-  const SPACES_PREF = "aph.spaces";
   const BINDINGS_PREF = "aph.workspaces.containerBindings";
   const ROUTES_PREF = "aph.workspaces.domainRoutes";
   const ACCENTS_PREF = "aph.workspaces.accents";
@@ -385,7 +384,7 @@ var AphSettingsLogic = (function () {
   // delete); unknown keys are ignored so newer files stay loadable.
   const BACKUP_VERSION = 1;
   const BACKUP_BOOL_PREFS = Object.keys(BOOL_DEFAULTS);
-  const BACKUP_JSON_PREFS = [NAMES_PREF, SPACES_PREF, BINDINGS_PREF, ROUTES_PREF, ACCENTS_PREF, STASH_PREF, SNAPSHOTS_PREF, FRECENCY_PREF];
+  const BACKUP_JSON_PREFS = [NAMES_PREF, BINDINGS_PREF, ROUTES_PREF, ACCENTS_PREF, STASH_PREF, SNAPSHOTS_PREF, FRECENCY_PREF];
 
   // read: { bool(pref, def), int(pref, def), json(pref) } — the DOM
   // controller binds these to Services; tests pass stubs.
@@ -572,10 +571,6 @@ var AphSettingsLogic = (function () {
       if (n) {
         bits.push(`${n} workspace name${n === 1 ? "" : "s"}`);
       }
-      const sp = countKeys(prefs[SPACES_PREF]);
-      if (sp) {
-        bits.push(`${sp} space${sp === 1 ? "" : "s"}`);
-      }
       const b = countKeys(prefs[BINDINGS_PREF]);
       if (b) {
         bits.push(`${b} binding${b === 1 ? "" : "s"}`);
@@ -654,7 +649,6 @@ var AphSettingsLogic = (function () {
     UNLOAD_STALE_PRESETS,
     FRECENCY_PREF,
     NAMES_PREF,
-    SPACES_PREF,
     BINDINGS_PREF,
     ROUTES_PREF,
     ACCENTS_PREF,

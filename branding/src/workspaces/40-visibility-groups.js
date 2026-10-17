@@ -214,11 +214,6 @@
         } catch (e) {}
       }
     }
-    try {
-      if (typeof syncSpaces === "function" && isValidId(target)) {
-        syncSpaces(target);
-      }
-    } catch (e) {}
   }
 
   // A group lives in exactly one workspace: majority of real tags wins (never
@@ -412,16 +407,6 @@
     } catch (e) {
       lastSelected[target] = focus;
     }
-    // Spaces repaint late (second converging pass): during session restore
-    // the early pass can hit a half-populated strip and the fail-closed
-    // candidate resolution clears valid folder paint; by this point the
-    // selection has settled, so the strip is the ground truth. Also covers
-    // startup (reconcile runs there without any group event to lean on).
-    try {
-      if (typeof syncSpaces === "function" && isValidId(target)) {
-        syncSpaces(target);
-      }
-    } catch (e) {}
   }
 
   // Close unused new tabs in `target`, never the active tab.

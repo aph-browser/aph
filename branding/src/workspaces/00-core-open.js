@@ -17,14 +17,6 @@
  * stock Firefox assumes hidden pinned tabs never exist and vertical-tab
  * drag/drop breaks when they do); native tab groups
  * live inside workspaces (one shared tag, header synced, collapsed kept).
- * Spaces (77): named folders holding tabs inside one workspace (hue wash
- * + name line on every member row; no collapse of their own). Membership
- * rides a per-tab aphSpace value; paint is attribute-only — a tab inside
- * a native group paints like a loose one, the header lands on the first
- * member row or the group's label container, and a grouped folder's
- * group quietly gives up its own color pill/rail while keeping its name
- * and collapse (theme.css §27b). Managed from the palette, the tab
- * context menu (62) and drag-to-join on a folder head.
  * Container bindings: each workspace may be bound to one Firefox container
  * (Ctrl+Alt+B binds current WS to the selected tab's container,
  * Ctrl+Alt+Shift+B clears). Bound workspaces open new tabs (Ctrl+T,

@@ -335,15 +335,6 @@
       renameCurrent,
       setWsIcon: (n) => startIconPick(n),
       prompt: startPrompt,
-      // Cross-bundle cache drop: the workspaces bundle mutates spaces from
-      // the tab context menu / drag-to-join and the cached command rows
-      // (space membership gates) would otherwise go stale until a palette
-      // action happens to invalidate.
-      invalidate: () => {
-        if (typeof invalidatePaletteCache === "function") {
-          invalidatePaletteCache();
-        }
-      },
     };
   } catch (e) {}
 

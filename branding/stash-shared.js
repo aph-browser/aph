@@ -317,8 +317,8 @@ var AphStashLogic = (function () {
   // Fidelity fields (all optional, old snapshots load fine without them):
   // per-tab idx (strip order), gi (index into groups[] or null), gname /
   // gcolor / gcollapsed (denormalized group state for display + regroup),
-  // cname + favicon (display), star + starURL + tabName + lastViewed +
-  // space (re-applied on restore). Envelope groups[] + selUrl + wsName power
+  // cname + favicon (display), star + starURL + tabName + lastViewed
+  // (re-applied on restore). Envelope groups[] + selUrl + wsName power
   // the stash page and best-effort reorder/regroup.
   function sanitizeSnapTab(t) {
     if (!t || typeof t !== "object") {
@@ -367,11 +367,6 @@ var AphStashLogic = (function () {
     }
     if (typeof t.lastViewed === "number" && t.lastViewed > 0) {
       rec.lastViewed = Math.floor(t.lastViewed);
-    }
-    // Space folder membership (77-spaces.js): strict id shape so a corrupt
-    // file can't wedge the folder vote. Old snapshots load fine without it.
-    if (typeof t.space === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(t.space)) {
-      rec.space = t.space;
     }
     return rec;
   }

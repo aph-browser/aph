@@ -235,14 +235,6 @@
         stampLastViewed(tab);
       }
     } catch (err) {}
-    // Folder paint self-heal on focus (spaces): selection is the cheapest
-    // heartbeat available; an interim attr wipe (mid-restore clears, strip
-    // rebuilds) converges here without a dedicated listener.
-    try {
-      if (isValidId(current) && typeof syncSpaces === "function") {
-        syncSpaces(current);
-      }
-    } catch (err) {}
   }
 
   function onTabClose(e) {

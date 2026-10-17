@@ -24,7 +24,6 @@
   let routeObserver = null;
   let nameObserver = null;
   let wsIconObserver = null;
-  let spacesObserver = null;
   let startupRestoreObserver = null;
   let navPopupObserver = null;
   // Original window.BrowserOpenTab, captured before initBoundNewTab wraps
