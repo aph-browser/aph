@@ -1905,6 +1905,7 @@ tab > .tab-stack > .tab-background {
   #aph-toast,
   #aph-toast.show,
   #aph-focus-exit,
+  #tabbrowser-tabs[orient="vertical"] tab-group > .tab-group-label-container::before,
   #nav-bar-customization-target > *,
   #nav-bar-overflow-button {
     transition: none !important;
@@ -2334,91 +2335,95 @@ sidebar-main #tabs-newtab-button,
 }
 
 /* ==========================================================================
-   27b. Spaces: name + a connected-border box over the member rows
-   (77-spaces.js stamps data-aph-space-tab + data-aph-space + hue on every
-   member tab, loose or grouped alike; the head — the earliest member row —
-   also carries data-aph-space-first + name). Untagged tabs never match
-   and render exactly as before.
-
-   No wrapper DOM exists around a space's tabs, so the box is drawn from
-   the rows themselves: rows are already flush (§22d zeroes the stock gap
-   token), so every member row carries the hue wash plus the side edges,
-   square-sided, and the head/last rows cap the run with the card radius
-   — one seamless card for any shape of membership. The header line rides
-   the head row (own-line idiom: flex-wrap + flex: 0 0 100% pseudo).
-
-   Native tab groups are NOT part of the space's paint: no attrs, no hue,
-   no styling hooks on the group element, so a group keeps its full stock
-   look (label, color pill, rail) even when its tabs sit inside a Space.
-   The box simply wraps whatever rows carry the membership.
-
-   Everything is per-folder HUE: a stable hash of the space id rides
-   --aph-space-hue (77 stamps it inline; fallback 260 keeps the palette
-   visible when JS was hindered).
-
-   Geometry is unconditional: no :not([selected]) gates hiding paint
-   (V3 slipped when the first row was selected).
+   27b. Tab group cards: quiet-luxury containers, vertical strip only
+   (horizontal keeps stock rendering — cards are a sidebar idiom).
+   tab-group drops stock's display:contents so the card owns a real box:
+   a 14px optical lead-in around every group, a translucent wash keyed to
+   the group's own hue (--tab-group-color), a soft 1px border, and the
+   card radius. Rows and the title bar ride the wash; the title bar flushes
+   to the card padding while member rows keep their stock indent (16px),
+   so members read inset under it. The name is a small tracked uppercase
+   title lane (uniform inner radius — not the stock centered pill). The
+   collapse affordance is a border-drawn chevron on the header: down when
+   open, rotated sideways when collapsed (logical edges keep RTL mirrored;
+   the same rotate values point down/start in either direction). High
+   Contrast keeps stock rendering (not(forced-colors), like §27); the
+   rotate transition dies under the §24 reduced-motion mirror.
    ========================================================================== */
-tab[data-aph-space-tab="1"][data-aph-space-first="1"],
-.tabbrowser-tab[data-aph-space-tab="1"][data-aph-space-first="1"] {
-  border-block-start: 14px solid transparent !important;
-  flex-wrap: wrap !important;
-}
+@media not (forced-colors) {
+  #tabbrowser-tabs[orient="vertical"] tab-group {
+    --aph-group-card-pad: 5px;
 
-tab[data-aph-space-tab="1"][data-aph-space-last="1"],
-.tabbrowser-tab[data-aph-space-tab="1"][data-aph-space-last="1"] {
-  border-block-end: 10px solid transparent !important;
-}
+    display: flex !important;
+    flex-direction: column;
+    margin-block: 14px;
+    padding: var(--aph-group-card-pad);
+    background-color: color-mix(
+      in oklab,
+      var(--tab-group-color) 8%,
+      transparent
+    ) !important;
+    border: 1px solid color-mix(
+      in oklab,
+      var(--tab-group-color) 20%,
+      transparent
+    ) !important;
+    border-radius: var(--aph-radius-card, 12px) !important;
+  }
 
-/* One seamless card per member run: side edges on every row, rounded caps
-   on head/last. */
-tab[data-aph-space-tab="1"] > .tab-stack > .tab-background,
-.tabbrowser-tab[data-aph-space-tab="1"] > .tab-stack > .tab-background {
-  background-color: oklch(55% 0.03 var(--aph-space-hue, 260) / 0.09) !important;
-  border-block: 0 !important;
-  border-inline: 1px solid oklch(62% 0.06 var(--aph-space-hue, 260) / 0.45) !important;
-  border-radius: 0 !important;
-}
+  /* Consecutive cards share one 14px lead-in (each card already owns a
+     bottom lead-in, so the next card's top one would double it). */
+  #tabbrowser-tabs[orient="vertical"] tab-group + tab-group {
+    margin-block-start: 0;
+  }
 
-tab[data-aph-space-tab="1"][data-aph-space-first="1"] > .tab-stack > .tab-background,
-.tabbrowser-tab[data-aph-space-tab="1"][data-aph-space-first="1"] > .tab-stack > .tab-background {
-  border-block-start: 1px solid oklch(62% 0.06 var(--aph-space-hue, 260) / 0.45) !important;
-  border-start-start-radius: var(--aph-radius-card, 12px) !important;
-  border-start-end-radius: var(--aph-radius-card, 12px) !important;
-}
+  /* Icon-mode strip: the card stays, with tighter padding so the fixed-
+     size label pill has room. */
+  #tabbrowser-tabs[orient="vertical"]:not([expanded]) tab-group {
+    --aph-group-card-pad: 2px;
+  }
 
-tab[data-aph-space-tab="1"][data-aph-space-last="1"] > .tab-stack > .tab-background,
-.tabbrowser-tab[data-aph-space-tab="1"][data-aph-space-last="1"] > .tab-stack > .tab-background {
-  border-block-end: 1px solid oklch(62% 0.06 var(--aph-space-hue, 260) / 0.45) !important;
-  border-end-start-radius: var(--aph-radius-card, 12px) !important;
-  border-end-end-radius: var(--aph-radius-card, 12px) !important;
-}
+  /* Header: flush to the card's padding line (rows keep their stock
+     indent, so the header reads as the card's title bar). */
+  #tabbrowser-tabs[orient="vertical"][expanded] tab-group > .tab-group-label-container {
+    margin-block-start: 4px !important;
+    margin-inline-start: var(--aph-group-card-pad, 5px) !important;
+  }
 
-tab[data-aph-space-tab="1"][data-aph-space-first="1"]::before,
-.tabbrowser-tab[data-aph-space-tab="1"][data-aph-space-first="1"]::before {
-  content: attr(data-aph-space-name);
-  flex: 0 0 100% !important;
-  min-width: 0 !important;
-  padding: 0 8px 3px !important;
-  font-family: var(--aph-font-chrome) !important;
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  line-height: 14px !important;
-  letter-spacing: 0.03em !important;
-  text-transform: uppercase !important;
-  white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  color: var(--aph-ink-dim, #a3a8ba) !important;
-}
+  /* Name: a small tracked uppercase title on the hue bar, start-aligned
+     after the chevron (stock centers a big bold sentence-case name on a
+     pill with a dropped bottom-start corner — the loudest stock tell).
+     Uniform inner radius (card radius minus the card padding) so the bar
+     sits as a title lane inside the card, not a stock pill. */
+  #tabbrowser-tabs[orient="vertical"][expanded] tab-group > .tab-group-label-container .tab-group-label {
+    padding-inline: 22px 10px !important;
+    border-radius: 8px !important;
+    text-align: start;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.03em !important;
+    text-transform: uppercase;
+  }
 
-/* Drag targeting: heads only — the first member row. Other member rows
-   and everything else stay reorder territory. The head lights up as the
-   drop surface (ring for that instant; cleared on dragover change/
-   dragend/leave, so it never outlives the drag session). */
-tab[data-aph-space-hover="1"] > .tab-stack > .tab-background,
-.tabbrowser-tab[data-aph-space-hover="1"] > .tab-stack > .tab-background {
-  box-shadow: inset 0 0 0 2px oklch(70% 0.12 var(--aph-space-hue, 260)) !important;
+  /* Collapse chevron on the header. */
+  #tabbrowser-tabs[orient="vertical"][expanded] tab-group > .tab-group-label-container::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 10px;
+    inset-block-start: 50%;
+    width: 6px;
+    height: 6px;
+    translate: 0 -50%;
+    rotate: 45deg;
+    border-inline-end: 2px solid var(--aph-ink-dim, #a3a8ba);
+    border-block-end: 2px solid var(--aph-ink-dim, #a3a8ba);
+    pointer-events: none;
+    transition: rotate var(--aph-motion-glide, 0.15s ease-out);
+  }
+
+  #tabbrowser-tabs[orient="vertical"][expanded] tab-group[collapsed] .tab-group-label-container::before {
+    rotate: -45deg;
+  }
 }
 
 /* ==========================================================================
