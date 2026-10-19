@@ -973,21 +973,23 @@ def test_tab_group_labels_are_wash_not_solid() -> None:
     vivid pills) — the small-surface pill presence recipe (large tabs
     spend 40% as the biggest surface); hover holds the wash with an
     inset ring instead of a fill jump. The collapsed state inherits the
-    base label rule — no duplicate block."""
+    base label rule — no duplicate block. The rail holds its own quieter
+    step (25%, 45% when the card is hovered, §27b)."""
     css = _css()
     head = css.find("27. Tab group color remap")
     assert head != -1
     block = css[head:]
     assert ".tab-group-label" in block
-    assert "var(--tab-group-color) 45%" in block
-    assert "var(--tab-group-color) 50%" not in block, (
-        "group wash must match the 45% presence recipe"
-    )
-    assert "var(--aph-ink" in block
+    assert "var(--tab-group-color, #0090ff) 45%" in block, "label must keep the 45% presence wash"
+    assert "var(--aph-urlbar-accent, #0090ff) 45%" in block, "hover must keep the 45% inset ring"
+    assert "var(--tab-group-color) 50%" not in block, "group wash must stay a wash, never a solid"
     assert "tab-group[collapsed] > .tab-group-label-container" not in block, (
         "collapsed label must inherit the base wash, not duplicate it"
     )
     assert "--tab-group-line-color" in block
+    assert "var(--tab-group-color, #0090ff) 25%" in block, (
+        "rail wash must hold its quieter 25% step"
+    )
 
 
 def test_toolbox_paints_own_base() -> None:

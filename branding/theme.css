@@ -1894,8 +1894,8 @@ tab > .tab-stack > .tab-background {
 
 /* Reduced-motion mirror: every §24 transition/animation dies, plus the
    bar button paint transitions (§3/§4 opacity), the focus exit hint
-   fade (§28) and the two toasts (§9 here, the stash
-   page) which previously had none. */
+   fade (§28), the tab-group chevron rotate and rail paint (§27b), and
+   the two toasts (§9 here, the stash page) which previously had none. */
 @media (prefers-reduced-motion: reduce) {
   .tabbrowser-tab > .tab-stack > .tab-background,
   tab > .tab-stack > .tab-background,
@@ -1906,6 +1906,9 @@ tab > .tab-stack > .tab-background {
   #aph-toast.show,
   #aph-focus-exit,
   #tabbrowser-tabs[orient="vertical"] tab-group > .tab-group-label-container::before,
+  #tabbrowser-tabs[orient="vertical"] .tab-group-line,
+  #tabbrowser-tabs[orient="vertical"] .tab-group-label-container::after,
+  #tabbrowser-tabs[orient="vertical"] .tab-group-overflow-count-container::after,
   #nav-bar-customization-target > *,
   #nav-bar-overflow-button {
     transition: none !important;
@@ -2288,20 +2291,18 @@ sidebar-main #tabs-newtab-button,
     --tab-group-gray-text-invert: #696e77 !important;
   }
 
-  /* Group labels: 45% hue wash + ink text (never solid vivid pills) —
-     the small-surface presence recipe (pills, §21), not the large-tab
-     40% (§13): labels are compact, so they spend like pills and rhyme
-     with the dock instead of shouting one stop louder. Contrast follows
-     the §21 presence gate (45% proven for the workspace stops; group
-     yellow keeps its #ffc53d solid, untested at 45% — call it out if a
-     yellow label reads weak). Strip lines, overflow count, dragover
-     target, and picker swatches keep full hue for wayfinding. Beats both
-     nova and classic branches via !important; focus rings keep working
-     (no focus override here). */
+  /* Group labels: Aph's presence recipe (45% hue wash over base, ink
+     text) — the same small-surface pill recipe as the dock current pill
+     and the indicator, so groups rhyme with the rest of the chrome
+     instead of wearing a bespoke glass treatment. Hover holds the wash
+     with an inset ring instead of a fill jump. Strip lines, overflow
+     count, dragover targets, and picker swatches keep full hue for
+     wayfinding. Beats both nova and classic branches via !important;
+     focus rings keep working (no focus override here). */
   .tab-group-label {
     background-color: color-mix(
       in oklab,
-      var(--tab-group-color) 45%,
+      var(--tab-group-color, #0090ff) 45%,
       var(--aph-base, #0e0f14)
     ) !important;
     color: var(--aph-ink, #e8e8ec) !important;
@@ -2311,7 +2312,7 @@ sidebar-main #tabs-newtab-button,
   .tab-group-label:hover {
     background-color: color-mix(
       in oklab,
-      var(--tab-group-color) 45%,
+      var(--tab-group-color, #0090ff) 45%,
       var(--aph-base, #0e0f14)
     ) !important;
     box-shadow: inset 0 0 0 1px color-mix(
@@ -2319,16 +2320,18 @@ sidebar-main #tabs-newtab-button,
       var(--aph-urlbar-accent, #0090ff) 45%,
       transparent
     ) !important;
+    cursor: pointer;
   }
 
   /* Group rail: the strip line, its container pseudo-lines, and the
-     overflow count all read --tab-group-line-color — wash it to 30%
-     (menu-hover spend, not the 45% label wash) so the long rail never
-     outreads the labels it underlines. */
+     overflow count all read --tab-group-line-color — hold it at 25% so
+     the long guide stays quieter than the glass it underlines. The
+     vertical strip thins it to 1px and lights it to 45% on card hover
+     (§27b). */
   tab-group {
     --tab-group-line-color: color-mix(
       in oklab,
-      var(--tab-group-color) 30%,
+      var(--tab-group-color, #0090ff) 25%,
       transparent
     ) !important;
   }
@@ -2338,7 +2341,7 @@ sidebar-main #tabs-newtab-button,
    27b. Tab group cards: quiet-luxury containers, vertical strip only
    (horizontal keeps stock rendering — cards are a sidebar idiom).
    tab-group drops stock's display:contents so the card owns a real box:
-   a 14px optical lead-in around every group, a translucent wash keyed to
+   an 8px optical lead-in around every group, a translucent wash keyed to
    the group's own hue (--tab-group-color), a soft 1px border, and the
    card radius. Rows and the title bar ride the wash; the title bar flushes
    to the card padding while member rows keep their stock indent (16px),
@@ -2352,11 +2355,11 @@ sidebar-main #tabs-newtab-button,
    ========================================================================== */
 @media not (forced-colors) {
   #tabbrowser-tabs[orient="vertical"] tab-group {
-    --aph-group-card-pad: 5px;
+    --aph-group-card-pad: 4px;
 
     display: flex !important;
     flex-direction: column;
-    margin-block: 14px;
+    margin-block: 8px;
     padding: var(--aph-group-card-pad);
     background-color: color-mix(
       in oklab,
@@ -2371,7 +2374,14 @@ sidebar-main #tabs-newtab-button,
     border-radius: var(--aph-radius-card, 12px) !important;
   }
 
-  /* Consecutive cards share one 14px lead-in (each card already owns a
+  /* Hidden groups (Aph's workspace swap sets group.hidden) must actually
+     disappear: the card's display:flex !important would otherwise beat the
+     [hidden] attribute and leave the card painted across workspace switches. */
+  #tabbrowser-tabs[orient="vertical"] tab-group[hidden] {
+    display: none !important;
+  }
+
+  /* Consecutive cards share one 8px lead-in (each card already owns a
      bottom lead-in, so the next card's top one would double it). */
   #tabbrowser-tabs[orient="vertical"] tab-group + tab-group {
     margin-block-start: 0;
@@ -2384,24 +2394,31 @@ sidebar-main #tabs-newtab-button,
   }
 
   /* Header: flush to the card's padding line (rows keep their stock
-     indent, so the header reads as the card's title bar). */
+     indent, so the header reads as the card's title bar). Stock pads 8px
+     under the bar (--space-small); held at 2px so the title sits close to
+     its rows instead of floating — the card's wash already separates
+     groups. Top margin trimmed to a matching 2px. */
   #tabbrowser-tabs[orient="vertical"][expanded] tab-group > .tab-group-label-container {
-    margin-block-start: 4px !important;
-    margin-inline-start: var(--aph-group-card-pad, 5px) !important;
+    margin-block-start: 2px !important;
+    margin-inline-start: var(--aph-group-card-pad, 4px) !important;
+    padding-block-end: 2px !important;
   }
 
-  /* Name: a small tracked uppercase title on the hue bar, start-aligned
-     after the chevron (stock centers a big bold sentence-case name on a
+  /* Name: a small tracked uppercase title on the glass bar, start-aligned
+     past the chevron (stock centers a big bold sentence-case name on a
      pill with a dropped bottom-start corner — the loudest stock tell).
-     Uniform inner radius (card radius minus the card padding) so the bar
-     sits as a title lane inside the card, not a stock pill. */
+     The 21px start padding encodes ~5px clearance past the chevron's
+     rotated bounding box (the chevron is absolutely positioned, so a
+     margin on it would do nothing). Uniform inner radius (card radius
+     minus the card padding) so the bar sits as a title lane inside the
+     card, not a stock pill. */
   #tabbrowser-tabs[orient="vertical"][expanded] tab-group > .tab-group-label-container .tab-group-label {
-    padding-inline: 22px 10px !important;
+    padding-inline: 21px 10px !important;
     border-radius: 8px !important;
     text-align: start;
     font-size: 11px !important;
     font-weight: 600 !important;
-    letter-spacing: 0.03em !important;
+    letter-spacing: 0.04em !important;
     text-transform: uppercase;
   }
 
@@ -2423,6 +2440,29 @@ sidebar-main #tabs-newtab-button,
 
   #tabbrowser-tabs[orient="vertical"][expanded] tab-group[collapsed] .tab-group-label-container::before {
     rotate: -45deg;
+  }
+
+  /* Rail: stock draws the guide 2px thick off --tab-group-line-thickness;
+     the strip thins it to 1px, then steps the wash from 25% to 45% when
+     the card is hovered. One token drives the row line, the label
+     underline, and the overflow count's line, so one transition covers
+     all three. */
+  #tabbrowser-tabs[orient="vertical"] {
+    --tab-group-line-thickness: 1px;
+  }
+
+  #tabbrowser-tabs[orient="vertical"] tab-group:hover {
+    --tab-group-line-color: color-mix(
+      in oklab,
+      var(--tab-group-color, #0090ff) 45%,
+      transparent
+    ) !important;
+  }
+
+  #tabbrowser-tabs[orient="vertical"] .tab-group-line,
+  #tabbrowser-tabs[orient="vertical"] .tab-group-label-container::after,
+  #tabbrowser-tabs[orient="vertical"] .tab-group-overflow-count-container::after {
+    transition: background-color var(--aph-motion-glide, 0.15s ease-out);
   }
 }
 
