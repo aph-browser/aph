@@ -17,6 +17,9 @@
  * stock Firefox assumes hidden pinned tabs never exist and vertical-tab
  * drag/drop breaks when they do); native tab groups
  * live inside workspaces (one shared tag, header synced, collapsed kept).
+ * Hidden groups leave the strip's drag/drop list entirely: stock searches
+ * that list as if it were screen-sorted, and a display:none header parked
+ * at y=0 otherwise makes drags near the top of the strip snap back.
  * Container bindings: each workspace may be bound to one Firefox container
  * (Ctrl+Alt+B binds current WS to the selected tab's container,
  * Ctrl+Alt+Shift+B clears). Bound workspaces open new tabs (Ctrl+T,

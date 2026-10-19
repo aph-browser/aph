@@ -286,3 +286,69 @@ describe("collapsed native groups and strip moves", () => {
     assert.equal(env.tabVals.get(b).aphWs, "1");
   });
 });
+
+// A hidden group header keeps a zero-size <label> in the stock drag/drop
+// list; stock's overlap search assumes that list is screen-sorted, so a
+// dead entry parked at y=0 makes drags near the top of the strip snap back.
+describe("hidden group headers leave the drag list", () => {
+  function makeDragList() {
+    const env = makeEnv();
+    const raw = [];
+    const proto = { get dragAndDropElements() { return raw; } };
+    const tabContainer = Object.create(proto);
+    env.sb.gBrowser.tabContainer = tabContainer;
+    assert.equal(env.api.debugPatchDragElements(), true);
+    return { env, raw, tabContainer };
+  }
+  function labelFor(group) {
+    return {
+      classList: { contains: (c) => c === "tab-group-label" },
+      group,
+    };
+  }
+
+  it("filters hidden labels and renumbers elementIndex", () => {
+    const { raw, tabContainer } = makeDragList();
+    const hidden = makeGroup([], { label: "Other WS" });
+    hidden.hidden = true;
+    const shown = makeGroup([], { label: "Here" });
+    const hiddenLabel = labelFor(hidden);
+    const shownLabel = labelFor(shown);
+    const tabA = {};
+    const tabB = {};
+    raw.push(hiddenLabel, tabA, shownLabel, tabB);
+
+    const out = tabContainer.dragAndDropElements;
+    assert.equal(out.length, 3);
+    assert.equal(out[0], tabA);
+    assert.equal(out[1], shownLabel);
+    assert.equal(out[2], tabB);
+    assert.deepEqual(Array.from(out, (el) => el.elementIndex), [0, 1, 2]);
+  });
+
+  it("re-reads visibility live instead of caching the filtered list", () => {
+    const { raw, tabContainer } = makeDragList();
+    const group = makeGroup([], { label: "Elsewhere" });
+    group.hidden = true;
+    const label = labelFor(group);
+    const tab = {};
+    raw.push(label, tab);
+    let out = tabContainer.dragAndDropElements;
+    assert.equal(out.length, 1);
+    assert.equal(out[0], tab);
+
+    group.hidden = false;
+    out = tabContainer.dragAndDropElements;
+    assert.equal(out.length, 2);
+    assert.equal(out[0], label);
+    assert.equal(out[1], tab);
+    assert.deepEqual(Array.from(out, (el) => el.elementIndex), [0, 1]);
+  });
+
+  it("patches the getter once", () => {
+    const { env, tabContainer } = makeDragList();
+    assert.equal(env.api.debugPatchDragElements(), true);
+    assert.equal(env.api.debugPatchDragElements(), true);
+    assert.equal(tabContainer.dragAndDropElements.length, 0);
+  });
+});

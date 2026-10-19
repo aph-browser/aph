@@ -300,6 +300,10 @@
           typeof debugLastSwitch === "function" ? debugLastSwitch : () => null,
         debugSession:
           typeof debugSession === "function" ? debugSession : () => ([]),
+        debugPatchDragElements:
+          typeof patchHiddenGroupDragElements === "function"
+            ? patchHiddenGroupDragElements
+            : () => false,
         scrubAdoptionGhost:
           typeof scrubAdoptionGhost === "function" ? scrubAdoptionGhost : () => {},
         sendTabTo,
@@ -380,6 +384,12 @@
         applySidebarFooter:
           typeof applySidebarFooter === "function" ? applySidebarFooter : () => false,
       };
+    } catch (e) {}
+    // Keep hidden group headers out of the strip's drag/drop list: stock
+    // binary-searches that list assuming screen order, and zero-size
+    // other-workspace labels make top-of-strip drags snap back.
+    try {
+      patchHiddenGroupDragElements();
     } catch (e) {}
     current = initialWorkspace();
     // Adopt shared temp-container tracking so bind guards and cleanup see

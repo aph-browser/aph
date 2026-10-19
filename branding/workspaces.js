@@ -18,6 +18,9 @@
  * stock Firefox assumes hidden pinned tabs never exist and vertical-tab
  * drag/drop breaks when they do); native tab groups
  * live inside workspaces (one shared tag, header synced, collapsed kept).
+ * Hidden groups leave the strip's drag/drop list entirely: stock searches
+ * that list as if it were screen-sorted, and a display:none header parked
+ * at y=0 otherwise makes drags near the top of the strip snap back.
  * Container bindings: each workspace may be bound to one Firefox container
  * (Ctrl+Alt+B binds current WS to the selected tab's container,
  * Ctrl+Alt+Shift+B clears). Bound workspaces open new tabs (Ctrl+T,
@@ -1152,6 +1155,86 @@
         tab.dispatchEvent(event);
       } catch (e) {}
     } catch (e) {}
+  }
+
+  // Stock's drag/drop list (tabContainer.dragAndDropElements) is assumed to
+  // be sorted by screen position: _animateTabMove binary-searches it to find
+  // the element under the dragged tab. Aph hides other-workspace groups via
+  // group.hidden (display:none, §27b), but stock still lists their header
+  // <label> — a zero-size box parked at y=0 between live tabs. Those dead
+  // entries break the sorted invariant, so the search walks off the array
+  // and returns null whenever the pointer is near the top of the strip;
+  // drags then find no dropElement and the tab snaps back. Hidden tabs
+  // already drop out via stock's `child.visible` filter; do the same for
+  // hidden group headers, rebuilding elementIndex (the array-position
+  // contract moveTabTo's #elementIndexToTabIndex relies on).
+  const isHiddenGroupDragLabel = (el) => {
+    try {
+      return !!(
+        el &&
+        el.classList?.contains("tab-group-label") &&
+        el.group?.hidden
+      );
+    } catch (e) {
+      return false;
+    }
+  };
+
+  function filterHiddenGroupDragElements(elements) {
+    const out = [];
+    if (!elements) {
+      return out;
+    }
+    for (const el of elements) {
+      if (isHiddenGroupDragLabel(el)) {
+        continue;
+      }
+      try {
+        el.elementIndex = out.length;
+      } catch (e) {}
+      out.push(el);
+    }
+    return out;
+  }
+
+  function patchHiddenGroupDragElements() {
+    let tabContainer = null;
+    try {
+      tabContainer = gBrowser.tabContainer;
+    } catch (e) {
+      return false;
+    }
+    if (!tabContainer) {
+      return false;
+    }
+    // The getter lives on the custom element class (MozTabbrowserTabs);
+    // walk the chain in case a subclass ever shadows it.
+    let owner = tabContainer;
+    let desc = Object.getOwnPropertyDescriptor(owner, "dragAndDropElements");
+    while (!desc && (owner = Object.getPrototypeOf(owner))) {
+      desc = Object.getOwnPropertyDescriptor(owner, "dragAndDropElements");
+    }
+    if (!desc || typeof desc.get !== "function") {
+      return false;
+    }
+    if (desc.get.__aphHiddenGroups) {
+      return true;
+    }
+    const stock = desc.get;
+    const patched = function () {
+      return filterHiddenGroupDragElements(stock.call(this));
+    };
+    patched.__aphHiddenGroups = true;
+    try {
+      Object.defineProperty(owner, "dragAndDropElements", {
+        configurable: true,
+        enumerable: desc.enumerable,
+        get: patched,
+      });
+    } catch (e) {
+      return false;
+    }
+    return true;
   }
 
   function groupMembers(group) {
@@ -11113,6 +11196,10 @@
           typeof debugLastSwitch === "function" ? debugLastSwitch : () => null,
         debugSession:
           typeof debugSession === "function" ? debugSession : () => ([]),
+        debugPatchDragElements:
+          typeof patchHiddenGroupDragElements === "function"
+            ? patchHiddenGroupDragElements
+            : () => false,
         scrubAdoptionGhost:
           typeof scrubAdoptionGhost === "function" ? scrubAdoptionGhost : () => {},
         sendTabTo,
@@ -11193,6 +11280,12 @@
         applySidebarFooter:
           typeof applySidebarFooter === "function" ? applySidebarFooter : () => false,
       };
+    } catch (e) {}
+    // Keep hidden group headers out of the strip's drag/drop list: stock
+    // binary-searches that list assuming screen order, and zero-size
+    // other-workspace labels make top-of-strip drags snap back.
+    try {
+      patchHiddenGroupDragElements();
     } catch (e) {}
     current = initialWorkspace();
     // Adopt shared temp-container tracking so bind guards and cleanup see
