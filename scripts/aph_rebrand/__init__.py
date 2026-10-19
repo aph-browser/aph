@@ -8,7 +8,12 @@ ZIP_STORED (no compression) for memory-mapping.
 from __future__ import annotations
 
 from .assets import PatchPayloads, load_payloads
-from .cache import clear_startup_cache, running_profiles
+from .cache import (
+    clear_startup_cache,
+    drop_zero_byte_favicons,
+    running_profiles,
+    wipe_favicons,
+)
 from .constants import OMNI_JA
 from .icons import slice_icons
 from .injectors.base import PatchCounts
@@ -20,6 +25,7 @@ __all__ = [
     "PatchCounts",
     "PatchPayloads",
     "clear_startup_cache",
+    "drop_zero_byte_favicons",
     "is_optimized_omni_ja",
     "load_payloads",
     "normalize_omni_ja",
@@ -27,6 +33,7 @@ __all__ = [
     "rebrand",
     "running_profiles",
     "slice_icons",
+    "wipe_favicons",
 ]
 
 

@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 
 
 def ensure_rebranded(root: Path) -> bool:
@@ -66,6 +67,20 @@ def ensure_rebranded(root: Path) -> bool:
     except Exception as e:
         print(f"Warning: rebrand check failed: {e}", file=sys.stderr)
         return False
+
+
+def _rebrand_cache_module(root: Path) -> ModuleType | None:
+    """Import scripts.aph_rebrand.cache for profile-cache helpers (best
+    effort — a missing package must never block a launch)."""
+    try:
+        if str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+        from scripts.aph_rebrand import cache
+
+        return cache
+    except Exception as e:
+        print(f"Warning: profile-cache helpers unavailable: {e}", file=sys.stderr)
+        return None
 
 
 def merge_policies(root: Path) -> None:
@@ -518,6 +533,14 @@ def main() -> None:
     # Auto-merge enterprise policies & extensions
     merge_policies(root)
 
+    # Self-heal before launch: a leftover 0-byte favicons.sqlite makes the
+    # whole Places init fail as "database is locked" (history/bookmarks
+    # dead; daily profile, 2026-10-18). Skips held profiles internally —
+    # a running instance owns its own files.
+    rebrand_cache = _rebrand_cache_module(root)
+    if rebrand_cache is not None:
+        rebrand_cache.drop_zero_byte_favicons(profile)
+
     # Auto-rebrand browser/omni.ja. A fresh rebrand moves omni offsets;
     # rebrand() also drops the purge marker, so this launch passes
     # -purgecaches and the stale startupCache (which would otherwise
@@ -545,6 +568,12 @@ def main() -> None:
         sys.exit(1)
     if not purgecache_marker.exists():
         purgecache_marker.touch()
+        # Purge pending (rebrand/clear landed while a launch was held):
+        # that held profile kept its favicons files, so wipe them here —
+        # this profile is idle (a held one exited ERROR above), the safe
+        # rebuild slot before this launch starts.
+        if rebrand_cache is not None:
+            rebrand_cache.wipe_favicons(profile)
         cmd = [str(binary), "-purgecaches", "--profile", str(profile), *extra_args]
     else:
         cmd = [str(binary), "--profile", str(profile), *extra_args]
