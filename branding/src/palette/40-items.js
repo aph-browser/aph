@@ -387,7 +387,7 @@
       const seen = new Map();
       for (const t of tabs) {
         try {
-          if (!isDupeClosable(t, selected)) {
+          if (!t || t.closing) {
             continue;
           }
           let w = null;
@@ -400,8 +400,13 @@
             continue;
           }
           const spec = tabUrlSpec(t);
+          if (!spec) {
+            continue;
+          }
           if (seen.has(spec)) {
-            out.push(t);
+            if (isDupeClosable(t, selected)) {
+              out.push(t);
+            }
           } else {
             seen.set(spec, t);
           }
@@ -434,21 +439,59 @@
     return base;
   }
 
+  // Extra copies beyond the first of each exact URL across all workspaces.
+  function duplicateTabsAll(api) {
+    const out = [];
+    try {
+      if (!api) {
+        return out;
+      }
+      let tabs = [];
+      try {
+        tabs = Array.from((gBrowser && gBrowser.tabs) || []);
+      } catch (e) {
+        return out;
+      }
+      let selected = null;
+      try {
+        selected = (gBrowser && gBrowser.selectedTab) || null;
+      } catch (e) {}
+      const seen = new Map();
+      for (const t of tabs) {
+        try {
+          if (!t || t.closing) {
+            continue;
+          }
+          const spec = tabUrlSpec(t);
+          if (!spec) {
+            continue;
+          }
+          if (seen.has(spec)) {
+            if (isDupeClosable(t, selected)) {
+              out.push(t);
+            }
+          } else {
+            seen.set(spec, t);
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return out;
+  }
+
   // Rendered only when duplicates exist (same convention as
   // "Close Other Tabs"): a bulk close that would no-op stays out of
   // the list. Closed tabs remain undoable via Reopen Closed Tab.
   function closeDupesRows(api) {
     try {
+      const rows = [];
       const dupes = duplicateTabs(api);
-      if (!dupes.length) {
-        return [];
-      }
-      let label = "";
-      try {
-        label = wsFull(api, api.getCurrent());
-      } catch (e) {}
-      return [
-        {
+      if (dupes.length) {
+        let label = "";
+        try {
+          label = wsFull(api, api.getCurrent());
+        } catch (e) {}
+        rows.push({
           title: `Close Duplicate Tabs (${dupes.length})`,
           hint: "",
           sub: `Keeps the first copy of each URL${label ? ` in ${label}` : ""} · current + pinned tabs never close`,
@@ -464,8 +507,29 @@
             } catch (e) {}
             invalidatePaletteCache();
           },
-        },
-      ];
+        });
+      }
+      const allDupes = duplicateTabsAll(api);
+      if (allDupes.length && (!dupes.length || allDupes.length > dupes.length)) {
+        rows.push({
+          title: `Close Duplicate Tabs Across All Workspaces (${allDupes.length})`,
+          hint: "",
+          sub: "Keeps the oldest copy of each URL across all workspaces · active + pinned tabs never close",
+          run: () => {
+            try {
+              for (const t of allDupes) {
+                try {
+                  if (t && !t.closing && gBrowser.removeTab) {
+                    gBrowser.removeTab(t, { animate: false });
+                  }
+                } catch (_e) {}
+              }
+            } catch (e) {}
+            invalidatePaletteCache();
+          },
+        });
+      }
+      return rows;
     } catch (e) {
       return [];
     }
@@ -970,132 +1034,6 @@
     } catch (e) {}
   }
 
-  // Live counts for the Open Stash row (same dry-run-count idiom as
-  // the unload row): "3 stashed tabs · 2 workspace stashes". Any
-  // failure reads as the plain subtitle.
-  function openStashSub() {
-    const base = "Browse and restore stashed tabs + workspace stashes";
-    try {
-      const a = typeof arc === "function" ? arc() : null;
-      if (!a) {
-        return base;
-      }
-      let tabs = -1;
-      let stashes = -1;
-      try {
-        if (typeof a.getStashEntries === "function") {
-          const e = a.getStashEntries();
-          tabs = Array.isArray(e) ? e.length : -1;
-        }
-      } catch (e) {}
-      try {
-        if (typeof a.listStashes === "function") {
-          const s = a.listStashes();
-          stashes = Array.isArray(s) ? s.length : -1;
-        }
-      } catch (e) {}
-      if (tabs < 0 && stashes < 0) {
-        return base;
-      }
-      const bits = [];
-      if (tabs >= 0) {
-        bits.push(`${tabs} stashed tab${tabs === 1 ? "" : "s"}`);
-      }
-      if (stashes >= 0) {
-        bits.push(`${stashes} workspace stash${stashes === 1 ? "" : "es"}`);
-      }
-      return bits.length ? bits.join(" · ") : base;
-    } catch (e) {}
-    return base;
-  }
-
-  // One row per saved workspace stash, fuzzy-findable by name AND by
-  // what it contains (member hosts ride the sub line, so the normal
-  // title/sub scorer matches them). Kept out of the empty-query path
-  // (see commands()'s "pool" mode below) so the home list stays curated
-  // — they only surface once you type. Restore is append-only: it opens
-  // alongside whatever you have now.
-  // Host of one stashed URL for the restore-row sub line. Prefers the
-  // URL constructor, falls back to a scheme://host grab (same shape as
-  // the stash shared logic) — and never throws, so one junk URL can't
-  // hide every restore row. `typeof URL` guards node:vm test sandboxes,
-  // where the constructor doesn't exist.
-  function hostOfTabUrl(url) {
-    try {
-      const spec = String(url || "");
-      if (typeof URL === "function") {
-        try {
-          const h = (new URL(spec).hostname || "").toLowerCase().replace(/\.$/, "");
-          if (h) {
-            return h;
-          }
-        } catch (e) {}
-      }
-      const m = spec.match(/^[a-z]+:\/\/([^/:?#]+)/i);
-      return m ? m[1].toLowerCase().replace(/\.$/, "") : "";
-    } catch (e) {
-      return "";
-    }
-  }
-
-  function stashHosts(s) {
-    const out = [];
-    try {
-      const seen = new Set();
-      for (const t of (s && s.tabs) || []) {
-        let h = "";
-        try {
-          h = hostOfTabUrl((t && t.url) || "");
-        } catch (e) {}
-        if (h && !seen.has(h)) {
-          seen.add(h);
-          out.push(h);
-        }
-        if (out.length >= 3) {
-          break;
-        }
-      }
-    } catch (e) {}
-    return out;
-  }
-
-  function stashRestoreRows() {
-    const out = [];
-    try {
-      const a = arc();
-      if (!a || typeof a.listStashes !== "function") {
-        return out;
-      }
-      const list = a.listStashes();
-      if (!Array.isArray(list)) {
-        return out;
-      }
-      for (const s of list.slice(0, 20)) {
-        try {
-          if (!s || !s.id || !Array.isArray(s.tabs) || !s.tabs.length) {
-            continue;
-          }
-          const n = s.tabs.length;
-          const hosts = stashHosts(s);
-          out.push({
-            title: `Restore ${s.name || "stash"}`,
-            hint: "",
-            sub: `WS ${s.ws || "1"} · ${n} tab${n === 1 ? "" : "s"}${hosts.length ? ` · ${hosts.join(" · ")}` : ""} · opens alongside current tabs`,
-            run: () => {
-              try {
-                const c = arc();
-                if (c && typeof c.restoreStash === "function") {
-                  c.restoreStash(s.id);
-                }
-              } catch (e) {}
-            },
-          });
-        } catch (e) {}
-      }
-    } catch (e) {}
-    return out;
-  }
-
   function commands() {
     const api = ws();
     const cmds = [];
@@ -1201,17 +1139,15 @@
       {
         title: "New Tab",
         hint: "Ctrl+T",
-        run: () => gBrowser.addTrustedTab("about:newtab"),
+        run: () =>
+          api && typeof api.openBoundTab === "function"
+            ? api.openBoundTab("about:newtab")
+            : gBrowser.addTrustedTab("about:newtab"),
       },
       {
         title: "New Temp Container Tab",
         hint: "Ctrl+Alt+T",
         run: () => api && api.openTempTab(),
-      },
-      {
-        title: "Open Bound Container Tab",
-        hint: "Ctrl+T in bound WS",
-        run: () => api && api.openBoundTab && api.openBoundTab(),
       },
       ...bindCommands(api),
       {
@@ -1253,58 +1189,9 @@
         },
       },
       {
-        title: stashCmdTitle(),
-        hint: "",
-        sub: "Saves workspace + container, closes the tab · restorable",
-        run: () => {
-          try {
-            if (arc() && arc().stashCurrent) {
-              arc().stashCurrent();
-            }
-          } catch (e) {}
-        },
-      },
-      {
-        title: "Stash Current Workspace…",
-        hint: "",
-        sub: "Saves every tab in this workspace as one named snapshot · nothing is closed",
-        run: () => {
-          try {
-            const a = arc();
-            if (a && typeof a.saveStash === "function") {
-              const n = a.saveStash();
-              if (!n) {
-                return;
-              }
-            }
-          } catch (e) {}
-        },
-      },
-      ...stashRestoreRows(),
-      {
-        title: "Open Stash",
-        hint: "",
-        sub: openStashSub(),
-        run: () => {
-          try {
-            if (arc() && arc().openStash && arc().openStash()) {
-              return;
-            }
-          } catch (e) {}
-          try {
-            const t = gBrowser.addTrustedTab(
-              "chrome://browser/content/aph-stash.html"
-            );
-            try {
-              gBrowser.selectedTab = t;
-            } catch (_e) {}
-          } catch (e) {}
-        },
-      },
-      {
         title: "Open Aph Settings",
         hint: "",
-        sub: "Toggles for workspaces, stash, tabs and sidebar",
+        sub: "Toggles for workspaces, tabs and sidebar",
         run: () => {
           try {
             const url = "chrome://browser/content/aph-settings.html";
@@ -1326,46 +1213,6 @@
             try {
               gBrowser.selectedTab = t;
             } catch (_e) {}
-          } catch (e) {}
-        },
-      },
-      {
-        title: "Open Aph Welcome",
-        hint: "",
-        sub: "First-run tour: workspaces, palette and tabs",
-        run: () => {
-          try {
-            const url = "chrome://browser/content/aph-welcome.html";
-            for (const t of Array.from((gBrowser && gBrowser.tabs) || [])) {
-              try {
-                const spec =
-                  t && t.linkedBrowser && t.linkedBrowser.currentURI && t.linkedBrowser.currentURI.spec;
-                if (!t.closing && spec === url) {
-                  gBrowser.selectedTab = t;
-                  return;
-                }
-              } catch (_e) {}
-            }
-          } catch (e) {}
-          try {
-            const t = gBrowser.addTrustedTab(
-              "chrome://browser/content/aph-welcome.html"
-            );
-            try {
-              gBrowser.selectedTab = t;
-            } catch (_e) {}
-          } catch (e) {}
-        },
-      },
-      {
-        title: "Copy Text From Page…",
-        hint: "Ctrl+Alt+C",
-        sub: "Hover to highlight a block · click copies · ↑/↓ adjust · Esc cancels",
-        run: () => {
-          try {
-            if (window.AphTextPick) {
-              window.AphTextPick.arm();
-            }
           } catch (e) {}
         },
       },
@@ -1495,6 +1342,33 @@
             const w = ws();
             if (w && typeof w.toggleFocusMode === "function") {
               w.toggleFocusMode();
+            }
+          } catch (e) {}
+          try {
+            if (typeof render === "function" && input) {
+              render(input.value);
+            }
+          } catch (e) {}
+        },
+      },
+      {
+        title: (() => {
+          try {
+            const w = ws();
+            if (w && typeof w.getAutohideSidebar === "function" && w.getAutohideSidebar()) {
+              return "✓ Auto-Hide Sidebar (On)";
+            }
+          } catch (e) {}
+          return "○ Auto-Hide Sidebar (Off)";
+        })(),
+        hint: "Ctrl+\\",
+        sub: "Collapse sidebar off-screen until hovered · Peek on left edge",
+        keepOpen: true,
+        run: () => {
+          try {
+            const w = ws();
+            if (w && typeof w.toggleAutohideSidebar === "function") {
+              w.toggleAutohideSidebar();
             }
           } catch (e) {}
           try {
@@ -1918,8 +1792,6 @@
           tag(r, "bookmark", "Bookmarks");
         } else if (r.hint === "History") {
           tag(r, "history", "History");
-        } else if (r.hint === "Stash") {
-          tag(r, "stash", "Stash");
         }
         if (!r.icon) {
           try {
@@ -1978,7 +1850,7 @@
       return scoreAndGroup(all, q);
     }
 
-    // Empty query: curated home per mode (stays clean, no places/stash).
+    // Empty query: curated home per mode (stays clean, no places).
     // Commands float by frecency so the home view learns your habits;
     // tabs stay MRU-first from openTabs().
     if (!raw) {
@@ -2025,7 +1897,7 @@
         }
         return out;
       }
-      // bookmarks/history/stash with no query: nothing (needs 2+ chars).
+      // bookmarks/history with no query: nothing (needs 2+ chars).
       return [];
     }
 
@@ -2049,15 +1921,6 @@
       } catch (e) {}
       return [];
     }
-    if (mode === "stash") {
-      try {
-        if (typeof aphStashPoolItems === "function") {
-          const pool = tagPlacesRows(aphStashPoolItems(raw));
-          return scoreAndGroup(pool, q);
-        }
-      } catch (e) {}
-      return [];
-    }
 
     // mode === "all": unified pool (legacy behavior, now section-grouped).
     const pool = [...cmds, ...tabs];
@@ -2073,13 +1936,6 @@
               pool.push(tag(c, "workspace", "Workspaces"));
             }
           }
-        }
-      }
-    } catch (e) {}
-    try {
-      if (typeof aphStashPoolItems === "function") {
-        for (const r of aphStashPoolItems(raw)) {
-          pool.push(tag(r, "stash", "Stash"));
         }
       }
     } catch (e) {}

@@ -1,7 +1,7 @@
 """Build-time fix for the vertical-tabs navbar wipe.
 
-Fresh profiles that pre-seed ``sidebar.verticalTabs`` (Aph does, via
-``config/user.js``) hit a CustomizableUI restore path that builds the navbar
+Fresh profiles that enable ``sidebar.verticalTabs`` (Aph does, via
+bundled default preferences) hit a CustomizableUI restore path that builds the navbar
 from ``verticalTabsDefaultPlacements`` (``["alltabs-button",
 "smartwindow-group-tabs-button", "ai-window-toggle"]`` as of Firefox 156)
 INSTEAD of the full ``defaultPlacements`` — so the
@@ -36,20 +36,18 @@ not ``PatchCounts`` (whose 16-tuple log shape is frozen for CI).
 
 from __future__ import annotations
 
+import re
+
 from .base import PatchCounts
 
 CUSTOMIZABLE_UI_PATH = "moz-src/browser/components/customizableui/CustomizableUI.sys.mjs"
 
-_ANCHOR = (
-    b"verticalTabsDefaultPlacements: [\n"
-    b'          "alltabs-button",\n'
-    b'          "smartwindow-group-tabs-button",\n'
-    b'          "ai-window-toggle",\n'
-    b"        ],"
+_PATTERN = re.compile(
+    rb"(defaultPlacements:\s*navbarPlacements,\s*)verticalTabsDefaultPlacements:\s*\[[^\]]*\],"
 )
 _REPLACEMENT = (
-    b'verticalTabsDefaultPlacements: ["alltabs-button",\n'
-    b'      "smartwindow-group-tabs-button", ...navbarPlacements],'
+    rb'\1verticalTabsDefaultPlacements: ["alltabs-button",\n'
+    rb'      "smartwindow-group-tabs-button", ...navbarPlacements],'
 )
 
 
@@ -59,14 +57,14 @@ class ToolbarDefaultsInjector:
     def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
         if not filename.endswith("CustomizableUI.sys.mjs"):
             return data
-        found = data.count(_ANCHOR)
-        if found == 0:
+        matches = len(_PATTERN.findall(data))
+        if matches == 0:
             raise ValueError(
                 "CustomizableUI.sys.mjs layout changed: "
                 "verticalTabsDefaultPlacements anchor not found"
             )
-        if found > 1:
+        if matches > 1:
             raise ValueError(
-                f"CustomizableUI.sys.mjs anchor ambiguous: expected 1 occurrence, found {found}"
+                f"CustomizableUI.sys.mjs anchor ambiguous: expected 1 occurrence, found {matches}"
             )
-        return data.replace(_ANCHOR, _REPLACEMENT)
+        return _PATTERN.sub(_REPLACEMENT, data)

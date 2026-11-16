@@ -5,13 +5,10 @@
  * The name is applied over the tab's `label` attribute (what the strip
  * renders). Stock Firefox recomputes labels on title changes through
  * _setTabLabel, which manually dispatches TabAttrModified — one listener
- * re-applies the stored name with no loop risk (raw attribute sets fire
- * no event of their own).
+ * re-applies the stored name with no loop risk.
  *
- * Entry points: command palette ("Rename Tab…", via AphPalette.prompt) and
- * the tab context menu. Empty input clears back to the page title. The OS
- * titlebar follows via updateTitlebar when the renamed tab is selected.
- * Renamed tabs carry an unstyled `data-aph-renamed` hook for later theming.
+ * Entry points: command palette ("Rename Tab…"), tab context menu, and
+ * double-clicking the tab's label text. All paths route through AphPalette.prompt.
  * Injected into browser.xhtml via rebrand.py.
  */
 (function () {
@@ -43,9 +40,6 @@
     }
   }
 
-  // The OS titlebar mirrors the selected tab — keep it agreeing with the
-  // strip after a (re-)apply. Guarded: no-op everywhere without a titlebar
-  // (tests, popups).
   function nudgeTitlebar(tab) {
     try {
       if (
@@ -57,7 +51,6 @@
     } catch (e) {}
   }
 
-  // Idempotent: no-ops when the tab already shows the stored name.
   function applyName(tab) {
     let name = null;
     try {
@@ -116,8 +109,6 @@
             tab.removeAttribute(HOOK);
           }
         } catch (e) {}
-        // Restore the real page title immediately instead of waiting for
-        // the next title push.
         try {
           if (typeof gBrowser.setTabTitle === "function") {
             gBrowser.setTabTitle(tab);
@@ -131,20 +122,15 @@
     return true;
   }
 
-  // Stock overwrote the label (navigation, SPA title push, restore) — put
-  // the stored name back. Cheap: one SessionStore read + one compare, and
-  // a no-op for the overwhelmingly common unrenamed case.
   function onTabAttrModified(e) {
     try {
       const tab = e && e.target;
-      if (!tab) {
-        return;
+      if (tab) {
+        applyName(tab);
       }
-      applyName(tab);
     } catch (e) {}
   }
 
-  // Restored tabs keep their custom value but render the page title first.
   function onTabRestored(e) {
     try {
       if (e && e.target) {
@@ -195,322 +181,71 @@
     }
   }
 
-  // ---- inline editor (double-click the label text) ----
-  // A floating <input> over the tab's label (the XUL <label> itself is not
-  // editable). Commits through renameTab, so storage/re-apply semantics
-  // are identical to the prompt path. Blur commits, Esc cancels, opening a
-  // second editor commits the first.
-  const EDITOR_ID = "aph-tab-rename-input";
-  const EDITOR_MIN_WIDTH = 120;
-  // Breathing room before the tab's own edge (close button, radius).
-  const EDITOR_EDGE_PAD = 2;
-  let editor = null; // { input, tab } while open
-
-  function labelBox(tab) {
-    try {
-      const el =
-        tab.querySelector(".tab-text") ||
-        tab.querySelector(".tab-label-container");
-      if (!el || typeof el.getBoundingClientRect !== "function") {
-        return null;
-      }
-      const r = el.getBoundingClientRect();
-      if (!r || (r.width <= 0 && r.height <= 0)) {
-        return null;
-      }
-      return r;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function tabBox(tab) {
-    try {
-      if (!tab || typeof tab.getBoundingClientRect !== "function") {
-        return null;
-      }
-      const r = tab.getBoundingClientRect();
-      if (!r || (r.width <= 0 && r.height <= 0)) {
-        return null;
-      }
-      return r;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  // Never paint past the tab's own edge: the 120px floor is for roomy
-  // tabs, but a narrow tab clamps to the run between label start and tab
-  // end (minus pad). No tab box (tests, exotic chrome) keeps the legacy
-  // floor so old behavior is the fallback, not a crash.
-  function editorWidth(labelR, tabR) {
-    try {
-      const want = Math.max(EDITOR_MIN_WIDTH, labelR.width);
-      if (tabR && isFinite(tabR.right) && isFinite(labelR.left)) {
-        const max = tabR.right - labelR.left - EDITOR_EDGE_PAD;
-        if (isFinite(max)) {
-          return Math.max(1, Math.min(want, max));
-        }
-      }
-      return want;
-    } catch (e) {
-      try {
-        return labelR.width;
-      } catch (_e) {
-        return EDITOR_MIN_WIDTH;
-      }
-    }
-  }
-
-  // Detach without committing (Esc, tab closed). Blur/Enter paths commit
-  // first via closeEditor(true), which nulls `editor` so the trailing blur
-  // becomes a no-op.
-  function closeEditor(commit) {
-    const ed = editor;
-    editor = null;
-    if (!ed) {
-      return false;
-    }
-    let value = "";
-    try {
-      value = ed.input.value;
-    } catch (e) {}
-    try {
-      ed.input.remove();
-    } catch (e) {}
-    if (commit) {
-      try {
-        renameTab(ed.tab, value);
-      } catch (e) {}
-      return true;
-    }
-    return false;
-  }
-
-  function syncEditorPos() {
-    if (!editor) {
-      return;
-    }
-    let r = null;
-    try {
-      r = labelBox(editor.tab);
-    } catch (e) {}
-    if (!r) {
-      closeEditor(false);
-      return;
-    }
-    let tabR = null;
-    try {
-      tabR = tabBox(editor.tab);
-    } catch (e) {}
-    try {
-      const s = editor.input.style;
-      s.left = `${r.left}px`;
-      s.top = `${r.top}px`;
-      s.width = `${editorWidth(r, tabR)}px`;
-      s.height = `${r.height}px`;
-    } catch (e) {}
-  }
-
-  function openEditor(tab) {
-    if (!tab) {
-      return false;
-    }
-    try {
-      if (tab.closing) {
-        return false;
-      }
-    } catch (e) {
-      return false;
-    }
-    if (editor) {
-      if (editor.tab === tab) {
-        try {
-          editor.input.focus();
-        } catch (e) {}
-        return true;
-      }
-      closeEditor(true);
-    }
-    let r = null;
-    try {
-      r = labelBox(tab);
-    } catch (e) {}
-    if (!r) {
-      return false;
-    }
-    let input = null;
-    try {
-      input = document.createElement("input");
-      input.id = EDITOR_ID;
-      input.setAttribute("autocomplete", "off");
-      input.setAttribute("spellcheck", "false");
-      const s = input.style;
-      // Geometry only — all paint lives in theme.css #aph-tab-rename-input
-      // (theme field vars, borderless). Never set visual styles here.
-      s.position = "fixed";
-      s.zIndex = "2147483647";
-      s.left = `${r.left}px`;
-      s.top = `${r.top}px`;
-      let tabR = null;
-      try {
-        tabR = tabBox(tab);
-      } catch (e) {}
-      s.width = `${editorWidth(r, tabR)}px`;
-      s.height = `${r.height}px`;
-      try {
-        input.value = getName(tab) || tab.label || "";
-      } catch (e) {}
-      (document.body || document.documentElement).appendChild(input);
-    } catch (e) {
-      return false;
-    }
-    editor = { input, tab };
-    input.addEventListener("keydown", (ev) => {
-      try {
-        if (!ev) {
-          return;
-        }
-        if (ev.key === "Enter") {
-          ev.preventDefault();
-          closeEditor(true);
-        } else if (ev.key === "Escape") {
-          ev.preventDefault();
-          closeEditor(false);
-        }
-      } catch (e) {}
-    });
-    // NOTE: window-capture shortcut listeners (workspaces, textpick) run
-    // before input handlers, so the input cannot shield itself — those
-    // handlers early-return on EDITOR_ID targets instead.
-    input.addEventListener("blur", () => {
-      closeEditor(true);
-    });
-    try {
-      input.focus();
-    } catch (e) {}
-    try {
-      if (input.select) {
-        input.select();
-      }
-    } catch (e) {}
-    return true;
-  }
-
-  // Label text only: favicon, close and speaker buttons never start an
-  // edit. Anything else (empty strip, other chrome) passes through so
-  // stock dblclick behavior (new tab on empty area) is preserved.
   function onTabDblClick(e) {
     try {
       if (!e || e.button !== 0) {
         return;
       }
-      let tab = null;
-      try {
-        const t = e.target;
-        if (t && typeof t.closest === "function") {
-          const labelEl = t.closest(".tab-label-container, .tab-text");
-          if (
-            labelEl &&
-            typeof labelEl.closest === "function"
-          ) {
-            tab = labelEl.closest("tab");
-          }
-        }
-      } catch (err) {}
-      if (!tab) {
+      if (
+        gBrowser &&
+        gBrowser.tabContainer &&
+        gBrowser.tabContainer._closeTabByDblclick
+      ) {
         return;
       }
-      // The opt-in close-on-double-click pref wins over rename.
-      try {
-        if (gBrowser.tabContainer._closeTabByDblclick) {
-          return;
-        }
-      } catch (err) {}
-      try {
-        if (tab.closing) {
-          return;
-        }
-      } catch (err) {
+      const target = e.target;
+      if (!target || typeof target.closest !== "function") {
         return;
       }
-      e.preventDefault();
-      e.stopPropagation();
-      openEditor(tab);
-    } catch (err) {}
-  }
-
-  function onEditedTabClose(e) {
-    try {
-      if (editor && e && e.target === editor.tab) {
-        closeEditor(false);
+      const label = target.closest(
+        ".tab-label, .tab-text, .tab-label-container"
+      );
+      if (!label) {
+        return;
       }
+      const tab =
+        (typeof label.closest === "function" && label.closest("tab, .tabbrowser-tab")) ||
+        (typeof target.closest === "function" && target.closest("tab, .tabbrowser-tab"));
+      if (!tab || tab.closing) {
+        return;
+      }
+      if (typeof e.preventDefault === "function") {
+        e.preventDefault();
+      }
+      if (typeof e.stopPropagation === "function") {
+        e.stopPropagation();
+      }
+      promptRename(tab);
     } catch (err) {}
-  }
-
-  function onStripScroll() {
-    syncEditorPos();
-  }
-
-  function onTabMoved() {
-    syncEditorPos();
-  }
-
-  function onWindowResize() {
-    syncEditorPos();
   }
 
   function onTabMenuShowing(e) {
     try {
-      const menu = e.currentTarget || e.target;
-      if (!menu || typeof menu.appendChild !== "function") {
+      const menu = document.getElementById("tabContextMenu");
+      if (!menu) {
         return;
       }
-      try {
-        if (menuItem && menuItem.parentNode) {
-          menuItem.remove();
-        }
-      } catch (err) {}
-      menuItem = null;
-      if (!palettePrompt()) {
+      if (menuItem && menuItem.parentNode) {
+        menuItem.remove();
+        menuItem = null;
+      }
+      const trigger =
+        (e && e.target && e.target.triggerNode) ||
+        (document && document.popupNode) ||
+        null;
+      if (!trigger || typeof trigger.closest !== "function") {
         return;
       }
-      let node = null;
-      try {
-        const popup = e.target;
-        node = (popup && popup.triggerNode) || document.popupNode || null;
-      } catch (err) {}
-      // Same resolution as stock tab-context-menu.js and stash.js.
-      let clicked = null;
-      try {
-        if (node) {
-          clicked =
-            node.tab ||
-            (typeof node.closest === "function" ? node.closest("tab") : null);
-        }
-        if (!clicked && gBrowser.selectedTab) {
-          clicked = gBrowser.selectedTab;
-        }
-      } catch (err) {
-        clicked = null;
-      }
-      if (!clicked) {
+      const clicked = trigger.closest("tab");
+      if (!clicked || clicked.closing) {
         return;
       }
-      try {
-        if (clicked.closing) {
-          return;
-        }
-      } catch (err) {}
-      // browser.xhtml is XHTML: menu items must be XUL elements.
       const item =
         typeof document.createXULElement === "function"
           ? document.createXULElement("menuitem")
           : document.createElement("menuitem");
-      try {
-        item.id = "aph-rename-tab";
-        item.setAttribute("label", "Rename Tab…");
-      } catch (err) {}
+      item.id = "aph-rename-tab";
+      item.setAttribute("label", "Rename Tab…");
       item.addEventListener("command", () => {
         try {
           promptRename(clicked);
@@ -522,27 +257,10 @@
   }
 
   function cleanup() {
-    closeEditor(false);
     try {
       gBrowser.tabContainer.removeEventListener("TabAttrModified", onTabAttrModified);
-    } catch (e) {}
-    try {
       gBrowser.tabContainer.removeEventListener("SSTabRestored", onTabRestored);
-    } catch (e) {}
-    try {
       gBrowser.tabContainer.removeEventListener("dblclick", onTabDblClick);
-    } catch (e) {}
-    try {
-      gBrowser.tabContainer.removeEventListener("TabClose", onEditedTabClose);
-    } catch (e) {}
-    try {
-      gBrowser.tabContainer.removeEventListener("TabMove", onTabMoved);
-    } catch (e) {}
-    try {
-      gBrowser.tabContainer.removeEventListener("scroll", onStripScroll, true);
-    } catch (e) {}
-    try {
-      window.removeEventListener("resize", onWindowResize);
     } catch (e) {}
     try {
       const menu = document.getElementById("tabContextMenu");
@@ -564,26 +282,8 @@
     } catch (e) {}
     try {
       gBrowser.tabContainer.addEventListener("TabAttrModified", onTabAttrModified);
-    } catch (e) {}
-    try {
       gBrowser.tabContainer.addEventListener("SSTabRestored", onTabRestored);
-    } catch (e) {}
-    try {
       gBrowser.tabContainer.addEventListener("dblclick", onTabDblClick);
-    } catch (e) {}
-    try {
-      gBrowser.tabContainer.addEventListener("TabClose", onEditedTabClose);
-    } catch (e) {}
-    try {
-      gBrowser.tabContainer.addEventListener("TabMove", onTabMoved);
-    } catch (e) {}
-    // Scroll doesn't bubble, but capture listeners on the container still
-    // see inner strip scrolls (same technique as the text picker).
-    try {
-      gBrowser.tabContainer.addEventListener("scroll", onStripScroll, true);
-    } catch (e) {}
-    try {
-      window.addEventListener("resize", onWindowResize);
     } catch (e) {}
     try {
       const menu = document.getElementById("tabContextMenu");

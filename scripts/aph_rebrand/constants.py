@@ -42,13 +42,20 @@ THEME_CSS_SRC = BRANDING_DIR / "theme.css"
 THEME_JA_PATH = "chrome/browser/content/browser/aph-theme.css"
 THEME_LINK_TAG = '<link rel="stylesheet" href="chrome://browser/content/aph-theme.css" />'
 
+# Content CSS (new-tab backdrop): shipped in omni.ja, registered at startup via StyleSheetService.
+CONTENT_CSS_SRC = BRANDING_DIR / "userContent.css"
+CONTENT_CSS_JA_PATH = "chrome/browser/content/browser/aph-content.css"
+
+# Bundled default preferences: appended to defaults/preferences/firefox.js.
+DEFAULT_PREFS_SRC = ROOT / "config" / "default-prefs.js"
+FIREFOX_PREFS_JA_PATH = "defaults/preferences/firefox.js"
+
 # Design tokens: single source of truth (branding/tokens.css) shipped as
 # aph-tokens.css and @imported by theme + palette + all three pages.
 # No browser.xhtml tag — consumers pull it via CSS @import so the
 # canonical xhtml tag order stays untouched.
 TOKENS_CSS_SRC = BRANDING_DIR / "tokens.css"
 TOKENS_CSS_JA_PATH = "chrome/browser/content/browser/aph-tokens.css"
-TOKENS_CSS_URL = "chrome://browser/content/aph-tokens.css"
 
 # Chrome type: Inter (SIL OFL — see branding/fonts/OFL.txt), static latin
 # subsets, one file per weight. Pure additions under aph-fonts/; the CSS
@@ -81,65 +88,19 @@ PALETTE_CSS_SRC = BRANDING_DIR / "command-palette.css"
 PALETTE_CSS_JA_PATH = "chrome/browser/content/browser/aph-palette.css"
 PALETTE_LINK_TAG = '<link rel="stylesheet" href="chrome://browser/content/aph-palette.css" />'
 
-# Text picker: controller injected into the browser window; actor child /
-# parent modules + shared logic ship in actors/ (resource:/// URIs — every
-# shipped actor uses resource://; chrome:// module URIs have zero precedent).
-# The actor framework loads them by URI, never via browser.xhtml.
-TEXTPICK_JS_SRC = BRANDING_DIR / "textpick.js"
-TEXTPICK_JA_PATH = "chrome/browser/content/browser/textpick.js"
-TEXTPICK_SCRIPT_TAG = '<script src="chrome://browser/content/textpick.js"></script>'
-TEXTPICK_SHARED_SRC = BRANDING_DIR / "textpick-shared.js"
-TEXTPICK_SHARED_JA_PATH = "actors/aph-textpick-shared.js"
-TEXTPICK_SHARED_URI = "resource:///actors/aph-textpick-shared.js"
-TEXTPICK_CHILD_SRC = BRANDING_DIR / "textpick-child.sys.mjs"
-TEXTPICK_CHILD_JA_PATH = "actors/AphTextPickChild.sys.mjs"
-TEXTPICK_CHILD_URI = "resource:///actors/AphTextPickChild.sys.mjs"
-TEXTPICK_PARENT_SRC = BRANDING_DIR / "textpick-parent.sys.mjs"
-TEXTPICK_PARENT_JA_PATH = "actors/AphTextPickParent.sys.mjs"
-TEXTPICK_PARENT_URI = "resource:///actors/AphTextPickParent.sys.mjs"
-
-# Tab stash: window controller + shared logic ride browser.xhtml (script
-# tags, like workspaces.js); the stash page (HTML/CSS/page script) ships
-# tag-less and loads by chrome:// URL in its own tab.
-STASH_SHARED_SRC = BRANDING_DIR / "stash-shared.js"
-STASH_SHARED_JA_PATH = "chrome/browser/content/browser/stash-shared.js"
-STASH_SHARED_SCRIPT_TAG = '<script src="chrome://browser/content/stash-shared.js"></script>'
-STASH_JS_SRC = BRANDING_DIR / "stash.js"
-STASH_JA_PATH = "chrome/browser/content/browser/stash.js"
-STASH_SCRIPT_TAG = '<script src="chrome://browser/content/stash.js"></script>'
-STASH_HTML_SRC = BRANDING_DIR / "stash.html"
-STASH_HTML_JA_PATH = "chrome/browser/content/browser/aph-stash.html"
-STASH_CSS_SRC = BRANDING_DIR / "stash.css"
-STASH_CSS_JA_PATH = "chrome/browser/content/browser/aph-stash.css"
-STASH_PAGE_SRC = BRANDING_DIR / "stash-page.js"
-STASH_PAGE_JA_PATH = "chrome/browser/content/browser/aph-stash-page.js"
-
 # Tab rename: per-tab custom labels, window controller via xhtml script tag.
 TABRENAME_JS_SRC = BRANDING_DIR / "tabrename.js"
 TABRENAME_JA_PATH = "chrome/browser/content/browser/tabrename.js"
 TABRENAME_SCRIPT_TAG = '<script src="chrome://browser/content/tabrename.js"></script>'
 
-# Aph settings: tag-less settings page (HTML/CSS/page script) shipping
-# beside the stash page — loads by chrome:// URL in its own tab, no
-# browser.xhtml tag. Mirrors the STASH_* trio on purpose.
+# Aph settings: tag-less settings page (HTML/CSS/page script) — loads by
+# chrome:// URL in its own tab, no browser.xhtml tag.
 SETTINGS_HTML_SRC = BRANDING_DIR / "settings.html"
 SETTINGS_HTML_JA_PATH = "chrome/browser/content/browser/aph-settings.html"
 SETTINGS_CSS_SRC = BRANDING_DIR / "settings.css"
 SETTINGS_CSS_JA_PATH = "chrome/browser/content/browser/aph-settings.css"
 SETTINGS_PAGE_SRC = BRANDING_DIR / "settings-page.js"
 SETTINGS_PAGE_JA_PATH = "chrome/browser/content/browser/aph-settings-page.js"
-SETTINGS_URL = "chrome://browser/content/aph-settings.html"
-
-# First-run welcome: tag-less tour page (HTML/CSS/page script) shipping
-# beside the settings page — loads by chrome:// URL in its own tab, no
-# browser.xhtml tag. Mirrors the SETTINGS_* trio on purpose.
-WELCOME_HTML_SRC = BRANDING_DIR / "welcome.html"
-WELCOME_HTML_JA_PATH = "chrome/browser/content/browser/aph-welcome.html"
-WELCOME_CSS_SRC = BRANDING_DIR / "welcome.css"
-WELCOME_CSS_JA_PATH = "chrome/browser/content/browser/aph-welcome.css"
-WELCOME_PAGE_SRC = BRANDING_DIR / "welcome-page.js"
-WELCOME_PAGE_JA_PATH = "chrome/browser/content/browser/aph-welcome-page.js"
-WELCOME_URL = "chrome://browser/content/aph-welcome.html"
 
 BRAND_PROPERTIES_TEMPLATE = """brandShorterName=Aph
 brandShortName=Aph

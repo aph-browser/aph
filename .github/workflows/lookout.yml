@@ -1,12 +1,12 @@
 name: Lookout (Firefox release watch)
 
-# Daily watch for upstream Firefox releases: opens a pin-bump PR when
+# Weekly watch for upstream Firefox releases: opens a pin-bump PR when
 # Mozilla ships something newer than scripts/fetch.py VERSION. The PR
 # carries the human audit checklist (rebrand anchors, smoke); a human
 # merges, main CI builds, release.yml publishes. Never auto-merges.
 on:
   schedule:
-    - cron: "17 6 * * *"
+    - cron: "17 6 * * 1"
   workflow_dispatch:
 
 permissions:

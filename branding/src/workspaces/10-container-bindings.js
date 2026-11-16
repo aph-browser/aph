@@ -5,11 +5,6 @@
   // read. Disposable temp containers can never be bound.
   const WS_CONTAINER_PREF = "aph.workspaces.containerBindings";
   let wsBindings = null; // lazy-loaded {wsId: userContextId}
-  const CONTAINER_HEX = {
-    blue: "#37adff", turquoise: "#00c79a", green: "#51cf66",
-    yellow: "#e8d44d", orange: "#ff8a36", red: "#ff375f",
-    pink: "#ff7ab2", purple: "#af51f5",
-  };
 
   function loadBindings() {
     if (wsBindings) {
@@ -322,21 +317,120 @@
     return out;
   }
 
+  // Calculate top of ephemeral working stack in workspace ws (immediately after global pins & starred tabs).
+  // Manual new tabs (Ctrl+T, + button) spawn here, acting as an Inbox (LIFO stack).
+  function getTopWorkingIndex(wsArg) {
+    try {
+      if (!gBrowser || !gBrowser.tabs) {
+        return 0;
+      }
+      const allTabs = Array.from(gBrowser.tabs);
+      const ws = isValidId(wsArg) ? wsArg : isValidId(current) ? current : "1";
+      const numPinned =
+        typeof gBrowser._numPinnedTabs === "number"
+          ? gBrowser._numPinnedTabs
+          : allTabs.filter((t) => t && t.pinned).length;
+
+      const wsTabs = allTabs.filter(
+        (t) =>
+          t &&
+          !t.closing &&
+          !t.pinned &&
+          (typeof getWs === "function" ? getWs(t) : "1") === ws
+      );
+      const wsStars = wsTabs.filter(
+        (t) =>
+          !t.group &&
+          (typeof isStarredTab === "function"
+            ? isStarredTab(t)
+            : t.getAttribute && t.getAttribute("data-aph-starred") === "1")
+      );
+
+      // Case 1: If there are starred tabs in this workspace, target immediately following the last star
+      if (wsStars.length > 0) {
+        const lastStar = wsStars[wsStars.length - 1];
+        const lastStarIdx = allTabs.indexOf(lastStar);
+        if (lastStarIdx !== -1) {
+          return lastStarIdx + 1;
+        }
+      }
+
+      // Case 2: No starred tabs in workspace. Target at the top of this workspace's tabs
+      if (wsTabs.length > 0) {
+        const firstWsTab = wsTabs[0];
+        const firstIdx = allTabs.indexOf(firstWsTab);
+        if (firstIdx !== -1) {
+          return Math.max(numPinned, firstIdx);
+        }
+      }
+
+      // Case 3: Workspace is currently empty. Insert before any subsequent workspace
+      const wsNum = parseInt(ws, 10);
+      if (!Number.isNaN(wsNum)) {
+        const nextWsTab = allTabs.find((t) => {
+          if (!t || t.pinned || t.closing) return false;
+          const tWs = typeof getWs === "function" ? parseInt(getWs(t), 10) : 1;
+          return !Number.isNaN(tWs) && tWs > wsNum;
+        });
+        if (nextWsTab) {
+          const nextIdx = allTabs.indexOf(nextWsTab);
+          if (nextIdx !== -1) {
+            return Math.max(numPinned, nextIdx);
+          }
+        }
+      }
+
+      return Math.max(numPinned, allTabs.length);
+    } catch (e) {
+      return 0;
+    }
+  }
+
   // New tab in `ws` using its bound container (plain tab when unbound).
-  // Manual birth (Ctrl+T, + button): always a Level 0 root, never a child.
+  // Manual birth (Ctrl+T, + button): always inserted at the TOP of the workspace
+  // working stack (immediately beneath global pins & starred tabs), acting as an Inbox (LIFO).
   function openBoundTab(url = "about:newtab", wsArg) {
     const ws = isValidId(wsArg) ? wsArg : isValidId(current) ? current : "1";
     const bound = getWsContainerId(ws);
+    const targetIndex = getTopWorkingIndex(ws);
     try {
-      const t = bound
-        ? gBrowser.addTrustedTab(url, { userContextId: bound })
-        : gBrowser.addTrustedTab(url);
-      // insertAfterCurrent births tabs inside the selected tab's group — eject.
+      const opts = { index: targetIndex };
+      if (bound) {
+        opts.userContextId = bound;
+      }
+      let t = null;
+      try {
+        t = gBrowser.addTrustedTab(url, opts);
+      } catch (e) {
+        try {
+          t = gBrowser.addTab(url, opts);
+        } catch (err) {
+          t = gBrowser.addTrustedTab(url);
+        }
+      }
+      if (!t) {
+        return null;
+      }
       try {
         gBrowser.ungroupTab(t);
       } catch (e) {}
       setWs(t, ws);
       aphShowTab(t);
+      if (typeof gBrowser.moveTabTo === "function") {
+        try {
+          const curIdx = Array.from(gBrowser.tabs || []).indexOf(t);
+          if (curIdx !== -1 && curIdx !== targetIndex) {
+            gBrowser.moveTabTo(t, { tabIndex: targetIndex, forceUngrouped: true });
+          }
+        } catch (e) {
+          try { gBrowser.moveTabTo(t, targetIndex); } catch (err) {}
+        }
+      }
+      try {
+        if (typeof syncStarredBoundaries === "function") {
+          syncStarredBoundaries();
+        }
+      } catch (e) {}
       gBrowser.selectedTab = t;
       focusUrlBar();
       return t;
@@ -347,8 +441,7 @@
 
   // Open `url` tagged into `ws` with an explicit container (0 = default).
   // Unlike openBoundTab (which uses the workspace's bound container), the
-  // container is chosen by the caller — used by the Stash to restore
-  // full context (workspace + container). Returns the tab, unselected.
+  // container is chosen by the caller. Returns the tab, unselected.
   function openInWorkspace(url, wsArg, userContextId) {
     const target = isValidId(wsArg) ? wsArg : isValidId(current) ? current : "1";
     try {
@@ -360,6 +453,11 @@
         gBrowser.ungroupTab(t);
       } catch (e) {}
       setWs(t, target);
+      try {
+        if (typeof ensureTabBelowStarred === "function") {
+          ensureTabBelowStarred(t);
+        }
+      } catch (e) {}
       return t;
     } catch (e) {
       return null;
@@ -374,6 +472,9 @@
     try {
       if (typeof gURLBar !== "undefined" && gURLBar && typeof gURLBar.focus === "function") {
         gURLBar.focus();
+        if (typeof gURLBar.select === "function") {
+          gURLBar.select();
+        }
       }
     } catch (e) {}
   }

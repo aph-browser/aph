@@ -19,6 +19,7 @@ const created = [];
 const removed = [];
 const discarded = [];
 const restoring = new Set();
+const stripReveals = [];
 let listener = null;
 
 const home = makeTab(tabVals, {
@@ -81,6 +82,12 @@ const sb = {
       addEventListener() {},
       _invalidateCachedVisibleTabs() {},
       _updateCloseButtons() {},
+      // Strip reveals driven by the bundle itself (asserted in
+      // tests/switch-animation.test.js): recorded so the walk tests can
+      // tell an instant landing from the stock smooth glide.
+      _handleTabSelect(instant) {
+        stripReveals.push({ instant, sel: sb.gBrowser.selectedTab });
+      },
     },
   },
   SessionStore: {
@@ -1037,42 +1044,6 @@ describe("tab unloading", () => {
   });
 });
 
-describe("auto stash hook", () => {
-  it("notifies the stash controller on workspace switch", () => {
-    const start = api.getCurrent();
-    if (start !== "1") api.switchTo("1");
-    const base = sb.gBrowser.tabs.length;
-    const prevSelected = sb.gBrowser.selectedTab;
-    let scheduled = 0;
-    sb.window.AphStash = { scheduleAutoStashSweep() { scheduled++; return true; } };
-    try {
-      api.switchTo("2");
-      assert.equal(scheduled, 1, "switch arms the settle timer once");
-    } finally {
-      while (sb.gBrowser.tabs.length > base) sb.gBrowser.tabs.pop();
-      sb.gBrowser.selectedTab = prevSelected;
-      delete sb.window.AphStash;
-      if (api.getCurrent() !== start) api.switchTo(start);
-    }
-  });
-
-  it("switches fine with no stash controller present", () => {
-    const start = api.getCurrent();
-    if (start !== "1") api.switchTo("1");
-    const base = sb.gBrowser.tabs.length;
-    const prevSelected = sb.gBrowser.selectedTab;
-    try {
-      assert.equal(sb.window.AphStash, undefined);
-      api.switchTo("2");
-      api.switchTo("1");
-    } finally {
-      while (sb.gBrowser.tabs.length > base) sb.gBrowser.tabs.pop();
-      sb.gBrowser.selectedTab = prevSelected;
-      if (api.getCurrent() !== start) api.switchTo(start);
-    }
-  });
-});
-
 describe("last-viewed stamp", () => {
   it("writes a parseable epoch-ms stamp", () => {
     assert.equal(typeof api.stampLastViewed, "function");
@@ -1493,12 +1464,18 @@ describe("tab mru walk (Ctrl+`)", () => {
       stamp(b, now - 200);
       const order = api.getTabWalkOrder().map((t) => t.label);
       assert.equal(JSON.stringify(order.slice(0, 3)), JSON.stringify(["home", "tm-a", "tm-b"]));
+      stripReveals.length = 0;
       api.cycleTabMru(1);
       assert.equal(sb.gBrowser.selectedTab, a);
       api.cycleTabMru(1);
       assert.equal(sb.gBrowser.selectedTab, b);
       api.cycleTabMru(-1);
       assert.equal(sb.gBrowser.selectedTab, a);
+      assert.equal(
+        stripReveals.length,
+        0,
+        "same-workspace walks keep stock behavior: the strip glides between neighbours"
+      );
     } finally {
       for (const t of [a, b]) {
         const i = sb.gBrowser.tabs.indexOf(t);
@@ -1518,9 +1495,20 @@ describe("tab mru walk (Ctrl+`)", () => {
       const now = neutralizeExcept([home, far]);
       stamp(home, now - 3000);
       stamp(far, now - 100);
+      stripReveals.length = 0;
       api.cycleTabMru(1);
       assert.equal(sb.gBrowser.selectedTab, far);
       assert.equal(api.getCurrent(), "2");
+      assert.ok(stripReveals.length >= 2, "the switch and the landing both reveal");
+      assert.ok(
+        stripReveals.every((r) => r.instant === true),
+        "a cross-workspace walk lands instantly (no smooth strip glide)"
+      );
+      assert.equal(
+        stripReveals[stripReveals.length - 1].sel,
+        far,
+        "the last reveal aims at the walked-to tab, not the switch's remembered one"
+      );
     } finally {
       const i = sb.gBrowser.tabs.indexOf(far);
       if (i !== -1) sb.gBrowser.tabs.splice(i, 1);

@@ -1,8 +1,8 @@
 /* Aph settings page — runs inside aph-settings.html (chrome:// page in a tab).
  *
  * System-principal chrome pages can use Services directly (same precedent
- * as about:config and aph-stash-page.js), so toggles read and write
- * the aph.* prefs here with seed-once defaults from config/user.js.
+ * as about:config), so toggles read and write
+ * the aph.* prefs here with default values from config/default-prefs.js.
  * Classic script, external file only (no inline scripts — chrome pages
  * may enforce script-src restrictions).
  *
@@ -15,54 +15,23 @@ var AphSettingsLogic = (function () {
     "aph.unload.onLowMemory": true,
     // Stock Firefox safety net (not Aph's): the native LRU + memory-weight
     // unloader under real memory pressure. Seeded on like stock; the row
-    // below keeps it user-togglable so about:config flips survive restarts
-    // via the usual user.js write-through.
+    // below keeps it user-togglable so flips save natively to prefs.js.
     "browser.tabs.unloadOnLowMemory": true,
-    "aph.stash.autoEnabled": false,
-    "aph.stash.snapshots.autoEnabled": true,
     "aph.pins.ctrlWUnloads": true,
     "aph.stars.ctrlWUnloads": true,
     "aph.sidebar.hideFooter": true,
     // Stock prefs (not aph.*): Sync/accounts and the password manager
     // ship OFF — the Settings toggles below are the on-ramp. Defaults
-    // here must match config/user-overrides.js seed-once values.
+    // here must match config/user-overrides.js values.
     "identity.fxaccounts.enabled": false,
     "signon.rememberSignons": false,
   };
 
-  const STALE_PREF = "aph.stash.autoStaleMin";
-  const STALE_DEFAULT = 5;
-  const STALE_MIN = 0;
-  const STALE_MAX = 1440;
-
-  // Workspace-snapshot automation: periodic cadence (minutes) and the
-  // bulk-close safety threshold (doomed tabs at or above this capture
-  // first). Own clamps — the staleness 0..1440 range fits neither.
-  const SNAP_INTERVAL_PREF = "aph.stash.snapshots.intervalMin";
-  const SNAP_INTERVAL_DEFAULT = 30;
-  const SNAP_INTERVAL_MIN = 5;
-  const SNAP_INTERVAL_MAX = 240;
-  const SAFETY_PREF = "aph.stash.safetyMin";
-  const SAFETY_DEFAULT = 3;
-  const SAFETY_MIN = 1;
-  const SAFETY_MAX = 9;
-  // Tiered autos retention (global): newest maxAuto recents plus newest
-  // one per calendar day for keepDailies days. Manuals stay flat 20.
-  const SNAP_MAX_AUTO_PREF = "aph.stash.snapshots.maxAuto";
-  const SNAP_MAX_AUTO_DEFAULT = 10;
-  const SNAP_MAX_AUTO_MIN = 1;
-  const SNAP_MAX_AUTO_MAX = 50;
-  const SNAP_DAILIES_PREF = "aph.stash.snapshots.keepDailies";
-  const SNAP_DAILIES_DEFAULT = 7;
-  const SNAP_DAILIES_MIN = 0;
-  const SNAP_DAILIES_MAX = 30;
-
-  // Automatic unloading staleness: separate pref from the stash one on
-  // purpose — unloading is cheap and reversible (click reloads) while
-  // stashing closes the tab. Pair them as unload < stash so tabs
-  // discard before they close. Same 0..1440 clamp as STALE_* above.
+  // Automatic unloading staleness: minutes (pref aph.unload.staleMin, default 30).
   const UNLOAD_STALE_PREF = "aph.unload.staleMin";
   const UNLOAD_STALE_DEFAULT = 30;
+  const UNLOAD_STALE_MIN = 0;
+  const UNLOAD_STALE_MAX = 1440;
 
   // Staleness presets (Edge/Chrome tier shape, one pref underneath):
   // Relaxed keeps the work session, Balanced is today's default,
@@ -79,12 +48,10 @@ var AphSettingsLogic = (function () {
   const BINDINGS_PREF = "aph.workspaces.containerBindings";
   const ROUTES_PREF = "aph.workspaces.domainRoutes";
   const ACCENTS_PREF = "aph.workspaces.accents";
-  const STASH_PREF = "aph.stash.tabs";
-  const SNAPSHOTS_PREF = "aph.stash.snapshots";
 
   // Appearance (color-scheme room): driven through Firefox's own built-in
   // themes, never an Aph override — every prefers-color-scheme consumer
-  // (canvas faces, menu glyphs, palette/stash light blocks) follows for
+  // (canvas faces, menu glyphs, palette light blocks) follows for
   // free. System = stock default theme = today's behavior exactly.
   const APPEARANCE_OPTIONS = ["system", "dark", "light"];
   const APPEARANCE_THEMES = {
@@ -148,7 +115,7 @@ var AphSettingsLogic = (function () {
           kind: "int",
           pref: "aph.unload.staleMin",
           title: "Auto-unload staleness",
-          desc: "Tabs viewed within this many minutes are spared when the sweep fires. Tabs with no recorded view time count as stale. Keep this below the auto-stash staleness so tabs discard before they close.",
+          desc: "Tabs viewed within this many minutes are spared when the sweep fires. Tabs with no recorded view time count as stale.",
         },
         {
           kind: "presets",
@@ -167,53 +134,6 @@ var AphSettingsLogic = (function () {
           pref: "browser.tabs.unloadOnLowMemory",
           title: "Firefox native low-memory unloading",
           desc: "Stock safety net: Firefox itself unloads least-recently-used tabs when system memory runs low. Workspace-blind (it can take starred tabs too) but click-to-reload. On matches stock; off leaves memory to Aph's sweeps alone.",
-        },
-      ],
-    },
-    {
-      name: "Stash",
-      rows: [
-        {
-          kind: "bool",
-          pref: "aph.stash.autoEnabled",
-          title: "Auto-stash hidden tabs",
-          desc: "15 s after you stop switching, stash (close + store) every eligible hidden-workspace tab. Selected, pinned, starred, audible, loading and unsaved-form tabs never auto-close.",
-        },
-        {
-          kind: "int",
-          pref: "aph.stash.autoStaleMin",
-          title: "Auto-stash staleness",
-          desc: "Tabs viewed within this many minutes are spared when the sweep fires. Tabs with no recorded view time count as stale.",
-        },
-        {
-          kind: "bool",
-          pref: "aph.stash.snapshots.autoEnabled",
-          title: "Snapshot workspaces automatically",
-          desc: "Capture any workspace whose tabs, order, groups or selection changed — on close, group edits and workspace switches (debounced), plus every few minutes and before bulk closes and quit. Restores bring back order, groups, starred state and names; nothing is ever closed.",
-        },
-        {
-          kind: "int",
-          pref: "aph.stash.snapshots.intervalMin",
-          title: "Snapshot cadence",
-          desc: "Minutes between periodic workspace captures (5–240). Event captures (close, group, switch) have their own 10-minute budget and only store when content moved.",
-        },
-        {
-          kind: "int",
-          pref: "aph.stash.safetyMin",
-          title: "Bulk-close safety threshold",
-          desc: "Closing a workspace with at least this many tabs captures a safety snapshot first (1–9).",
-        },
-        {
-          kind: "int",
-          pref: "aph.stash.snapshots.maxAuto",
-          title: "Auto snapshot recents",
-          desc: "Newest automatic snapshots to keep (1–50, default 10). Daily keeps add on top (below); manuals always keep 20.",
-        },
-        {
-          kind: "int",
-          pref: "aph.stash.snapshots.keepDailies",
-          title: "Auto snapshot dailies",
-          desc: "Newest one per calendar day to keep for this many days (0–30, default 7). 0 keeps recents only.",
         },
       ],
     },
@@ -267,69 +187,13 @@ var AphSettingsLogic = (function () {
   function clampStaleMin(v) {
     const n = Math.floor(Number(v));
     if (!Number.isFinite(n)) {
-      return STALE_DEFAULT;
+      return UNLOAD_STALE_DEFAULT;
     }
-    if (n < STALE_MIN) {
-      return STALE_MIN;
+    if (n < UNLOAD_STALE_MIN) {
+      return UNLOAD_STALE_MIN;
     }
-    if (n > STALE_MAX) {
-      return STALE_MAX;
-    }
-    return n;
-  }
-
-  function clampSnapIntervalMin(v) {
-    const n = Math.floor(Number(v));
-    if (!Number.isFinite(n)) {
-      return SNAP_INTERVAL_DEFAULT;
-    }
-    if (n < SNAP_INTERVAL_MIN) {
-      return SNAP_INTERVAL_MIN;
-    }
-    if (n > SNAP_INTERVAL_MAX) {
-      return SNAP_INTERVAL_MAX;
-    }
-    return n;
-  }
-
-  function clampSafetyMin(v) {
-    const n = Math.floor(Number(v));
-    if (!Number.isFinite(n)) {
-      return SAFETY_DEFAULT;
-    }
-    if (n < SAFETY_MIN) {
-      return SAFETY_MIN;
-    }
-    if (n > SAFETY_MAX) {
-      return SAFETY_MAX;
-    }
-    return n;
-  }
-
-  function clampMaxAuto(v) {
-    const n = Math.floor(Number(v));
-    if (!Number.isFinite(n)) {
-      return SNAP_MAX_AUTO_DEFAULT;
-    }
-    if (n < SNAP_MAX_AUTO_MIN) {
-      return SNAP_MAX_AUTO_MIN;
-    }
-    if (n > SNAP_MAX_AUTO_MAX) {
-      return SNAP_MAX_AUTO_MAX;
-    }
-    return n;
-  }
-
-  function clampKeepDailies(v) {
-    const n = Math.floor(Number(v));
-    if (!Number.isFinite(n)) {
-      return SNAP_DAILIES_DEFAULT;
-    }
-    if (n < SNAP_DAILIES_MIN) {
-      return SNAP_DAILIES_MIN;
-    }
-    if (n > SNAP_DAILIES_MAX) {
-      return SNAP_DAILIES_MAX;
+    if (n > UNLOAD_STALE_MAX) {
+      return UNLOAD_STALE_MAX;
     }
     return n;
   }
@@ -338,20 +202,6 @@ var AphSettingsLogic = (function () {
   // backup share it, so the page can never persist an out-of-range
   // value no matter which path writes).
   function clampIntPref(pref, v) {
-    try {
-      if (pref === SNAP_INTERVAL_PREF) {
-        return clampSnapIntervalMin(v);
-      }
-      if (pref === SAFETY_PREF) {
-        return clampSafetyMin(v);
-      }
-      if (pref === SNAP_MAX_AUTO_PREF) {
-        return clampMaxAuto(v);
-      }
-      if (pref === SNAP_DAILIES_PREF) {
-        return clampKeepDailies(v);
-      }
-    } catch (e) {}
     return clampStaleMin(v);
   }
 
@@ -384,7 +234,7 @@ var AphSettingsLogic = (function () {
   // delete); unknown keys are ignored so newer files stay loadable.
   const BACKUP_VERSION = 1;
   const BACKUP_BOOL_PREFS = Object.keys(BOOL_DEFAULTS);
-  const BACKUP_JSON_PREFS = [NAMES_PREF, BINDINGS_PREF, ROUTES_PREF, ACCENTS_PREF, STASH_PREF, SNAPSHOTS_PREF, FRECENCY_PREF];
+  const BACKUP_JSON_PREFS = [NAMES_PREF, BINDINGS_PREF, ROUTES_PREF, ACCENTS_PREF, FRECENCY_PREF];
 
   // read: { bool(pref, def), int(pref, def), json(pref) } — the DOM
   // controller binds these to Services; tests pass stubs.
@@ -394,12 +244,7 @@ var AphSettingsLogic = (function () {
       for (const k of BACKUP_BOOL_PREFS) {
         out[k] = !!read.bool(k, BOOL_DEFAULTS[k]);
       }
-      out[STALE_PREF] = clampStaleMin(read.int(STALE_PREF, STALE_DEFAULT));
       out[UNLOAD_STALE_PREF] = clampStaleMin(read.int(UNLOAD_STALE_PREF, UNLOAD_STALE_DEFAULT));
-      out[SNAP_INTERVAL_PREF] = clampSnapIntervalMin(read.int(SNAP_INTERVAL_PREF, SNAP_INTERVAL_DEFAULT));
-      out[SAFETY_PREF] = clampSafetyMin(read.int(SAFETY_PREF, SAFETY_DEFAULT));
-      out[SNAP_MAX_AUTO_PREF] = clampMaxAuto(read.int(SNAP_MAX_AUTO_PREF, SNAP_MAX_AUTO_DEFAULT));
-      out[SNAP_DAILIES_PREF] = clampKeepDailies(read.int(SNAP_DAILIES_PREF, SNAP_DAILIES_DEFAULT));
       for (const k of BACKUP_JSON_PREFS) {
         out[k] = read.json(k);
       }
@@ -440,12 +285,6 @@ var AphSettingsLogic = (function () {
         prefs[k] = root.prefs[k];
       }
     }
-    if (STALE_PREF in root.prefs) {
-      if (typeof root.prefs[STALE_PREF] !== "number" || !Number.isFinite(root.prefs[STALE_PREF])) {
-        return { ok: false, error: `${STALE_PREF} must be a number.` };
-      }
-      prefs[STALE_PREF] = clampStaleMin(root.prefs[STALE_PREF]);
-    }
     if (UNLOAD_STALE_PREF in root.prefs) {
       if (
         typeof root.prefs[UNLOAD_STALE_PREF] !== "number" ||
@@ -455,74 +294,10 @@ var AphSettingsLogic = (function () {
       }
       prefs[UNLOAD_STALE_PREF] = clampStaleMin(root.prefs[UNLOAD_STALE_PREF]);
     }
-    if (SNAP_INTERVAL_PREF in root.prefs) {
-      if (typeof root.prefs[SNAP_INTERVAL_PREF] !== "number" || !Number.isFinite(root.prefs[SNAP_INTERVAL_PREF])) {
-        return { ok: false, error: `${SNAP_INTERVAL_PREF} must be a number.` };
-      }
-      prefs[SNAP_INTERVAL_PREF] = clampSnapIntervalMin(root.prefs[SNAP_INTERVAL_PREF]);
-    }
-    if (SAFETY_PREF in root.prefs) {
-      if (typeof root.prefs[SAFETY_PREF] !== "number" || !Number.isFinite(root.prefs[SAFETY_PREF])) {
-        return { ok: false, error: `${SAFETY_PREF} must be a number.` };
-      }
-      prefs[SAFETY_PREF] = clampSafetyMin(root.prefs[SAFETY_PREF]);
-    }
-    if (SNAP_MAX_AUTO_PREF in root.prefs) {
-      if (typeof root.prefs[SNAP_MAX_AUTO_PREF] !== "number" || !Number.isFinite(root.prefs[SNAP_MAX_AUTO_PREF])) {
-        return { ok: false, error: `${SNAP_MAX_AUTO_PREF} must be a number.` };
-      }
-      prefs[SNAP_MAX_AUTO_PREF] = clampMaxAuto(root.prefs[SNAP_MAX_AUTO_PREF]);
-    }
-    if (SNAP_DAILIES_PREF in root.prefs) {
-      if (typeof root.prefs[SNAP_DAILIES_PREF] !== "number" || !Number.isFinite(root.prefs[SNAP_DAILIES_PREF])) {
-        return { ok: false, error: `${SNAP_DAILIES_PREF} must be a number.` };
-      }
-      prefs[SNAP_DAILIES_PREF] = clampKeepDailies(root.prefs[SNAP_DAILIES_PREF]);
-    }
     // JSON prefs validate in BACKUP_JSON_PREFS order so an export →
     // import round-trip keeps stable key order (diffable files).
     for (const k of BACKUP_JSON_PREFS) {
       if (!(k in root.prefs)) {
-        continue;
-      }
-      if (k === STASH_PREF) {
-        if (!Array.isArray(root.prefs[k])) {
-          return { ok: false, error: `${k} must be a list.` };
-        }
-        // Entries are sanitized again on read by the stash page, but
-        // drop obvious junk now so a corrupt file can't wedge the store.
-        const kept = [];
-        let dropped = 0;
-        for (const e of root.prefs[k]) {
-          if (e && typeof e === "object" && typeof e.id === "string" && typeof e.url === "string") {
-            kept.push(e);
-          } else {
-            dropped++;
-          }
-        }
-        prefs[k] = kept;
-        if (dropped > 0) {
-          prefs.__droppedStash = dropped;
-        }
-        continue;
-      }
-      if (k === SNAPSHOTS_PREF) {
-        if (!Array.isArray(root.prefs[k])) {
-          return { ok: false, error: `${k} must be a list.` };
-        }
-        const kept = [];
-        let dropped = 0;
-        for (const e of root.prefs[k]) {
-          if (e && typeof e === "object" && typeof e.id === "string" && Array.isArray(e.tabs)) {
-            kept.push(e);
-          } else {
-            dropped++;
-          }
-        }
-        prefs[k] = kept;
-        if (dropped > 0) {
-          prefs.__droppedSnapshots = dropped;
-        }
         continue;
       }
       if (!isObject(root.prefs[k])) {
@@ -531,36 +306,6 @@ var AphSettingsLogic = (function () {
       prefs[k] = root.prefs[k];
     }
     return { ok: true, prefs, exportedAt: typeof root.exportedAt === "string" ? root.exportedAt : "" };
-  }
-
-  // user.js write-through line surgery: replace (or append) one
-  // user_pref line so a Settings toggle survives Firefox re-applying
-  // profile/user.js over prefs.js on every startup. Pure (node-tested);
-  // the DOM controller reaches it via L().patchUserJsLine. A trailing
-  // comment on a replaced line is dropped with it — toggle lines carry
-  // none (their docs live in GROUPS desc + user-overrides.js).
-  function patchUserJsLine(text, pref, value) {
-    try {
-      const src = typeof text === "string" ? text : "";
-      const esc = String(pref).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const lit =
-        typeof value === "number" && Number.isFinite(value)
-          ? String(Math.floor(value))
-          : value
-            ? "true"
-            : "false";
-      const line = `user_pref("${pref}", ${lit});`;
-      const re = new RegExp(`^[ \\t]*user_pref\\("${esc}",.*?\\);[ \\t]*\\r?$`, "m");
-      if (re.test(src)) {
-        return src.replace(re, line);
-      }
-      if (!src) {
-        return line + "\n";
-      }
-      return src.replace(/\n?$/, "\n") + line + "\n";
-    } catch (e) {
-      return typeof text === "string" ? text : "";
-    }
   }
 
   // One-line summary for the import confirm dialog.
@@ -583,36 +328,13 @@ var AphSettingsLogic = (function () {
       if (a) {
         bits.push(`${a} accent${a === 1 ? "" : "s"}`);
       }
-      if (Array.isArray(prefs[STASH_PREF])) {
-        bits.push(`${prefs[STASH_PREF].length} stashed tab${prefs[STASH_PREF].length === 1 ? "" : "s"}`);
-      }
-      if (Array.isArray(prefs[SNAPSHOTS_PREF])) {
-        bits.push(
-          `${prefs[SNAPSHOTS_PREF].length} workspace stash${prefs[SNAPSHOTS_PREF].length === 1 ? "" : "es"}`
-        );
-      }
       let toggles = 0;
       for (const k of BACKUP_BOOL_PREFS) {
         if (k in prefs) {
           toggles++;
         }
       }
-      if (STALE_PREF in prefs) {
-        toggles++;
-      }
       if (UNLOAD_STALE_PREF in prefs) {
-        toggles++;
-      }
-      if (SNAP_INTERVAL_PREF in prefs) {
-        toggles++;
-      }
-      if (SAFETY_PREF in prefs) {
-        toggles++;
-      }
-      if (SNAP_MAX_AUTO_PREF in prefs) {
-        toggles++;
-      }
-      if (SNAP_DAILIES_PREF in prefs) {
         toggles++;
       }
       if (toggles) {
@@ -624,36 +346,16 @@ var AphSettingsLogic = (function () {
 
   return {
     BOOL_DEFAULTS,
-    STALE_PREF,
-    STALE_DEFAULT,
-    STALE_MIN,
-    STALE_MAX,
-    SNAP_INTERVAL_PREF,
-    SNAP_INTERVAL_DEFAULT,
-    SNAP_INTERVAL_MIN,
-    SNAP_INTERVAL_MAX,
-    SAFETY_PREF,
-    SAFETY_DEFAULT,
-    SAFETY_MIN,
-    SAFETY_MAX,
-    SNAP_MAX_AUTO_PREF,
-    SNAP_MAX_AUTO_DEFAULT,
-    SNAP_MAX_AUTO_MIN,
-    SNAP_MAX_AUTO_MAX,
-    SNAP_DAILIES_PREF,
-    SNAP_DAILIES_DEFAULT,
-    SNAP_DAILIES_MIN,
-    SNAP_DAILIES_MAX,
     UNLOAD_STALE_PREF,
     UNLOAD_STALE_DEFAULT,
+    UNLOAD_STALE_MIN,
+    UNLOAD_STALE_MAX,
     UNLOAD_STALE_PRESETS,
     FRECENCY_PREF,
     NAMES_PREF,
     BINDINGS_PREF,
     ROUTES_PREF,
     ACCENTS_PREF,
-    STASH_PREF,
-    SNAPSHOTS_PREF,
     APPEARANCE_OPTIONS,
     APPEARANCE_THEMES,
     themeIdForAppearance,
@@ -663,10 +365,6 @@ var AphSettingsLogic = (function () {
     THEME_PRESET_SCHEME,
     GROUPS,
     clampStaleMin,
-    clampSnapIntervalMin,
-    clampSafetyMin,
-    clampMaxAuto,
-    clampKeepDailies,
     clampIntPref,
     parseJsonObject,
     countKeys,
@@ -676,7 +374,6 @@ var AphSettingsLogic = (function () {
     buildBackup,
     parseBackup,
     summarizeBackup,
-    patchUserJsLine,
   };
 })();
 
@@ -710,25 +407,6 @@ var AphSettingsLogic = (function () {
     }
   }
 
-  // Pre-rename keys (display fallback only — writes target the new key).
-  // Lets profiles that customized the old names still see their values;
-  // the stash controller adopts the data forward on its next save.
-  const LEGACY_PREFS = {
-    "aph.stash.tabs": "aph.archive.tabs",
-    "aph.stash.autoEnabled": "aph.archive.autoEnabled",
-    "aph.stash.autoStaleMin": "aph.archive.autoStaleMin",
-    "aph.stash.snapshots": "aph.snapshots",
-    "aph.stash.snapshots.autoEnabled": "aph.snapshots.autoEnabled",
-  };
-
-  function legacyPref(pref) {
-    try {
-      return LEGACY_PREFS[pref] || "";
-    } catch (e) {
-      return "";
-    }
-  }
-
   function boolDefault(pref) {
     try {
       const l = L();
@@ -753,16 +431,6 @@ var AphSettingsLogic = (function () {
         try {
           return p.getBoolPref(pref);
         } catch (_e) {
-          const old = legacyPref(pref);
-          if (old) {
-            try {
-              return p.getBoolPref(old, d);
-            } catch (__e) {
-              try {
-                return p.getBoolPref(old);
-              } catch (___e) {}
-            }
-          }
           return d;
         }
       }
@@ -776,134 +444,21 @@ var AphSettingsLogic = (function () {
       const p = prefs();
       if (p && typeof p.setBoolPref === "function") {
         p.setBoolPref(pref, !!v);
-        persistToggleBestEffort(pref, !!v);
         return true;
       }
     } catch (e) {}
     return false;
   }
 
-  // Best-effort user.js write-through from DOM scope: the Logic helper
-  // owns the IO; here we just route through L() (null in tests) and
-  // swallow everything — a missed file patch only costs persistence,
-  // never the session toggle.
-  function persistToggleBestEffort(pref, v) {
-    try {
-      const l = L();
-      const fn = l && l.persistToggleToUserJs;
-      if (typeof fn === "function") {
-        const r = fn(pref, v);
-        if (r && typeof r.catch === "function") {
-          r.catch(() => {});
-        }
-      }
-    } catch (e) {}
-  }
-
-  // DOM-scope delegate to the node-tested patchUserJsLine on
-  // AphSettingsLogic (first IIFE): one implementation, reached via L().
-  // Falls back to a no-op passthrough when Logic is unavailable.
-  function patchUserJsLineDom(text, pref, value) {
-    try {
-      const l = L();
-      if (l && typeof l.patchUserJsLine === "function") {
-        return l.patchUserJsLine(text, pref, value);
-      }
-    } catch (e) {}
-    return typeof text === "string" ? text : "";
-  }
-
-  // Best-effort async patch of <profile>/user.js. Resolves true when the
-  // file now carries the value (or already did), false whenever the
-  // chrome IO surface is unavailable — callers treat false as
-  // session-only, never as an error.
-  async function persistToggleToUserJs(pref, value) {
-    try {
-      if (typeof pref !== "string" || !pref) {
-        return false;
-      }
-      const io = typeof IOUtils !== "undefined" ? IOUtils : null;
-      if (!io || typeof io.readUTF8 !== "function" || typeof io.writeUTF8 !== "function") {
-        return false;
-      }
-      let ci = null;
-      try {
-        ci = typeof Components !== "undefined" ? Components.interfaces : null;
-      } catch (e) {}
-      if (!ci) {
-        try {
-          ci = typeof Ci !== "undefined" ? Ci : null;
-        } catch (e) {}
-      }
-      const svc = prefs();
-      if (!svc || !svc.dirsvc || !ci || !ci.nsIFile) {
-        return false;
-      }
-      let profD = null;
-      try {
-        profD = svc.dirsvc.get("ProfD", ci.nsIFile);
-      } catch (e) {
-        return false;
-      }
-      if (!profD || typeof profD.path !== "string" || !profD.path) {
-        return false;
-      }
-      const file = profD.path.replace(/\/$/, "") + "/user.js";
-      let text = "";
-      try {
-        text = await io.readUTF8(file);
-      } catch (e) {
-        text = ""; // no user.js yet: the patch seeds the line
-      }
-      const next = patchUserJsLineDom(text, pref, value);
-      if (next === text) {
-        return true;
-      }
-      await io.writeUTF8(file, next);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // Generic int-pref IO shared by every number row (staleness, unload,
-  // snapshot cadence, safety threshold). readStale/writeStale stay as
-  // stash-pref wrappers so existing callers keep working.
+  // Generic int-pref IO shared by every number row.
   function staleDefaultFor(pref) {
     try {
       const l = L();
       if (l && pref === l.UNLOAD_STALE_PREF) {
         return l.UNLOAD_STALE_DEFAULT || 30;
       }
-      if (l && pref === l.SNAP_INTERVAL_PREF) {
-        return l.SNAP_INTERVAL_DEFAULT || 30;
-      }
-      if (l && pref === l.SAFETY_PREF) {
-        return l.SAFETY_DEFAULT || 3;
-      }
-      if (l && pref === l.SNAP_MAX_AUTO_PREF) {
-        return l.SNAP_MAX_AUTO_DEFAULT || 10;
-      }
-      if (l && pref === l.SNAP_DAILIES_PREF) {
-        return l.SNAP_DAILIES_DEFAULT || 7;
-      }
-      if (l && typeof l.STALE_DEFAULT === "number") {
-        return l.STALE_DEFAULT;
-      }
     } catch (e) {}
-    if (pref === "aph.unload.staleMin" || pref === "aph.stash.snapshots.intervalMin") {
-      return 30;
-    }
-    if (pref === "aph.stash.safetyMin") {
-      return 3;
-    }
-    if (pref === "aph.stash.snapshots.maxAuto") {
-      return 10;
-    }
-    if (pref === "aph.stash.snapshots.keepDailies") {
-      return 7;
-    }
-    return 5;
+    return 30;
   }
 
   function clampIntFor(pref, v) {
@@ -928,27 +483,13 @@ var AphSettingsLogic = (function () {
         return d;
       }
       let v = d;
-      let missing = false;
       try {
         v = p.getIntPref(pref, d);
       } catch (e) {
         try {
           v = p.getIntPref(pref);
         } catch (_e) {
-          missing = true;
           v = d;
-        }
-      }
-      if (missing) {
-        const old = legacyPref(pref);
-        if (old) {
-          try {
-            v = p.getIntPref(old, d);
-          } catch (e) {
-            try {
-              v = p.getIntPref(old);
-            } catch (_e) {}
-          }
         }
       }
       return clampIntFor(pref, v);
@@ -963,30 +504,9 @@ var AphSettingsLogic = (function () {
       const p = prefs();
       if (p && typeof p.setIntPref === "function") {
         p.setIntPref(pref, clamped);
-        // Same user.js write-through as writeBool: the seeded staleness
-        // line would otherwise stomp this on next startup.
-        persistToggleBestEffort(pref, clamped);
         return clamped;
       }
       return clamped;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function readStale() {
-    try {
-      const l = L();
-      return readIntPref((l && l.STALE_PREF) || "aph.stash.autoStaleMin");
-    } catch (e) {
-      return 5;
-    }
-  }
-
-  function writeStale(v) {
-    try {
-      const l = L();
-      return writeIntPref((l && l.STALE_PREF) || "aph.stash.autoStaleMin", v);
     } catch (e) {
       return null;
     }
@@ -998,7 +518,6 @@ var AphSettingsLogic = (function () {
       if (!p) {
         return "";
       }
-      const old = legacyPref(pref);
       if (typeof p.getStringPref === "function") {
         let v = "";
         try {
@@ -1008,15 +527,6 @@ var AphSettingsLogic = (function () {
             v = p.getStringPref(pref) || "";
           } catch (_e) {
             v = "";
-          }
-        }
-        if (!v && old) {
-          try {
-            v = p.getStringPref(old, "") || "";
-          } catch (e) {
-            try {
-              v = p.getStringPref(old) || "";
-            } catch (_e) {}
           }
         }
         return v || "";
@@ -1057,19 +567,6 @@ var AphSettingsLogic = (function () {
     return writeString(pref, obj || {});
   }
 
-  function readJsonArray(pref) {
-    try {
-      const raw = readString(pref);
-      if (!raw) {
-        return [];
-      }
-      const v = JSON.parse(raw);
-      return Array.isArray(v) ? v : [];
-    } catch (e) {
-      return [];
-    }
-  }
-
   function writeString(pref, value) {
     let text = "";
     try {
@@ -1099,22 +596,6 @@ var AphSettingsLogic = (function () {
     } catch (e) {}
     return false;
   }
-
-  function stashCount() {
-    try {
-      const raw = readString("aph.stash.tabs");
-      if (!raw) {
-        return 0;
-      }
-      const v = JSON.parse(raw);
-      return Array.isArray(v) ? v.length : 0;
-    } catch (e) {
-      return 0;
-    }
-  }
-
-  // readString already falls back to the pre-rename key, so the count
-  // covers both without a second parse.
 
   // Appearance bridge: Firefox's own theme manager drives the room
   // (System/Dark/Light), so every prefers-color-scheme consumer follows
@@ -1221,20 +702,6 @@ var AphSettingsLogic = (function () {
     } catch (e) {
       diagLog(`module import threw: ${e && (e.message || e)}`);
     }
-    try {
-      if (
-        typeof Components !== "undefined" &&
-        Components &&
-        Components.utils &&
-        typeof Components.utils.import === "function"
-      ) {
-        const m = Components.utils.import("resource://gre/modules/AddonManager.jsm", {});
-        const picked = pickAddonManager(m);
-        if (picked) {
-          return Promise.resolve(picked);
-        }
-      }
-    } catch (e) {}
     try {
       return Promise.resolve(null);
     } catch (_e) {
@@ -1756,8 +1223,8 @@ var AphSettingsLogic = (function () {
     input.type = "number";
     try {
       const l = L();
-      input.min = String((l && l.STALE_MIN) || 0);
-      input.max = String((l && l.STALE_MAX) || 1440);
+      input.min = String((l && l.UNLOAD_STALE_MIN) || 0);
+      input.max = String((l && l.UNLOAD_STALE_MAX) || 1440);
     } catch (e) {}
     input.value = String(readIntPref(row.pref));
     input.setAttribute("aria-label", row.pref);
@@ -1932,28 +1399,24 @@ var AphSettingsLogic = (function () {
     return section;
   }
 
-  function makeTable(title, headers, entries, emptyText, hint) {
-    return makeEditableTable({ title, headers, entries, emptyText, hint, editable: false });
-  }
-
   // Accent hue names for the workspace accents table editor. Full
   // 16-stop scale (theme.css §21). Default nine are the deep→bright
-  // ramp (1 Indigo → 9 Violet); the rest are accent-only extras. Labels
+  // ramp (1 Purple → 9 Crimson); the rest are accent-only extras. Labels
   // only, never hexes.
   const WS_ACCENT_NAMES = {
-    1: "Indigo",
-    2: "Blue",
-    3: "Cyan",
-    4: "Jade",
-    5: "Grass",
-    6: "Amber",
-    7: "Orange",
-    8: "Crimson",
-    9: "Violet",
+    1: "Purple",
+    2: "Indigo",
+    3: "Blue",
+    4: "Cyan",
+    5: "Jade",
+    6: "Grass",
+    7: "Amber",
+    8: "Orange",
+    9: "Crimson",
     10: "Tomato",
     11: "Ruby",
     12: "Green",
-    13: "Purple",
+    13: "Violet",
     14: "Pink",
     15: "Plum",
     16: "Slate",
@@ -2099,7 +1562,6 @@ var AphSettingsLogic = (function () {
       const bindings = readJsonObject(bindPref);
       const routes = readJsonObject(routesPref);
       const accents = readJsonObject(accentsPref);
-      const n = stashCount();
 
       const nameEntries = Object.keys(names || {})
         .filter((k) => /^[1-9]$/.test(k))
@@ -2223,16 +1685,6 @@ var AphSettingsLogic = (function () {
             } catch (_e) {}
           },
         })
-      );
-
-      out.push(
-        makeTable(
-          "Stash store",
-          ["Entries", ""],
-          n ? [{ ws: "", cells: [`${n}/300 stashed`, "Browse via Open Stash below"] }] : [],
-          "Stash is empty.",
-          "Stash rows live in the Stash tab; this page never edits them."
-        )
       );
     } catch (e) {}
     return out;
@@ -2392,39 +1844,7 @@ var AphSettingsLogic = (function () {
           n++;
         }
       }
-      const stalePrefs = [];
-      try {
-        if (l && l.STALE_PREF) {
-          stalePrefs.push(l.STALE_PREF);
-        } else {
-          stalePrefs.push("aph.stash.autoStaleMin");
-        }
-        if (l && l.UNLOAD_STALE_PREF) {
-          stalePrefs.push(l.UNLOAD_STALE_PREF);
-        } else {
-          stalePrefs.push("aph.unload.staleMin");
-        }
-        if (l && l.SNAP_INTERVAL_PREF) {
-          stalePrefs.push(l.SNAP_INTERVAL_PREF);
-        } else {
-          stalePrefs.push("aph.stash.snapshots.intervalMin");
-        }
-        if (l && l.SAFETY_PREF) {
-          stalePrefs.push(l.SAFETY_PREF);
-        } else {
-          stalePrefs.push("aph.stash.safetyMin");
-        }
-        if (l && l.SNAP_MAX_AUTO_PREF) {
-          stalePrefs.push(l.SNAP_MAX_AUTO_PREF);
-        } else {
-          stalePrefs.push("aph.stash.snapshots.maxAuto");
-        }
-        if (l && l.SNAP_DAILIES_PREF) {
-          stalePrefs.push(l.SNAP_DAILIES_PREF);
-        } else {
-          stalePrefs.push("aph.stash.snapshots.keepDailies");
-        }
-      } catch (e) {}
+      const stalePrefs = [l && l.UNLOAD_STALE_PREF ? l.UNLOAD_STALE_PREF : "aph.unload.staleMin"];
       for (const sp of stalePrefs) {
         if (p && sp in p) {
           const v = writeIntPref(sp, p[sp]);
@@ -2451,11 +1871,8 @@ var AphSettingsLogic = (function () {
       }
       const data = l.buildBackup({
         bool: (k) => readBool(k),
-        int: (pref, d) => readIntPref(pref || (l && l.STALE_PREF) || "aph.stash.autoStaleMin"),
-        json: (k) =>
-          k === l.STASH_PREF || k === l.SNAPSHOTS_PREF
-            ? readJsonArray(k)
-            : readJsonObject(k),
+        int: (pref, d) => readIntPref(pref || (l && l.UNLOAD_STALE_PREF) || "aph.unload.staleMin"),
+        json: (k) => readJsonObject(k),
       });
       const text = JSON.stringify(data, null, 2);
       const blob = new Blob([text], { type: "application/json" });
@@ -2656,8 +2073,6 @@ var AphSettingsLogic = (function () {
           watched.push(l ? l.BINDINGS_PREF : "aph.workspaces.containerBindings");
           watched.push(l ? l.ROUTES_PREF : "aph.workspaces.domainRoutes");
           watched.push(l && l.ACCENTS_PREF ? l.ACCENTS_PREF : "aph.workspaces.accents");
-          watched.push(l ? l.STASH_PREF : "aph.stash.tabs");
-          watched.push(l && l.SNAPSHOTS_PREF ? l.SNAPSHOTS_PREF : "aph.stash.snapshots");
         } catch (e) {}
         const obs = {
           observe(subj, topic, data) {

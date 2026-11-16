@@ -41,7 +41,63 @@
     return `https://${s}`;
   }
 
-  function searchURL(q) {
+  // Search engine: use Firefox's configured default (private default in
+  // private windows), not a hardcoded provider. Services.search was only
+  // removed from some test sandboxes, so the DuckDuckGo fallback is the
+  // seam that keeps navFallback deterministic there.
+  const FALLBACK_SEARCH_NAME = "DuckDuckGo";
+
+  function defaultSearchEngine() {
+    try {
+      if (typeof Services === "undefined" || !Services || !Services.search) {
+        return null;
+      }
+      let engine = null;
+      try {
+        if (
+          typeof isPrivatePaletteWindow === "function" &&
+          isPrivatePaletteWindow() &&
+          Services.search.defaultPrivateEngine
+        ) {
+          engine = Services.search.defaultPrivateEngine;
+        }
+      } catch (e) {}
+      if (!engine) {
+        try {
+          engine = Services.search.defaultEngine || null;
+        } catch (e) {}
+      }
+      if (engine && typeof engine.getSubmission === "function") {
+        return engine;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function searchEngineName() {
+    try {
+      const engine = defaultSearchEngine();
+      if (engine && engine.name) {
+        return String(engine.name);
+      }
+    } catch (e) {}
+    return FALLBACK_SEARCH_NAME;
+  }
+
+  function searchURL(q, engine) {
+    try {
+      const e = engine === undefined ? defaultSearchEngine() : engine;
+      if (e && typeof e.getSubmission === "function") {
+        let charset = null;
+        try {
+          charset = e.queryCharset || null;
+        } catch (_e) {}
+        const submission = e.getSubmission(q, charset);
+        if (submission && submission.uri && submission.uri.spec) {
+          return submission.uri.spec;
+        }
+      }
+    } catch (e) {}
     return `https://duckduckgo.com/?q=${encodeURIComponent(q)}`;
   }
 
@@ -181,8 +237,8 @@
   }
 
   // Always present for non-empty input so Enter never dead-ends: a "Go to"
-  // entry for URL-like input (surfaced first by allItems), else a
-  // DuckDuckGo search (surfaced last).
+  // entry for URL-like input (surfaced first by allItems), else a search
+  // through the configured default engine (surfaced last).
   function navFallback(raw) {
     const q = (raw || "").trim();
     if (!q) {
@@ -201,9 +257,11 @@
       };
     }
     const shown = q.length > 60 ? `${q.slice(0, 60)}…` : q;
-    const url = searchURL(q);
+    const engine = defaultSearchEngine();
+    const url = searchURL(q, engine);
+    const name = (engine && engine.name) || FALLBACK_SEARCH_NAME;
     return {
-      title: `Search DuckDuckGo for: "${shown}"`,
+      title: `Search ${name} for: "${shown}"`,
       sub: `${url}${note}`,
       hint: "Enter",
       run: () => openURL(url, false),

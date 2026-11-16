@@ -7,6 +7,11 @@ from pathlib import Path
 
 from .constants import PROFILE_DIR, ROOT
 
+try:
+    from scripts.profile_lock import profile_locked as _profile_locked
+except ImportError:  # direct-script entry: scripts/ is on sys.path
+    from profile_lock import profile_locked as _profile_locked
+
 DAILY_PROFILE_DIR = Path.home() / ".config" / "aph" / "profile"
 
 _CACHE_SUBDIRS = ("startupCache", "cache2", "shader-cache")
@@ -18,27 +23,6 @@ def _display(p: Path) -> str:
         return str(p.relative_to(ROOT))
     except ValueError:
         return str(p)
-
-
-def _profile_locked(profile: Path) -> bool:
-    """True if a running Firefox holds this profile (same check as
-    scripts/dev.py and the nuke recipes: a ``lock`` symlink whose pid
-    is alive). Local copy so the rebrand package never imports the
-    launcher (direct-script entry must keep working)."""
-    import os
-
-    lock = profile / "lock"
-    try:
-        if not lock.is_symlink():
-            return False
-        target = os.readlink(lock)  # e.g. "127.0.0.1:+12345"
-        pid = target.rsplit(":", 1)[-1].lstrip("+")
-        if not pid.isdigit():
-            return False
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError):
-        return False
 
 
 def running_profiles() -> list[Path]:

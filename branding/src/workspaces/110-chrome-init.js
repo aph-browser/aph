@@ -1,107 +1,3 @@
-  // Keep the auto-hide top bar pinned while a nav-bar popup (uBO,
-  // extensions, hamburger, all-tabs) is open. Pure `:hover` loses when the
-  // mouse moves from the button into the panel, the anchor slides away, and
-  // the popup closes. CSS `:has([open])` covers it when supported; this JS
-  // sets [data-aph-popup-open] as the bulletproof fallback.
-  function initNavPopupHold() {
-    let toolbox = null;
-    let navBar = null;
-    try {
-      toolbox = document.getElementById("navigator-toolbox");
-      navBar = document.getElementById("nav-bar");
-    } catch (e) {}
-    if (!toolbox || !navBar) {
-      return;
-    }
-    const openPopups = new Set();
-
-    function syncHold() {
-      let hasOpen = false;
-      try {
-        hasOpen = !!navBar.querySelector(
-          ":is(toolbarbutton, toolbaritem)[open='true'], :is(toolbarbutton, toolbaritem)[open]"
-        );
-      } catch (e) {}
-      const held = hasOpen || openPopups.size > 0;
-      for (const el of [toolbox, navBar]) {
-        try {
-          if (held) {
-            el.setAttribute("data-aph-popup-open", "1");
-          } else {
-            el.removeAttribute("data-aph-popup-open");
-          }
-        } catch (e) {}
-      }
-    }
-
-    function popupAnchorInNavBar(popup) {
-      try {
-        const anchor = popup.triggerNode || popup.anchorNode;
-        if (anchor && anchor.nodeType === 1) {
-          if (typeof anchor.closest === "function" && anchor.closest("#nav-bar")) {
-            return true;
-          }
-          try {
-            if (navBar.contains(anchor)) {
-              return true;
-            }
-          } catch (e) {}
-        }
-      } catch (e) {}
-      // Extension popups don't always expose triggerNode — if a nav-bar
-      // button is currently [open], assume the popup belongs to it.
-      try {
-        if (navBar.querySelector(":is(toolbarbutton, toolbaritem)[open]")) {
-          return true;
-        }
-      } catch (e) {}
-      return false;
-    }
-
-    try {
-      const obs = new MutationObserver(syncHold);
-      obs.observe(navBar, {
-        subtree: true,
-        attributes: true,
-        attributeFilter: ["open", "aria-expanded"],
-      });
-      navPopupObserver = obs;
-    } catch (e) {
-      navPopupObserver = null;
-    }
-
-    window.addEventListener(
-      "popupshowing",
-      (e) => {
-        try {
-          const p = e.target;
-          if (!p || (p.localName !== "menupopup" && p.localName !== "panel")) {
-            return;
-          }
-          if (popupAnchorInNavBar(p)) {
-            openPopups.add(p);
-            syncHold();
-          }
-        } catch (err) {}
-      },
-      true
-    );
-    const onHide = (e) => {
-      try {
-        const p = e.target;
-        if (openPopups.has(p)) {
-          openPopups.delete(p);
-        }
-      } catch (err) {}
-      // popuphidden fires before [open] clears — defer one tick.
-      setTimeout(syncHold, 0);
-    };
-    window.addEventListener("popuphidden", onHide, true);
-    window.addEventListener("popuphiding", onHide, true);
-    syncHold();
-    return navPopupObserver;
-  }
-
   // Releases every process-global registration owned by this window.
   // Services hold their observers strongly: without this, each closed
   // window stays reachable (observer -> closure -> document/gBrowser) and
@@ -150,14 +46,17 @@
     } catch (e) {}
     startupRestoreObserver = null;
     try {
-      if (welcomeObserver && Services.obs) {
-        Services.obs.removeObserver(
-          welcomeObserver,
-          "sessionstore-windows-restored"
-        );
+      if (restoreMarkerTimer) {
+        clearTimeout(restoreMarkerTimer);
       }
     } catch (e) {}
-    welcomeObserver = null;
+    restoreMarkerTimer = null;
+    try {
+      if (quitGuardObserver && Services.obs) {
+        Services.obs.removeObserver(quitGuardObserver, "quit-application-requested");
+      }
+    } catch (e) {}
+    quitGuardObserver = null;
     // Closing window's temp tabs never fire TabClose per tab — sweep
     // tracked ids against the surviving windows so they don't leak.
     try {
@@ -166,16 +65,15 @@
       }
     } catch (e) {}
     try {
+      if (typeof cleanupAutohideSidebar === "function") {
+        cleanupAutohideSidebar();
+      }
+    } catch (e) {}
+    try {
       if (typeof sweepTempContainers === "function") {
         sweepTempContainers(window);
       }
     } catch (e) {}
-    try {
-      if (navPopupObserver && typeof navPopupObserver.disconnect === "function") {
-        navPopupObserver.disconnect();
-      }
-    } catch (e) {}
-    navPopupObserver = null;
     try {
       cleanupDock();
     } catch (e) {}
@@ -256,9 +154,16 @@
       } catch (e) {}
       if (!isPrivate) {
         try {
-          const bound = isValidId(current) ? getWsContainerId(current) : 0;
-          if (bound) {
-            return openBoundTab("about:newtab", current);
+          let url = "about:newtab";
+          if (args.length > 0 && args[0]) {
+            if (typeof args[0] === "string") {
+              url = args[0];
+            } else if (typeof args[0] === "object" && typeof args[0].url === "string") {
+              url = args[0].url;
+            }
+          }
+          if (typeof openBoundTab === "function") {
+            return openBoundTab(url, current);
           }
         } catch (e) {}
       }
@@ -285,6 +190,12 @@
   }
 
   function init() {
+    // Arm the empty-workspace guard before the forced startup reconcile
+    // below or any user switch can run. Session restore populates tabs
+    // asynchronously after window load; until it settles, "no tabs in this
+    // workspace" only means "not restored yet".
+    sessionRestorePending = detectSessionRestorePending();
+    restoreMarkerOwned = sessionRestorePending;
     // Public API for command palette (and future chrome UI).
     try {
       window.AphWorkspaces = {
@@ -320,6 +231,8 @@
         getLastWorkspace: () => lastUsed,
         openTempTab,
         openBoundTab,
+        getTopWorkingIndex:
+          typeof getTopWorkingIndex === "function" ? getTopWorkingIndex : () => 0,
         openInWorkspace,
         bindCurrentWs: bindCurrentWsToSelectedTab,
         clearWsBinding,
@@ -381,9 +294,23 @@
           typeof setFocusMode === "function" ? setFocusMode : () => false,
         toggleFocusMode:
           typeof toggleFocusMode === "function" ? toggleFocusMode : () => false,
+        getAutohideSidebar:
+          typeof isAutohideSidebar === "function" ? isAutohideSidebar : () => false,
+        setAutohideSidebar:
+          typeof setAutohideSidebar === "function" ? setAutohideSidebar : () => false,
+        toggleAutohideSidebar:
+          typeof toggleAutohideSidebar === "function" ? toggleAutohideSidebar : () => false,
         applySidebarFooter:
           typeof applySidebarFooter === "function" ? applySidebarFooter : () => false,
       };
+    } catch (e) {}
+    try {
+      window.toggleAutohideSidebar =
+        typeof toggleAutohideSidebar === "function" ? toggleAutohideSidebar : () => false;
+      window.isAutohideSidebar =
+        typeof isAutohideSidebar === "function" ? isAutohideSidebar : () => false;
+      window.setAutohideSidebar =
+        typeof setAutohideSidebar === "function" ? setAutohideSidebar : () => false;
     } catch (e) {}
     // Keep hidden group headers out of the strip's drag/drop list: stock
     // binary-searches that list assuming screen order, and zero-size
@@ -486,11 +413,6 @@
     } catch (e) {}
     window.addEventListener("keydown", onKey, true);
     try {
-      navPopupObserver = initNavPopupHold() || null;
-    } catch (e) {
-      navPopupObserver = null;
-    }
-    try {
       initBoundNewTab();
     } catch (e) {}
     // Cross-window binding sync: re-read the pref + repaint the badge.
@@ -590,16 +512,63 @@
         initUnloadLowMemory();
       }
     } catch (e) {}
-    scheduleStartupRestore();
-    // First-run tour (show-once per profile; no-ops everywhere else).
     try {
-      scheduleWelcome();
+      if (typeof initAutohideSidebar === "function") {
+        initAutohideSidebar();
+      }
     } catch (e) {}
+    scheduleStartupRestore();
+    registerContentStyleSheet();
+    placeChromeV2Reload();
     // Global-service registrations above outlive this window unless removed.
     try {
       window.addEventListener("unload", cleanupWindowObservers, { once: true });
     } catch (e) {}
   }
+
+  // Reload (+ stop, its loading twin) lives in the urlbar trailing slot
+  // (Safari pattern). Missing anchors fail open (stock bar layout).
+  function placeChromeV2Reload() {
+    try {
+      const slot =
+        typeof document.querySelector === "function"
+          ? document.querySelector(".urlbar-input-container")
+          : null;
+      if (!slot || typeof document.getElementById !== "function") {
+        return;
+      }
+      ["reload-button", "stop-button"].forEach((id) => {
+        try {
+          const btn = document.getElementById(id);
+          if (!btn || btn.parentNode === slot) {
+            return;
+          }
+          slot.appendChild(btn);
+        } catch (e) {}
+      });
+    } catch (e) {}
+  }
+
+  function registerContentStyleSheet() {
+    try {
+      if (
+        typeof Cc !== "undefined" &&
+        Cc["@mozilla.org/content/style-sheet-service;1"] &&
+        typeof Ci !== "undefined" &&
+        Ci.nsIStyleSheetService &&
+        typeof Services !== "undefined" &&
+        Services.io
+      ) {
+        const sss = Cc["@mozilla.org/content/style-sheet-service;1"].getService(Ci.nsIStyleSheetService);
+        const uri = Services.io.newURI("chrome://browser/content/aph-content.css");
+        if (!sss.sheetRegistered(uri, Ci.nsIStyleSheetService.USER_SHEET)) {
+          sss.loadAndRegisterSheet(uri, Ci.nsIStyleSheetService.USER_SHEET);
+        }
+      }
+    } catch (_e) {}
+  }
+
+  registerContentStyleSheet();
 
   if (document.readyState === "complete") {
     init();

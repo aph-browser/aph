@@ -30,14 +30,10 @@ class PatchCounts:
     tokens: int = 0
     paljs: int = 0
     palcss: int = 0
-    textpick: int = 0
-    stashjs: int = 0
-    stashshared: int = 0
-    stashpage: int = 0
     settingspage: int = 0
-    welcomepage: int = 0
     tabrenamejs: int = 0
     fonts: int = 0
+    contentcss: int = 0
 
     def as_tuple(self) -> tuple[int, ...]:
         return (
@@ -53,14 +49,10 @@ class PatchCounts:
             self.tokens,
             self.paljs,
             self.palcss,
-            self.textpick,
-            self.stashjs,
-            self.stashshared,
-            self.stashpage,
             self.settingspage,
-            self.welcomepage,
             self.tabrenamejs,
             self.fonts,
+            self.contentcss,
         )
 
 

@@ -401,6 +401,17 @@
       }
       return;
     }
+    // Ctrl+\ (or Cmd+\ on Mac) toggles auto-hide sidebar mode.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "Backslash") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof toggleAutohideSidebar === "function") {
+          toggleAutohideSidebar();
+        }
+      } catch (err) {}
+      return;
+    }
     if (!e.altKey || e.metaKey) {
       return;
     }

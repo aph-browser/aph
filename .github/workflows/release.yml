@@ -1,8 +1,8 @@
 name: Release (tag)
 
-# First public releases: push a `v*` tag and this builds all three
+# First public releases: push a `v*` tag and this builds all
 # platforms in-run, then publishes a GitHub release with
-# aph-x86_64.AppImage, aph-x86_64.flatpak, aph-win64-portable.zip and
+# aph-x86_64.AppImage, Aph-Setup-*.exe, and
 # SHA256SUMS. Binaries never cross workflow runs (download-artifact is
 # run-scoped), so the build and the publish live in this one workflow.
 # Re-running a tag reuses the same assets; delete the release first if
@@ -86,13 +86,8 @@ jobs:
 
       - name: Assemble AppDir
         run: |
-          mkdir -p build/AppDir/usr/bin build/AppDir/usr/share/aph build/AppDir/usr/share/icons/hicolor/128x128/apps
+          mkdir -p build/AppDir/usr/bin build/AppDir/usr/share/icons/hicolor/128x128/apps
           cp -r build/firefox/. build/AppDir/usr/bin/
-          cp config/user.js build/AppDir/usr/share/aph/user.js
-          cp branding/userChrome.css build/AppDir/usr/share/aph/userChrome.css
-          cp branding/userContent.css build/AppDir/usr/share/aph/userContent.css
-          cp packaging/seed-profile.sh build/AppDir/usr/share/aph/seed-profile.sh
-          chmod +x build/AppDir/usr/share/aph/seed-profile.sh
           cp branding/aph.png build/AppDir/aph.png
           cp branding/aph.png build/AppDir/usr/share/icons/hicolor/128x128/apps/aph.png
           python -c "from PIL import Image; im=Image.open('branding/aph.png').convert('RGBA'); import os; [(os.makedirs(f'build/AppDir/usr/share/icons/hicolor/{s}x{s}/apps', exist_ok=True), im.resize((s,s), Image.LANCZOS).save(f'build/AppDir/usr/share/icons/hicolor/{s}x{s}/apps/aph.png')) for s in (16,32,48,64,256)]"
@@ -125,83 +120,6 @@ jobs:
           path: firefox-version.txt
           retention-days: 1
 
-      - name: Build update payload
-        run: |
-          python scripts/build_payload.py --out build/payload-out
-          ls build/payload-out/
-
-      - name: Hand off payload to publish
-        uses: actions/upload-artifact@v7
-        with:
-          name: rel-payload
-          path: build/payload-out/
-          retention-days: 1
-
-  flatpak:
-    runs-on: ubuntu-latest
-    needs: lint
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Install Python deps
-        run: pip install pillow
-
-      - name: Install Flatpak tooling
-        run: sudo apt-get update && sudo apt-get install -y flatpak flatpak-builder
-
-      - name: Add Flathub remote
-        run: flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-
-      - name: Install runtime and SDK
-        run: flatpak install -y --user flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
-
-      - name: Prepare Aph build
-        run: |
-          python scripts/fetch.py
-          python scripts/update_prefs.py
-          python scripts/rebrand.py
-          python -c "import sys; sys.path.insert(0, '.'); from scripts.dev import merge_policies; from pathlib import Path; merge_policies(Path('.').resolve())"
-
-      - name: Stage Flatpak sources
-        run: |
-          mkdir -p build/flatpak-stage
-          cp -a build/firefox build/flatpak-stage/firefox
-          cp config/user.js build/flatpak-stage/user.js
-          cp branding/userChrome.css build/flatpak-stage/userChrome.css
-          cp branding/userContent.css build/flatpak-stage/userContent.css
-          cp packaging/seed-profile.sh build/flatpak-stage/seed-profile.sh
-          cp packaging/flatpak/aph build/flatpak-stage/aph
-          cp "packaging/flatpak/io.github.aph_browser.Aph.desktop" build/flatpak-stage/
-          cp "packaging/flatpak/io.github.aph_browser.Aph.metainfo.xml" build/flatpak-stage/
-          cp branding/aph.png build/flatpak-stage/aph.png
-          python -c "from PIL import Image; im=Image.open('branding/aph.png').convert('RGBA'); import os; [(os.makedirs(f'build/flatpak-stage/icons/hicolor/{s}x{s}/apps', exist_ok=True), im.resize((s,s), Image.LANCZOS).save(f'build/flatpak-stage/icons/hicolor/{s}x{s}/apps/io.github.aph_browser.Aph.png')) for s in (16,32,48,64,128,256)]"
-
-      - name: Build Flatpak
-        run: |
-          flatpak-builder --force-clean --repo=build/flatpak-repo build/flatpak-build packaging/flatpak/io.github.aph_browser.Aph.yml
-
-      - name: Smoke test
-        run: |
-          flatpak-builder --run build/flatpak-build packaging/flatpak/io.github.aph_browser.Aph.yml aph --version
-
-      - name: Bundle Flatpak
-        run: |
-          flatpak build-bundle build/flatpak-repo aph-x86_64.flatpak io.github.aph_browser.Aph --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
-
-      - name: Hand off to publish
-        uses: actions/upload-artifact@v7
-        with:
-          name: rel-flatpak
-          path: aph-x86_64.flatpak
-          retention-days: 1
-
   windows:
     runs-on: windows-latest
     needs: lint
@@ -228,15 +146,11 @@ jobs:
           python scripts/rebrand.py
           python -c "import sys; sys.path.insert(0, '.'); from scripts.dev import merge_policies; from pathlib import Path; merge_policies(Path('.').resolve())"
 
-      - name: Stage portable layout
+      - name: Stage layout
         run: |
-          mkdir -p build/win-portable/config
+          mkdir -p build/win-portable
           cp -a build/firefox build/win-portable/firefox
-          cp config/user.js build/win-portable/config/user.js
-          cp branding/userChrome.css build/win-portable/config/userChrome.css
-          cp branding/userContent.css build/win-portable/config/userContent.css
           cp packaging/aph.bat build/win-portable/aph.bat
-          cp packaging/aph-update.ps1 build/win-portable/aph-update.ps1
 
       - name: Smoke test
         run: |
@@ -258,13 +172,6 @@ jobs:
           ISCC "/DVersion=$VER" packaging/aph.iss
           ls packaging/Output/
 
-      - name: Hand off to publish
-        uses: actions/upload-artifact@v7
-        with:
-          name: rel-winportable
-          path: build/win-portable/
-          retention-days: 1
-
       - name: Hand off installer to publish
         uses: actions/upload-artifact@v7
         with:
@@ -274,7 +181,7 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    needs: [appimage, flatpak, windows]
+    needs: [appimage, windows]
 
     steps:
       - name: Checkout code
@@ -290,11 +197,8 @@ jobs:
           set -eu
           mkdir -p release
           cp dist/rel-appimage/aph-x86_64.AppImage release/
-          cp dist/rel-flatpak/aph-x86_64.flatpak release/
           cp dist/rel-wininstaller/Aph-Setup-*.exe release/
-          cp dist/rel-payload/aph-payload-*.zip dist/rel-payload/version.json release/
-          python -c "import shutil; shutil.make_archive('release/aph-win64-portable', 'zip', root_dir='dist/rel-winportable')"
-          (cd release && sha256sum aph-x86_64.AppImage aph-x86_64.flatpak aph-win64-portable.zip Aph-Setup-*.exe aph-payload-*.zip version.json > SHA256SUMS)
+          (cd release && sha256sum aph-x86_64.AppImage Aph-Setup-*.exe > SHA256SUMS)
           cat release/SHA256SUMS
 
       - name: Write release notes
@@ -313,36 +217,19 @@ jobs:
           cat > notes.md <<'EOF'
            ## Aph __VER__
 
-           Unsigned builds; full upgrades stay manual re-downloads.
-           Windows installs self-update the Aph payload on launch
-           (branding only, verified — opt out with APH_NO_UPDATE=1);
-           new Firefox bases still ship as installers.
+           Unsigned builds; upgrades stay manual re-downloads.
 
            - Aph version: __VER__
            - Firefox base: __FXVER__ (recorded from application.ini at build time)
            - Profiles: Linux `~/.config/aph/profile` (daily install) ·
-              Windows `%APPDATA%\Aph\profile` (seed-once user.js + userChrome.css + userContent.css)
+              Windows `%APPDATA%\Aph\profile`
 
            ### What's new in __VER__
 
-           Payload channel (Windows self-updates)
-           - Releases now publish `aph-payload-__VER__.zip` +
-             `version.json` next to the full installers: exactly the
-             Aph-owned delta (omni.ja entries diffed against pristine,
-             plus the profile seeds).
-           - Windows installs self-apply the payload on launch when the
-             installed Firefox matches the channel's build base —
-             branding updates without re-downloading the base. Silent,
-             at most once a day, and every failure path yields to
-             launch (opt out with APH_NO_UPDATE=1).
-           - A base mismatch stages the full installer for the user
-             instead; it is never auto-run from under a live session.
-
            Chrome
-           - v2 shell: floating pill bar, load-storm rings, cross-window
-             theme presets, and a reworked dock, indicators, and focus mode.
-           - The dock is a plain bottom toolbar now (1px hairline divider,
-             depth stays on the pills) with an in-place New Tab in its
+           - v2 shell: floating pill bar, cross-window theme presets,
+             and a reworked dock, indicators, and focus mode.
+           - The dock is a bottom toolbar with an in-place New Tab in its
              menu; its mark is the real Inter A, one mark with the app icon.
            - Focus mode's exit pill fades after 4s idle and returns on
              activity — focus chrome never becomes the furniture it hides.
@@ -355,41 +242,20 @@ jobs:
            - Plain Inter Bold A in flat brand purple on a hairline tile,
              with a subtractive flat-cut apex — still plainly an A at 16px.
 
-           Launch & seeds
+           Launch
            - Rebrand refuses under a running browser (quit-first, same
              contract as nuke/sync); a running daily driver warns instead
              of vetoing, and launch refuses stale forwards.
-           - Seed-once chrome CSS is version-stamped now: a newer bundled
-             copy backs the profile copy up to `.bak` and migrates it,
-             while user edits at the same version are never overwritten.
-
-           Stash
-           - Workspace snapshots grow container + workspace restore,
-             staleness tracking, and workspace-agnostic auto sweeps.
 
            Upstream robustness
            - Drift detector pins every stock selector/token/pref Aph
              depends on against the packaged Firefox (fails loud on
              upstream removal).
-           - Firefox base moves to 157.0.1 (current at release time,
-             recorded from application.ini during the build).
-
-           ### Heads-up upgrading from 0.4.x
-
-           - Drop-in re-download: no profile move, no shortcut
-             changes. Stash migration is automatic.
-           - Windows installs from this release on self-update the Aph
-             payload on launch; new Firefox bases still ship as installers.
-           - For the 0.3.x notes (stash rename, split view, focus mode),
-             see the 0.4.0 release; for the 0.2.x notes, see the 0.3.0
-             release.
 
            ### Install
 
           - Linux AppImage: `chmod +x aph-x86_64.AppImage && ./aph-x86_64.AppImage`
-          - Linux Flatpak: `flatpak install aph-x86_64.flatpak`
-          - Windows: run `Aph-Setup-*.exe` (per-user, no admin needed), or
-            extract `aph-win64-portable.zip` anywhere and run `aph.bat`
+          - Windows: run `Aph-Setup-*.exe` (per-user, no admin needed)
 
           ### Verify
 
@@ -400,7 +266,6 @@ jobs:
            ### Known limitations
 
            - Unsigned binaries: Windows SmartScreen warns on first launch (expected).
-           - Payload auto-update covers Windows only so far (Linux/macOS formats stay manual).
            - See README for details and [SECURITY.md](https://github.com/aph-browser/aph/blob/main/SECURITY.md) to report vulnerabilities.
           EOF
           sed -i "s/__VER__/${VER}/g; s/__FXVER__/${FXVER}/g" notes.md
@@ -412,7 +277,6 @@ jobs:
         run: |
           set -eu
           gh release create "$TAG" --title "Aph $VER" --notes-file notes.md \
-            release/aph-x86_64.AppImage release/aph-x86_64.flatpak \
-            release/aph-win64-portable.zip release/Aph-Setup-*.exe release/aph-payload-*.zip release/version.json release/SHA256SUMS
+            release/aph-x86_64.AppImage release/Aph-Setup-*.exe release/SHA256SUMS
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

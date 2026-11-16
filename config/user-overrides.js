@@ -1,6 +1,6 @@
 // Aph Browser Settings
-// Seed-once defaults: copied into a profile on first launch only, so user
-// changes via about:config / Settings persist. Re-apply with: just sync-prefs
+// Bundled defaults: loaded natively via defaults/preferences/firefox.js in omni.ja,
+// so user changes via about:config / Settings persist in prefs.js automatically.
 
 // 2. DRM Playback (Netflix / Spotify)
 user_pref("media.eme.enabled", true);
@@ -18,24 +18,28 @@ user_pref("sidebar.main.tools", "none");
 // browser.startup.homepage.abouthome_cache.enabled gates the about:home /
 // about:newtab document Firefox caches in cache2. Its version check keys
 // on appinfo.appBuildID only, so it does NOT notice Aph-side default
-// changes — but Aph pins no wallpaper defaults anymore, and both mutation
-// paths already purge (`just sync-prefs` / `just sync-chrome` wipe the
-// caches; a rebrand forces a -purgecaches launch), so the stale-document
-// hazard is covered and regular users keep the faster first paint.
+// changes — but Aph pins no wallpaper defaults anymore, and a rebrand
+// forces a -purgecaches launch, so the stale-document hazard is covered
+// and regular users keep the faster first paint.
 // Deliberately no pref line: stock is enabled, and omitting it (rather
 // than pinning true) leaves the setting user-changeable.
 
 // 5. Keep window open when last tab is closed
 user_pref("browser.tabs.closeWindowWithLastTab", false);
 
-// 6. Open new tabs immediately after the current one
-user_pref("browser.tabs.insertAfterCurrent", true);
+// 6. Insert at Top: manual new tabs spawn at the top of the workspace
+// stack (beneath pins & stars), while child links open next to their parent.
+user_pref("browser.tabs.insertAfterCurrent", false);
 
 // 7. Restore previous windows and tabs on launch
 user_pref("browser.startup.page", 3);
 
 // 8. Never show bookmarks toolbar
 user_pref("browser.toolbars.bookmarks.visibility", "never");
+
+// 8b. Alt does not focus the menu bar (stock true). Aph keeps the menu
+// bar hidden; tapping Alt alone should not pull focus into chrome.
+user_pref("ui.key.menuAccessKeyFocuses", false);
 
 // 9. Enable Chrome devtools (kept: the bug-report flow evaluates
 // chrome-privileged JS in the Browser Console, which needs this).
@@ -44,9 +48,6 @@ user_pref("devtools.chrome.enabled", true);
 // 10. Remote debugging: left at stock (disabled). Regular users gain
 // nothing from the debugger server, so it stays off; developers can flip
 // devtools.debugger.remote-enabled in about:config and it sticks.
-
-// 11. Enable Nova
-user_pref("browser.nova.enabled", true);
 
 // 11b. No default theme. Aph paints its own canvas, and a lightweight theme
 // leaked through three structural tokens: `tab_line` (drove the orange
@@ -83,7 +84,6 @@ user_pref("aph.unload.autoEnabled", true);
 // 12b. Auto-unload staleness: tabs viewed within this many minutes are
 // spared when the sweep fires (default 30). Read live — about:config flips
 // apply to the next sweep. Tabs with no recorded view time count as stale.
-// Keep this below aph.stash.autoStaleMin so tabs discard before they close.
 user_pref("aph.unload.staleMin", 30);
 
 // 12c. Unload on low memory: when Firefox reports memory pressure,
@@ -91,25 +91,6 @@ user_pref("aph.unload.staleMin", 30);
 // max 25 per sweep). On by default — the guard set makes an extra sweep
 // safe anywhere.
 user_pref("aph.unload.onLowMemory", true);
-
-// 12d. Automatic tab stashing: set true to stash (close + store in the
-// tab stash) every eligible hidden-workspace tab — 15 s after you stop
-// switching (each switch re-arms the settle timer; sitting still fires it).
-// Selected, pinned, starred, audible, loading and unsaved-form tabs never
-// auto-close.
-user_pref("aph.stash.autoEnabled", false);
-
-// 12e. Auto-stash staleness: tabs viewed within this many minutes are
-// spared when the sweep fires (default 5). Read live — about:config flips
-// apply to the next sweep. Tabs with no recorded view time count as stale.
-user_pref("aph.stash.autoStaleMin", 5);
-
-// 12f. Workspace snapshots: periodic + safety auto-stash of workspaces
-// whose tabs changed (snapshots = workspace stashes). Toggle, cadence
-// and bulk-close threshold live in Aph Settings under Stash.
-user_pref("aph.stash.snapshots.autoEnabled", true);
-user_pref("aph.stash.snapshots.intervalMin", 30);
-user_pref("aph.stash.safetyMin", 3);
 
 // 15. Ctrl/Cmd+W on a selected pinned tab keeps it open instead of
 // closing — a drifted pin resets to its pinned base URL in place, a pin
@@ -128,6 +109,7 @@ user_pref("aph.stars.ctrlWUnloads", true);
 // strip. The palette's Show/Hide Sidebar Footer command flips it live;
 // Customize Sidebar stays reachable via the Aph menu either way.
 user_pref("aph.sidebar.hideFooter", true);
+user_pref("aph.sidebar.autohide", false);
 
 // 18. Accounts & passwords: both OFF by default (privacy-first seed).
 // Toggled live in Aph Settings ("Accounts & Passwords", backed by
@@ -136,6 +118,14 @@ user_pref("aph.sidebar.hideFooter", true);
 // config/policies.json), so user choice sticks.
 user_pref("identity.fxaccounts.enabled", false);
 user_pref("signon.rememberSignons", false);
+
+// 19. Theme preset: auto follows the OS room (midnight/paper faces);
+// midnight/paper pin those rooms against the OS, nord cools the room
+// with a steel voice, espresso warms it umber. Picked in Aph Settings
+// (Appearance → Theme preset), which also pairs the matching Firefox
+// built-in theme so scheme art (menu glyphs, palette slab) agrees with
+// the room. Unknown values read as auto.
+user_pref("aph.theme.preset", "auto");
 // 13. New Tab look: Aph's own desk, no forced wallpaper.
 // branding/userContent.css paints the designed gradient on html with body
 // forced transparent, so Activity Stream's wallpaper (body
@@ -149,9 +139,8 @@ user_pref("signon.rememberSignons", false);
 // One stale-cache caveat, handled by tooling rather than by disabling
 // features: Mozilla's messaging can set newtabWallpapers.initialWallpaper
 // at runtime, and the cached about:newtab document (see item 4) can carry
-// that baked-in body style past the pref change. `just sync-prefs` and
-// `just sync-chrome` wipe the caches, so a changed default is never
-// shadowed by a stale document.
+// that baked-in body style past the pref change. A rebrand forces a
+// -purgecaches launch, so a changed default is never shadowed by a stale document.
 
 /****************************************************************************
  * END: APH NATIVE OVERRIDES

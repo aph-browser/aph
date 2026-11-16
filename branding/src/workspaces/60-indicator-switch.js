@@ -25,7 +25,6 @@
   let nameObserver = null;
   let wsIconObserver = null;
   let startupRestoreObserver = null;
-  let navPopupObserver = null;
   // Original window.BrowserOpenTab, captured before initBoundNewTab wraps
   // it so + button / menu births land in the bound container. Restored on
   // unload (cleanupWindowObservers).
@@ -66,9 +65,12 @@
   // (1->2) rises from below, descending sinks from above. Rapid
   // re-switches strip both glide classes, reflow, and re-strike —
   // transitions never queue, only the latest target animates. Pins are
-  // global (never change) so they are excluded. Fail-silent throughout
-  // (test tabs have no classList, which just no-ops; test documents
-  // return null for the card, also a no-op).
+  // global (never change) so they are excluded. The strip's OWN reveal is
+  // the third signal: it lands instantly instead of scrolling the crowded
+  // list under the eye (revealSelectionInstant below), so nothing reads
+  // as the switch "still going". Fail-silent throughout (test tabs have
+  // no classList, which just no-ops; test documents return null for the
+  // card, also a no-op).
   const APH_WS_ENTER_GLIDE_MS = 120;
   const APH_WS_ENTER_CLEANUP_MS = APH_WS_ENTER_GLIDE_MS + 60;
   const APH_WS_BLOOM_ID = "aph-ws-bloom";
@@ -169,6 +171,61 @@
           }
         } catch (e) {}
       }, APH_WS_ENTER_CLEANUP_MS);
+    } catch (e) {}
+  }
+
+  // Instant strip reveal: stock brings the newly selected tab into view
+  // through the strip's own smooth scroll. Native TabSelect calls the tab
+  // container's _handleTabSelect() with no instant flag, and the
+  // arrowscrollbox's shadow scrollbox carries `scroll-behavior: smooth`
+  // (the `smoothscroll` attribute it inherits from pref
+  // toolkit.scrollbox.smoothScroll, default on), so the reveal animates.
+  // Stock never notices: a click lands on a visible tab, and Ctrl+Tab
+  // walks neighbours. A workspace switch moves the selection across the
+  // whole strip in one synchronous commit, so on a crowded strip that
+  // glide scrolls the entire list under the eye — the one switch signal
+  // that is loud and long beside the 120ms glide + bloom. Wherever Aph
+  // moves the selection itself, it re-aims the reveal as instant: the
+  // native entry lands in the same pending-rAF slot the TabSelect reveal
+  // used, so that frame is cancelled and replaced, never raced (the frame
+  // itself keeps the scroll out of the hidden-swap layout pass).
+  // Fail-silent: suites that stub none of these paths just no-op, and the
+  // two fallbacks only exist for internals renamed upstream.
+  function revealSelectionInstant() {
+    try {
+      const tc = gBrowser && gBrowser.tabContainer;
+      if (!tc) {
+        return;
+      }
+      if (typeof tc._handleTabSelect === "function") {
+        try {
+          tc._handleTabSelect(true);
+          return;
+        } catch (e) {}
+      }
+      let box = null;
+      try {
+        box = tc.arrowScrollbox;
+      } catch (e) {}
+      let sel = null;
+      try {
+        sel = gBrowser.selectedTab;
+      } catch (e) {}
+      if (
+        box &&
+        sel &&
+        box.overflowing &&
+        typeof box.ensureElementIsVisible === "function"
+      ) {
+        box.ensureElementIsVisible(sel, true);
+        return;
+      }
+      // No scrollbox API at all: a plain element reveal, and only then —
+      // a strip that is merely idle must not scroll (native scrolls on
+      // overflow alone).
+      if (!box && sel && typeof sel.scrollIntoView === "function") {
+        sel.scrollIntoView({ block: "nearest", behavior: "instant" });
+      }
     } catch (e) {}
   }
 
@@ -402,6 +459,9 @@
     } catch (e) {}
     anchorAllGroups();
     reconcile(target, tabs);
+    // The commit is synchronous everywhere else, so the arrival lands on
+    // the strip instead of gliding to it.
+    revealSelectionInstant();
     strikeBloom();
     // Fresh snapshot: reconcile may have opened a tab for an empty
     // workspace, which the stale list above would miss.
@@ -417,29 +477,13 @@
       }
     } catch (e) {}
     // Deferred settle sweep so the switch stays snappy: each switch
-    // (re-)arms a 15 s timer there (same shape as auto-stash below), so
-    // the sweep fires only once you've sat still. Guards re-check at fire
-    // time. Scope "auto" (staleness covers hidden and idle-current tabs);
-    // no other auto path exists: every automatic unload in this bundle
-    // flows through scheduleUnloadSweep.
+    // (re-)arms a 15 s timer there, so the sweep fires only once
+    // you've sat still. Guards re-check at fire time. Scope "auto"
+    // (staleness covers hidden and idle-current tabs); no other auto path
+    // exists: every automatic unload in this bundle flows through
+    // scheduleUnloadSweep.
     try {
       scheduleUnloadSweep();
-    } catch (e) {}
-    // Auto-stash (opt-in pref, default off — stash.js owns the pref
-    // read, eligibility and timing): each switch (re-)arms a 15 s settle
-    // timer there, so the sweep fires only once you've sat still; V1 has
-    // no staleness threshold and every eligible hidden-workspace tab goes.
-    try {
-      const arc = window.AphStash;
-      if (arc && typeof arc.scheduleAutoStashSweep === "function") {
-        arc.scheduleAutoStashSweep();
-      }
-      // Snapshot the arrival workspace promptly (changed + due gated, so
-      // quiet switches write nothing): the time tick stays the backstop,
-      // this keeps fast switch-edit-quit flows from losing work.
-      if (arc && typeof arc.notifyWorkspaceSwitch === "function") {
-        arc.notifyWorkspaceSwitch(target);
-      }
     } catch (e) {}
   }
 
@@ -1019,11 +1063,13 @@
     try {
       pinned = !!t.pinned;
     } catch (e) {}
+    let switched = false;
     if (!pinned) {
       try {
         const ws = typeof getWs === "function" ? getWs(t) : null;
         if (isValidId(ws) && ws !== current) {
           switchTo(ws);
+          switched = true;
         }
       } catch (e) {}
     }
@@ -1045,6 +1091,14 @@
       gBrowser.selectedTab = t;
     } catch (e) {
       return false;
+    }
+    // A walk that crossed workspaces lands far from the strip's viewport
+    // (the switch above revealed the destination's remembered tab, not
+    // this one) — same instant landing, same reason as the switch itself.
+    // Same-workspace walks keep stock behavior: Ctrl+` between neighbours
+    // glides, exactly like Ctrl+Tab.
+    if (switched) {
+      revealSelectionInstant();
     }
     // TabSelect stamps in chrome; the node harness setter does not fire
     // listeners, so stamp explicitly (same ms, harmless in chrome).

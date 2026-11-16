@@ -16,8 +16,7 @@
   const SPLIT_PREF = "browser.tabs.splitView.enabled";
   // Last-viewed read for the split partner pick: SessionStore custom tab
   // value "aphLastViewed" (ms epoch, stamped by the workspaces bundle on
-  // TabSelect/TabOpen — key duplicated here by design, same pattern as
-  // "aphStarred" and stash.js). Missing reads as 0 (never viewed).
+  // TabSelect/TabOpen). Missing reads as 0 (never viewed).
   const SPLIT_LAST_VIEWED_KEY = "aphLastViewed";
 
   function splitLog(msg) {

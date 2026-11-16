@@ -69,7 +69,7 @@ BROWSER_HOOKS = (
         "browser",
         "chrome/browser/skin/classic/browser/toolbarbuttons.css",
         "--toolbarbutton-background-color-hover",
-        "userChrome.css hover voice (Sun defines it)",
+        "theme.css hover voice (Sun defines it)",
     ),
     (
         "browser",
@@ -98,13 +98,13 @@ BROWSER_HOOKS = (
     (
         "browser",
         "chrome/browser/skin/classic/browser/urlbar/view-nova.css",
-        "--urlbarView-row-border-radius",
+        "--urlbarview-row-border-radius",
         "theme.css §25 dropdown rows",
     ),
     (
         "browser",
         "chrome/browser/skin/classic/browser/urlbar/view-nova.css",
-        "--urlbarView-icon-size",
+        "--urlbarview-icon-size",
         "theme.css §25 icon geometry",
     ),
     (
@@ -156,13 +156,13 @@ TOOLKIT_HOOKS = (
         "toolkit",
         "chrome/toolkit/skin/classic/global/popup.css",
         "--panel-background-color",
-        "userChrome.css menu surface variable",
+        "theme.css §20 menu surface variable",
     ),
     (
         "toolkit",
         "chrome/toolkit/skin/classic/global/popup.css",
         "::part(content)",
-        "userChrome.css shadow-part paint",
+        "theme.css §20 shadow-part paint",
     ),
 )
 

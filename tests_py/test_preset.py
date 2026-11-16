@@ -134,8 +134,8 @@ def test_preset_allowlists_agree() -> None:
 
 
 def test_preset_pref_default_is_auto() -> None:
-    config = (ROOT / "config" / "user.js").read_text(encoding="utf-8")
-    assert 'user_pref("aph.theme.preset", "auto")' in config
+    config = (ROOT / "config" / "default-prefs.js").read_text(encoding="utf-8")
+    assert 'pref("aph.theme.preset", "auto")' in config
 
 
 def test_preset_module_ships_in_bundle() -> None:

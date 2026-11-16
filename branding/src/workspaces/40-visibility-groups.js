@@ -422,6 +422,14 @@
   function reconcile(target, tabs) {
     let focus = resolveTargetTab(target, tabs);
     if (!focus) {
+      // Session restore is still walking the window: every workspace looks
+      // empty, and inventing a placeholder here is how a quick workspace
+      // tour during startup ends up persisting blank tabs over the previous
+      // session (2026-10-19 daily data loss). Leave the strip alone until
+      // the restore settles; explicit Ctrl+T / palette opens still work.
+      if (typeof sessionRestorePending !== "undefined" && sessionRestorePending) {
+        return;
+      }
       // Empty workspace: route through openBoundTab so a bound container
       // applies (raw addTrustedTab would spawn an unbound tab here).
       focus = openBoundTab("about:newtab", target);
@@ -445,7 +453,7 @@
       // Assignment can silently not take (a hidden tab refuses selection),
       // so retry once shown — but ONLY when the live selection is still
       // outside the target. Never yank a valid selection to `focus`: a tab
-      // opened + selected after the last switch (first-run welcome, routed
+      // opened + selected after the last switch (tour tab, routed
       // foreground tab) must keep focus.
       try {
         const now = gBrowser.selectedTab;

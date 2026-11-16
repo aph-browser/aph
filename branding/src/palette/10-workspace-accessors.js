@@ -33,32 +33,6 @@
     return `Workspace ${n}${name ? ` (${name})` : ""}${wsContainerSuffix(api, n)}`;
   }
 
-  function arc() {
-    try {
-      return window.AphStash || null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  // "Stash Current Tab", or "Stash N Tabs" when a multiselection is
-  // pending. Fully guarded: the stash controller may be absent (tests).
-  function stashCmdTitle() {
-    try {
-      const a = arc();
-      if (a && typeof a.pendingStashCount === "function" && a.pendingStashCount() > 1) {
-        return `Stash ${a.pendingStashCount()} Tabs`;
-      }
-    } catch (e) {}
-    try {
-      const n = (gBrowser.selectedTabs || gBrowser.multiselectedTabs || []).length;
-      if (n > 1) {
-        return `Stash ${n} Tabs`;
-      }
-    } catch (e) {}
-    return "Stash Current Tab";
-  }
-
   // "Send Active Tab to …", or "Send N Tabs to …" when a multiselection is
   // pending (sendTabTo moves the whole selection, preserving whole
   // native groups).

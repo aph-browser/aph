@@ -281,16 +281,15 @@ describe("rename palette command", () => {
   });
 });
 
-describe("inline dblclick editor", () => {
-  function labelSetup(env, t, rect) {
+describe("tab dblclick rename", () => {
+  function labelSetup(env, t) {
     const labelEl = {
-      closest: (s) => (s === "tab" ? t : null),
-      getBoundingClientRect: () => rect,
+      closest: (s) => (s.includes("tab") ? t : null),
     };
     t.querySelector = () => labelEl;
     return {
       labelTarget: {
-        closest: (s) => (String(s).includes("tab-label") ? labelEl : null),
+        closest: (s) => (String(s).includes("tab-label") || String(s).includes("tab-text") ? labelEl : null),
       },
     };
   }
@@ -307,45 +306,18 @@ describe("inline dblclick editor", () => {
     return { prevented, stopped };
   }
 
-  it("opens over the label, prefilled and selected", () => {
+  it("opens palette prompt on double-click, prefilled with title", () => {
     const env = makeSandbox();
     loadRename(env);
     const t = freshTab(env, "Real Page Title");
     env.setSel(t);
-    const { labelTarget } = labelSetup(env, t, { left: 10, top: 20, width: 100, height: 24 });
+    const { labelTarget } = labelSetup(env, t);
     const r = dblclick(env, labelTarget);
     assert.ok(r.prevented && r.stopped);
-    assert.equal(env.appended.length, 1);
-    const input = env.appended[0];
-    assert.equal(input.value, "Real Page Title");
-    assert.ok(input.focused && input.selected);
-    assert.equal(input.style.left, "10px");
-    assert.equal(input.style.width, "120px"); // pinned-narrow minimum
-  });
-
-  it("carries geometry only — all paint lives in theme.css", () => {
-    const env = makeSandbox();
-    loadRename(env);
-    const t = freshTab(env, "Real Page Title");
-    env.setSel(t);
-    const { labelTarget } = labelSetup(env, t, { left: 10, top: 20, width: 100, height: 24 });
-    dblclick(env, labelTarget);
-    const input = env.appended[0];
-    // Geometry stays inline (dynamic per tab) …
-    assert.equal(input.style.position, "fixed");
-    assert.equal(input.style.left, "10px");
-    assert.equal(input.style.top, "20px");
-    assert.equal(input.style.width, "120px");
-    assert.equal(input.style.height, "24px");
-    // … but no visual style may be set here (theme.css owns ALL paint,
-    // so the editor follows the active theme instead of hardcoded colors).
-    for (const prop of [
-      "margin", "padding", "background", "color", "border",
-      "borderRadius", "font", "fontSize", "outline", "boxSizing",
-      "boxShadow",
-    ]) {
-      assert.equal(input.style[prop], undefined, prop);
-    }
+    assert.equal(env.prompts.length, 1);
+    assert.equal(env.prompts[0].initial, "Real Page Title");
+    env.prompts[0].onCommit("Renamed From DblClick");
+    assert.equal(t.getAttribute("label"), "Renamed From DblClick");
   });
 
   it("ignores favicon, empty strip and non-left buttons", () => {
@@ -353,15 +325,15 @@ describe("inline dblclick editor", () => {
     loadRename(env);
     const t = freshTab(env, "Real Page Title");
     env.setSel(t);
-    labelSetup(env, t, { left: 0, top: 0, width: 50, height: 20 });
+    labelSetup(env, t);
     const iconTarget = { closest: () => null };
     const r1 = dblclick(env, iconTarget);
-    assert.ok(!r1.prevented && env.appended.length === 0);
+    assert.ok(!r1.prevented && env.prompts.length === 0);
     let prevented = false;
     env.containerHandlers["dblclick"]({
       button: 2, target: iconTarget, preventDefault() { prevented = true; }, stopPropagation() {},
     });
-    assert.ok(!prevented && env.appended.length === 0);
+    assert.ok(!prevented && env.prompts.length === 0);
   });
 
   it("yields to the opt-in close-on-double-click pref", () => {
@@ -369,108 +341,9 @@ describe("inline dblclick editor", () => {
     loadRename(env);
     const t = freshTab(env, "Real Page Title");
     env.setSel(t);
-    const { labelTarget } = labelSetup(env, t, { left: 0, top: 0, width: 50, height: 20 });
+    const { labelTarget } = labelSetup(env, t);
     env.sb.gBrowser.tabContainer._closeTabByDblclick = true;
     dblclick(env, labelTarget);
-    assert.equal(env.appended.length, 0);
-  });
-
-  it("commits on Enter, cancels on Escape, commits on blur", () => {
-    const env = makeSandbox();
-    const api = loadRename(env);
-    const t = freshTab(env, "Real Page Title");
-    env.setSel(t);
-    const { labelTarget } = labelSetup(env, t, { left: 0, top: 0, width: 50, height: 20 });
-    dblclick(env, labelTarget);
-    const input = env.appended[0];
-    input.value = "Typed";
-    input[`on_keydown`]({ key: "Enter", preventDefault() {} });
-    assert.equal(t.getAttribute("label"), "Typed");
-    assert.equal(api.getName(t), "Typed");
-
-    dblclick(env, labelTarget);
-    const input2 = env.appended[1];
-    input2.value = "Nope";
-    input2[`on_keydown`]({ key: "Escape", preventDefault() {} });
-    assert.equal(t.getAttribute("label"), "Typed");
-    assert.ok(input2.removed);
-
-    dblclick(env, labelTarget);
-    const input3 = env.appended[2];
-    input3.value = "Blurred";
-    input3[`on_blur`]();
-    assert.equal(t.getAttribute("label"), "Blurred");
-  });
-
-  it("commits the open editor before starting another", () => {
-    const env = makeSandbox();
-    loadRename(env);
-    const a = freshTab(env, "Alpha");
-    const b = freshTab(env, "Beta");
-    env.setSel(a);
-    const sa = labelSetup(env, a, { left: 0, top: 0, width: 50, height: 20 });
-    const sbx = labelSetup(env, b, { left: 60, top: 0, width: 50, height: 20 });
-    dblclick(env, sa.labelTarget);
-    env.appended[0].value = "A1";
-    dblclick(env, sbx.labelTarget);
-    assert.equal(a.getAttribute("label"), "A1");
-    assert.equal(env.appended.length, 2);
-    assert.equal(env.appended[1].value, "Beta");
-  });
-
-  it("cancels without saving when the tab closes, resyncs on scroll", () => {
-    const env = makeSandbox();
-    const api = loadRename(env);
-    const t = freshTab(env, "Real Page Title");
-    env.setSel(t);
-    t.setAttribute("label", "Real Page Title");
-    const rect = { left: 10, top: 20, width: 100, height: 24 };
-    const { labelTarget } = labelSetup(env, t, rect);
-    dblclick(env, labelTarget);
-    const input = env.appended[0];
-    input.value = "Unsaved";
-    rect.left = 50;
-    env.containerHandlers["scroll"]();
-    assert.equal(input.style.left, "50px");
-    env.containerHandlers["TabClose"]({ target: t });
-    assert.ok(input.removed);
-    assert.equal(api.getName(t), "");
-    assert.equal(t.getAttribute("label"), "Real Page Title");
-  });
-
-  it("never paints past the tab's own edge on narrow tabs", () => {
-    const env = makeSandbox();
-    loadRename(env);
-    const t = freshTab(env, "Real Page Title");
-    env.setSel(t);
-    // Narrow tab: label starts at 30, tab ends at 100.
-    t.getBoundingClientRect = () => ({ left: 10, top: 0, right: 100, bottom: 24, width: 90, height: 24 });
-    const { labelTarget } = labelSetup(env, t, { left: 30, top: 2, width: 50, height: 20 });
-    dblclick(env, labelTarget);
-    const input = env.appended[0];
-    // Legacy floor (120px) would run to 150 — clamped to 100-30-2 = 68.
-    assert.equal(input.style.width, "68px");
-    assert.ok(30 + parseFloat(input.style.width) <= 100, "stays inside the tab");
-  });
-
-  it("keeps the floor on roomy tabs and clamps on resync", () => {
-    const env = makeSandbox();
-    loadRename(env);
-    const t = freshTab(env, "Real Page Title");
-    env.setSel(t);
-    const tabRect = { left: 10, top: 0, right: 500, bottom: 24, width: 490, height: 24 };
-    t.getBoundingClientRect = () => tabRect;
-    const labelRect = { left: 30, top: 2, width: 50, height: 20 };
-    const { labelTarget } = labelSetup(env, t, labelRect);
-    dblclick(env, labelTarget);
-    const input = env.appended[0];
-    assert.equal(input.style.width, "120px");
-    // Tab shrinks under the open editor (crowded strip) — scroll resync
-    // must pull the editor back inside instead of tracking past the edge.
-    tabRect.right = 100;
-    tabRect.width = 90;
-    env.containerHandlers["scroll"]();
-    assert.equal(input.style.width, "68px");
-    assert.ok(30 + parseFloat(input.style.width) <= 100, "resync stays inside the tab");
+    assert.equal(env.prompts.length, 0);
   });
 });

@@ -81,9 +81,6 @@
       if (it.kind === "help") {
         return "Insert prefix";
       }
-      if (it.kind === "stash") {
-        return "Restore entry";
-      }
       if (it.kind === "go" || it.kind === "bookmark" || it.kind === "history") {
         return "Open";
       }

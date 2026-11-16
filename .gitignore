@@ -45,8 +45,15 @@ desktop.ini
 *~
 *.swp
 
-# Node (no deps today; keeps one stray `npm install` out of history)
+# Generated bundles (built from branding/src/ via build_assets.py / esbuild)
+branding/workspaces.js
+branding/command-palette.js
+
+# Node
 node_modules/
+package-lock.json
+bun.lock
+bun.lockb
 
 # Logs
 *.log

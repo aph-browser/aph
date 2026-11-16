@@ -17,23 +17,22 @@ from .constants import OMNI_JA, ROOT_OMNI_JA, WORKSPACES_XHTML_PATH
 from .injectors.base import Injector, PatchCounts
 from .injectors.brand import BrandStringsInjector
 from .injectors.features import (
+    ContentCssInjector,
     FontInjector,
     PaletteInjector,
     SettingsInjector,
-    StashInjector,
     TabrenameInjector,
-    TextpickInjector,
     ThemeInjector,
     TokensInjector,
-    WelcomeInjector,
     WorkspacesInjector,
 )
 from .injectors.logos import LogoInjector
+from .injectors.prefs import PrefsDefaultsInjector
 from .injectors.toolbar import ToolbarDefaultsInjector
 from .injectors.xhtml import XhtmlInjector
 from .omni import atomic_ja_temp, normalize_omni_ja
 
-LEAGCY_LOG_FIELDS = (
+LEGACY_LOG_FIELDS = (
     "brand.ftl",
     "brandings.ftl",
     "sync-brand.ftl",
@@ -46,14 +45,11 @@ LEAGCY_LOG_FIELDS = (
     "tokens.css",
     "palette.js",
     "palette.css",
-    "textpick files (controller/shared/child/parent)",
-    "stash.js",
-    "stash-shared.js",
-    "stash page files (html/css/page)",
     "settings page files (html/css/page)",
     "welcome page files (html/css/page)",
     "tabrename.js",
     "chrome fonts (inter woff2)",
+    "content.css",
 )
 
 
@@ -73,19 +69,18 @@ class BrandPatcher:
             WorkspacesInjector(payloads.workspaces_js),
             ThemeInjector(payloads.theme_css),
             TokensInjector(payloads.tokens_css),
+            ContentCssInjector(payloads.content_css),
             PaletteInjector(payloads.palette_js, payloads.palette_css),
-            TextpickInjector(payloads.textpick_js, payloads.textpick_files),
-            StashInjector(
-                payloads.stash_js,
-                payloads.stash_shared_js,
-                payloads.stash_page_files,
-            ),
             SettingsInjector(payloads.settings_page_files),
-            WelcomeInjector(payloads.welcome_page_files),
             TabrenameInjector(payloads.tabrename_js),
             FontInjector(payloads.font_files),
         ]
-        self._replace_injectors: list[Injector] = [brand, logos, ToolbarDefaultsInjector()]
+        self._replace_injectors: list[Injector] = [
+            brand,
+            logos,
+            ToolbarDefaultsInjector(),
+            PrefsDefaultsInjector(payloads.default_prefs),
+        ]
         self._feature_injectors: list[Injector] = features
         self._xhtml = XhtmlInjector()
         # Brand/string + logo + toolbar-defaults replacements run for every
@@ -192,7 +187,7 @@ class BrandPatcher:
         except ValueError:
             display = str(ja_path)
         values = counts.as_tuple()
-        assert len(values) == len(LEAGCY_LOG_FIELDS)
+        assert len(values) == len(LEGACY_LOG_FIELDS)
         # Keep the historical human-readable shape (tests/CI grep for it).
         return (
             f"Rebranded {display}: "
@@ -204,11 +199,8 @@ class BrandPatcher:
             f"{counts.css} theme.css, "
             f"{counts.tokens} tokens.css, "
             f"{counts.paljs} palette.js, {counts.palcss} palette.css, "
-            f"{counts.textpick} textpick files (controller/shared/child/parent), "
-            f"{counts.stashjs} stash.js, {counts.stashshared} stash-shared.js, "
-            f"{counts.stashpage} stash page files (html/css/page), "
             f"{counts.settingspage} settings page files (html/css/page), "
-            f"{counts.welcomepage} welcome page files (html/css/page), "
             f"{counts.tabrenamejs} tabrename.js, "
-            f"{counts.fonts} chrome fonts (inter woff2)"
+            f"{counts.fonts} chrome fonts (inter woff2), "
+            f"{counts.contentcss} content.css"
         )

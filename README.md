@@ -1,25 +1,23 @@
 # Aph
 
-Aph is a Firefox-based, workspaces-first web browser: it repackages upstream Firefox with native workspace management, a command palette, tab stashing, and hardened privacy defaults injected directly into the browser UI — no fork, no recompilation, just the stock binary with Aph overrides applied on every launch.
+Aph is a Firefox-based, workspaces-first web browser: it repackages upstream Firefox with native workspace management, a command palette, and hardened privacy defaults injected directly into the browser UI — no fork, no recompilation, just the stock binary with Aph overrides applied on every launch.
 
 Website: <https://aph-browser.github.io/> · [Releases](https://github.com/aph-browser/aph/releases)
 
-> **Beta:** Aph 0.x is unsigned and has no auto-update yet. Full upgrades
-> are manual re-downloads (Windows payload updates already apply on
-> launch). Windows users will see a SmartScreen warning on
+> **Beta:** Aph 0.x is unsigned and has no auto-update yet. Upgrades
+> are manual re-downloads. Windows users will see a SmartScreen warning on
 > first launch — this is expected for unsigned software.
 
 ## Features
 
 - **Workspaces 1–9** (`Alt+1..9`, `Alt+Shift+]/[` to cycle, `Ctrl+`` for MRU tabs, `Ctrl+Shift+`` for reverse): window-scoped — every window has its own set, and the same number may show in two windows at once with independent tabs. Windows never move each other's tabs; cross-window moves are explicit (palette / tab right-click → Move Tab to Other Window, arrivals join that window's current workspace). Closing a window is native (SessionStore undo); session restore is per-window native.
-- **Command palette** with workspace actions, tab search, bookmarks/history, and stash search.
-- **Stash** for tabs and whole workspaces: auto-sweep, workspace snapshots, container + workspace restore, and staleness tracking.
+- **Command palette** with workspace actions, tab search, bookmarks, and history.
 - **Native tab groups** inside workspaces, **per-workspace container bindings**, **starred tabs**, and **tab unloading**.
 - **Split view** (`Ctrl+Alt+\` or palette): native side-by-side panes with the most-recently-viewed same-workspace tab; switching workspaces separates the pair, both tabs stay open.
 - **Focus mode** (`Ctrl+Alt+F` or palette): hides every chrome surface and leaves only the page; session-only and per-window, palette stays reachable.
 - **Workspace accents**: per-workspace hue overrides (16 hues) alongside names, tags, and icons.
-- **Privacy defaults**: telemetry, health reports, Normandy, and activity-stream telemetry off (see `config/user.js`); your edits persist (seed-once, below).
-- **First-run welcome** tour (workspaces, palette, tabs) plus an **Aph Settings** page — both re-openable from the Aph menu and the command palette.
+- **Privacy defaults**: telemetry, health reports, Normandy, and activity-stream telemetry off (bundled in `browser/omni.ja`); your edits in `about:config` or Aph Settings persist automatically.
+- **Firefox onboarding** on first run (stock `about:welcome`) plus an **Aph Settings** page (`chrome://browser/content/aph-settings.html`).
 
 ## Install
 
@@ -38,24 +36,10 @@ chmod +x aph-x86_64.AppImage
 ./aph-x86_64.AppImage
 ```
 
-### Linux — Flatpak
+### Windows — Installer
 
-```sh
-flatpak install aph-x86_64.flatpak
-flatpak run io.github.aph_browser.Aph
-```
-
-### Windows — installer or portable ZIP
-
-Run `Aph-Setup-*.exe` (per-user install, no admin rights needed), or
-extract `aph-win64-portable.zip` anywhere and run `aph.bat`. Nothing is
+Run `Aph-Setup-*.exe` (per-user install, no admin rights needed). Nothing is
 written outside the install folder except your profile.
-
-Windows installs self-update on launch: each start checks the release
-channel (at most once a day) and silently applies verified Aph payload
-updates — branding and features, same Firefox underneath. Set
-`APH_NO_UPDATE=1` to opt out. A new Firefox base still arrives as an
-installer (the launcher tells you when one is staged).
 
 ## First run & profiles
 
@@ -64,11 +48,12 @@ installer (the launcher tells you when one is staged).
 - Repo runs: `./profile` (`just dev`), or `~/.config/aph/profile` for the
   daily driver (`just install-local`, `just daily`).
 - Windows: profile lives under `%APPDATA%\Aph\profile`.
-- On first run Aph seeds `user.js` from its bundled defaults; your edits
-  persist afterwards (seed-once). `config/user.js` in the repo is the
-  source of those defaults. Menu accents and the new-tab backdrop seed
-  the same way: `branding/userChrome.css` → `profile/chrome/userChrome.css`,
-  `branding/userContent.css` → `profile/chrome/userContent.css`.
+- Defaults (Betterfox + Aph privacy overrides, theme styling, and content backdrop)
+  are bundled directly inside `browser/omni.ja`. Setting Firefox's default branch natively
+  means any customizations you make in `about:config` or Aph Settings stick automatically
+  in `prefs.js` without needing profile seeding or `user.js` write-through. Existing
+  profiles have legacy seeded files (`user.js`, `chrome/*.css`) retired to `*.migrated`
+  automatically.
 
 ## Reporting bugs
 

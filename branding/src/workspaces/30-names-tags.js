@@ -117,13 +117,11 @@
     syncTabChrome(tab);
   }
 
-  // Last-viewed stamp for auto-stash staleness: SessionStore custom tab
+  // Last-viewed stamp for unloader staleness: SessionStore custom tab
   // value LAST_VIEWED_KEY, ms epoch as a string (same persistence as
   // workspace tags, so stamps survive restarts and restored tabs keep
   // their pre-restart viewed time). Stamped on TabSelect and TabOpen
   // (80); never on SSTabRestored (restore must not look like viewing).
-  // stash.js (the Stash) reads it at sweep time (key duplicated there by design —
-  // same pattern as "aphStarred" in 50/76).
   const LAST_VIEWED_KEY = "aphLastViewed";
 
   function stampLastViewed(tab) {

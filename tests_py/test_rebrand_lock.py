@@ -15,6 +15,7 @@ from pathlib import Path
 
 import scripts.aph_rebrand as aph_rebrand
 import scripts.aph_rebrand.cache as cache
+import scripts.profile_lock as profile_lock
 from scripts.build_assets import build
 
 
@@ -25,9 +26,10 @@ def _symlink_lock(profile: Path, pid: int) -> None:
     os.symlink(f"127.0.0.1:+{pid}", profile / "lock")
 
 
-def test_profile_lock_detects_live_pid(tmp_path: Path) -> None:
+def test_profile_lock_detects_live_pid(tmp_path: Path, monkeypatch) -> None:
     profile = tmp_path / "profile"
     _symlink_lock(profile, os.getpid())
+    monkeypatch.setattr(profile_lock, "_process_matches_firefox_profile", lambda pid, path: True)
     assert cache._profile_locked(profile) is True
 
 
@@ -40,6 +42,7 @@ def test_profile_lock_ignores_dead_pid(tmp_path: Path) -> None:
 def test_running_profiles_lists_held(tmp_path: Path, monkeypatch) -> None:
     held = tmp_path / "held"
     _symlink_lock(held, os.getpid())
+    monkeypatch.setattr(profile_lock, "_process_matches_firefox_profile", lambda pid, path: True)
     free = tmp_path / "free"
     free.mkdir()
     monkeypatch.setattr(cache, "PROFILE_DIR", held)

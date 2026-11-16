@@ -1,4 +1,4 @@
-"""Seed-once prefs: launchers must never overwrite an existing profile/user.js."""
+"""Dev launcher preferences and profile migration tests."""
 
 import json
 import os
@@ -8,76 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from scripts.dev import profile_locked, resolve_launch, seed_user_js, sync_user_js
-
-
-def _make_root(tmp_path: Path, user_js: str | None = 'user_pref("a.b", true);\n') -> Path:
-    root = tmp_path / "root"
-    (root / "config").mkdir(parents=True)
-    if user_js is not None:
-        (root / "config" / "user.js").write_text(user_js, encoding="utf-8")
-    return root
-
-
-def test_seed_creates_on_first_launch(tmp_path: Path) -> None:
-    root = _make_root(tmp_path)
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    assert seed_user_js(root, profile) == "seeded"
-    assert (profile / "user.js").read_text(encoding="utf-8") == 'user_pref("a.b", true);\n'
-
-
-def test_seed_keeps_existing_user_edits(tmp_path: Path) -> None:
-    root = _make_root(tmp_path)
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    custom = 'user_pref("a.b", false); // user changed this\n'
-    (profile / "user.js").write_text(custom, encoding="utf-8")
-    assert seed_user_js(root, profile) == "kept"
-    assert (profile / "user.js").read_text(encoding="utf-8") == custom
-
-
-def test_seed_missing_source(tmp_path: Path) -> None:
-    root = _make_root(tmp_path, user_js=None)
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    assert seed_user_js(root, profile) == "missing-source"
-    assert not (profile / "user.js").exists()
-
-
-def test_sync_overwrites_with_backup(tmp_path: Path) -> None:
-    root = _make_root(tmp_path)
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    old = 'user_pref("a.b", false);\n'
-    (profile / "user.js").write_text(old, encoding="utf-8")
-    sync_user_js(root, profile)
-    assert (profile / "user.js").read_text(encoding="utf-8") == 'user_pref("a.b", true);\n'
-    assert (profile / "user.js.bak").read_text(encoding="utf-8") == old
-
-
-def test_sync_wipes_stale_caches(tmp_path: Path) -> None:
-    """A sync must invalidate the about:newtab/chrome caches.
-
-    Firefox caches the about:home/about:newtab document in cache2 and
-    serves it to the privileged about-content process; that cache's own
-    version check keys on appBuildID only, so a document baked with an old
-    body inline style (e.g. an Activity Stream --newtab-wallpaper) can
-    outlive the prefs that removed it. Wiping cache2 + startupCache after
-    a sync is what makes the new default actually take effect.
-    """
-    root = _make_root(tmp_path)
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    for name in ("cache2", "startupCache"):
-        d = profile / name
-        d.mkdir()
-        (d / "entry.bin").write_bytes(b"stale")
-    (profile / "places.sqlite").write_bytes(b"keep me")
-    sync_user_js(root, profile)
-    assert not (profile / "cache2").exists()
-    assert not (profile / "startupCache").exists()
-    assert (profile / "places.sqlite").is_file(), "only caches are wiped"
+import scripts.profile_lock as profile_lock
+from scripts.dev import (
+    clear_stale_profile_lock,
+    profile_locked,
+    resolve_launch,
+    skip_existing_launch,
+)
 
 
 def test_wipe_caches_reports_and_tolerates_missing() -> None:
@@ -98,11 +35,45 @@ def _symlink_lock(profile: Path, pid: int) -> None:
         pytest.skip("cannot create symlinks on this platform")
 
 
-def test_profile_locked_live_pid(tmp_path: Path) -> None:
+def test_profile_locked_live_pid(tmp_path: Path, monkeypatch) -> None:
     profile = tmp_path / "profile"
     profile.mkdir()
     _symlink_lock(profile, os.getpid())
+    monkeypatch.setattr(profile_lock, "_process_matches_firefox_profile", lambda pid, path: True)
     assert profile_locked(profile) is True
+
+
+def test_profile_unlocked_when_pid_is_unrelated(tmp_path: Path) -> None:
+    """A stale lock PID reused by a non-Firefox must not block launches.
+
+    Regression: a waybar thread inherited the lock's old PID, so every
+    `just dev --daily` refused with "branding changed under the running Aph".
+    """
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    _symlink_lock(profile, os.getpid())  # pytest is not Firefox
+    assert profile_locked(profile) is False
+
+
+def test_clear_stale_lock_removes_unrelated_pid(tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    _symlink_lock(profile, os.getpid())  # pytest is not Firefox
+    (profile / ".parentlock").write_text("", encoding="utf-8")
+
+    assert clear_stale_profile_lock(profile) is True
+    assert not (profile / "lock").is_symlink()
+    assert not (profile / ".parentlock").exists()
+
+
+def test_clear_stale_lock_keeps_a_live_firefox(tmp_path: Path, monkeypatch) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    _symlink_lock(profile, os.getpid())
+    monkeypatch.setattr(profile_lock, "_process_matches_firefox_profile", lambda pid, path: True)
+
+    assert clear_stale_profile_lock(profile) is False
+    assert (profile / "lock").is_symlink()
 
 
 def test_profile_unlocked_dead_pid(tmp_path: Path) -> None:
@@ -110,18 +81,6 @@ def test_profile_unlocked_dead_pid(tmp_path: Path) -> None:
     profile.mkdir()
     _symlink_lock(profile, 2**30)  # no such process
     assert profile_locked(profile) is False
-
-
-def test_sync_refuses_while_running(tmp_path: Path) -> None:
-    root = _make_root(tmp_path)
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    (profile / "user.js").write_text('user_pref("a.b", false);\n', encoding="utf-8")
-    _symlink_lock(profile, os.getpid())
-    with pytest.raises(SystemExit):
-        sync_user_js(root, profile)
-    # existing file untouched
-    assert (profile / "user.js").read_text(encoding="utf-8") == 'user_pref("a.b", false);\n'
 
 
 def test_resolve_launch_defaults_to_dev_profile(tmp_path: Path) -> None:
@@ -146,86 +105,46 @@ def test_resolve_launch_daily_strips_flag(tmp_path: Path) -> None:
         assert extra == ["https://example.com"]
 
 
+def test_skip_existing_launch_only_for_bare_running_launch(tmp_path: Path, monkeypatch) -> None:
+    import scripts.dev as dev
+
+    monkeypatch.setattr(dev, "profile_locked", lambda profile: True)
+    assert skip_existing_launch(tmp_path, []) is True
+    assert skip_existing_launch(tmp_path, ["https://example.com"]) is False
+    assert skip_existing_launch(tmp_path, ["--new-window"]) is False
+    monkeypatch.setattr(dev, "profile_locked", lambda profile: False)
+    assert skip_existing_launch(tmp_path, []) is False
+
+
 def _write_policies(root: Path, data: dict) -> None:
     import json
 
     (root / "config" / "policies.json").write_text(json.dumps(data), encoding="utf-8")
 
 
-def test_merge_policies_replaces_extension_settings(tmp_path: Path) -> None:
-    """Removing an extension from config/policies.json must remove it from
-    the live policy. Regression: deep_merge only added, so entries deleted
-    from config resurrected from a stale policies.json.bak on every launch
-    (SponsorBlock/containers reinstalled themselves)."""
+def test_merge_policies_copies_config_directly(tmp_path: Path) -> None:
+    """merge_policies directly copies config/policies.json to distribution/policies.json."""
     from scripts.dev import merge_policies
 
     root = tmp_path / "root"
     (root / "config").mkdir(parents=True)
-    dist = root / "build" / "firefox" / "distribution"
-    dist.mkdir(parents=True)
-    import json
-
-    stale_base = {
-        "policies": {
-            "ExtensionSettings": {
-                "*": {"installation_mode": "allowed"},
-                "sponsorBlocker@ajay.app": {"installation_mode": "normal_installed"},
-            }
-        }
-    }
-    (dist / "policies.json").write_text(json.dumps(stale_base), encoding="utf-8")
-    (dist / "policies.json.bak").write_text(json.dumps(stale_base), encoding="utf-8")
-    _write_policies(
-        root,
-        {
-            "policies": {
-                "ExtensionSettings": {
-                    "*": {"installation_mode": "allowed"},
-                }
-            }
-        },
-    )
-    merge_policies(root)
-    live = json.loads((dist / "policies.json").read_text(encoding="utf-8"))
-    assert list(live["policies"]["ExtensionSettings"].keys()) == ["*"]
-
-
-def test_merge_policies_prunes_removed_top_level_keys(tmp_path: Path) -> None:
-    """Deleting a top-level policy from config/policies.json must remove it
-    from the live policy. Regression: deep_merge only added, so a removed
-    key resurrected from the base on every launch (DisableFirefoxAccounts
-    survived its own removal and kept Sync locked out with "Account
-    settings are unavailable")."""
-    from scripts.dev import merge_policies
-
-    root = tmp_path / "root"
-    (root / "config").mkdir(parents=True)
-    dist = root / "build" / "firefox" / "distribution"
-    dist.mkdir(parents=True)
-    import json
-
-    stale_base = {
-        "policies": {
-            "DisableFirefoxAccounts": True,
-            "DisableTelemetry": True,
-        }
-    }
-    (dist / "policies.json").write_text(json.dumps(stale_base), encoding="utf-8")
-    (dist / "policies.json.bak").write_text(json.dumps(stale_base), encoding="utf-8")
-    # Snapshot records the previously applied set (with the accounts lock).
-    (dist / ".aph-policies-applied.json").write_text(json.dumps(stale_base), encoding="utf-8")
     _write_policies(
         root,
         {
             "policies": {
                 "DisableTelemetry": True,
+                "ExtensionSettings": {"*": {"installation_mode": "allowed"}},
             }
         },
     )
     merge_policies(root)
-    live = json.loads((dist / "policies.json").read_text(encoding="utf-8"))
-    assert "DisableFirefoxAccounts" not in live["policies"]
+    dist_policy = root / "build" / "firefox" / "distribution" / "policies.json"
+    assert dist_policy.is_file()
+    import json
+
+    live = json.loads(dist_policy.read_text(encoding="utf-8"))
     assert live["policies"]["DisableTelemetry"] is True
+    assert list(live["policies"]["ExtensionSettings"].keys()) == ["*"]
 
 
 def test_ensure_rebranded_reports_false_without_omni(tmp_path: Path) -> None:
@@ -271,10 +190,10 @@ def test_no_default_theme_is_installed_or_pinned() -> None:
     """
     root = Path(__file__).resolve().parent.parent
     overrides = (root / "config" / "user-overrides.js").read_text(encoding="utf-8")
-    user_js = (root / "config" / "user.js").read_text(encoding="utf-8")
+    default_prefs = (root / "config" / "default-prefs.js").read_text(encoding="utf-8")
     policies = json.loads((root / "config" / "policies.json").read_text(encoding="utf-8"))
 
-    for name, text in (("user-overrides.js", overrides), ("user.js", user_js)):
+    for name, text in (("user-overrides.js", overrides), ("default-prefs.js", default_prefs)):
         code = re.sub(r"//.*", "", text)
         assert "extensions.activeThemeID" not in code, (
             f"config/{name} must not pin a theme; Aph claims the canvas itself"
@@ -293,13 +212,13 @@ def test_no_default_theme_is_installed_or_pinned() -> None:
         )
 
 
-def test_shipped_user_js_has_no_retired_defaults() -> None:
+def test_shipped_default_prefs_has_no_retired_defaults() -> None:
     """Aph never force-sets retired defaults: no retired pref may appear
     in the shipped defaults (stock + unlocked policy already agree).
     chrome.enabled stays — the support flow needs it."""
     root = Path(__file__).resolve().parent.parent
-    user_js = (root / "config" / "user.js").read_text(encoding="utf-8")
-    code = re.sub(r"//.*", "", user_js)
+    default_prefs = (root / "config" / "default-prefs.js").read_text(encoding="utf-8")
+    code = re.sub(r"//.*", "", default_prefs)
     for retired in (
         "browser.contentblocking.category",
         "browser.startup.homepage.abouthome_cache.enabled",
@@ -307,9 +226,12 @@ def test_shipped_user_js_has_no_retired_defaults() -> None:
         "privacy.resistFingerprinting",
         "privacy.clearOnShutdown.cookies",
         "browser.cache.disk.enable",
+        "browser.shell.checkDefaultBrowser",
+        "browser.startup.homepage_override.mstone",
+        "browser.aboutwelcome.enabled",
     ):
-        assert retired not in code, f"config/user.js must not ship {retired}"
-    assert 'user_pref("devtools.chrome.enabled", true);' in code
+        assert retired not in code, f"config/default-prefs.js must not ship {retired}"
+    assert 'pref("devtools.chrome.enabled", true);' in code
 
 
 def test_shipped_policies_have_no_forced_doh() -> None:
@@ -318,6 +240,17 @@ def test_shipped_policies_have_no_forced_doh() -> None:
     root = Path(__file__).resolve().parent.parent
     policies = json.loads((root / "config" / "policies.json").read_text(encoding="utf-8"))
     assert "DNSOverHTTPS" not in policies["policies"]
+
+
+def test_shipped_policies_suppress_default_browser_nag() -> None:
+    """Firefox owns onboarding: about:welcome remains stock, while the
+    default-browser check is policy-suppressed so launch stays silent."""
+    root = Path(__file__).resolve().parent.parent
+    policies = json.loads((root / "config" / "policies.json").read_text(encoding="utf-8"))
+    p = policies["policies"]
+    assert "OverrideFirstRunPage" not in p
+    assert p.get("DontCheckDefaultBrowser") is True
+    assert not p.get("UserMessaging", {}).get("SkipOnboarding")
 
 
 def test_update_prefs_strips_retired_upstream_pins() -> None:
@@ -330,87 +263,13 @@ def test_update_prefs_strips_retired_upstream_pins() -> None:
     out = merge("\n".join(lines) + "\n", "")
     for name in BETTERFOX_STRIP_PREFS:
         assert name not in out
-    assert 'user_pref("a.b", true);' in out
+    assert 'pref("a.b", true);' in out
 
 
-def test_scrub_removes_retired_prefs(tmp_path: Path) -> None:
-    """Profiles seeded before a default's removal carry it in
-    profile/user.js (re-applied every launch) and prefs.js. One cold
-    launch must scrub all of them, back up user.js, and keep the rest."""
-    from scripts.dev import scrub_retired_prefs
-
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    retired = (
-        'user_pref("browser.contentblocking.category", "strict");\n'
-        'user_pref("browser.startup.homepage.abouthome_cache.enabled", false);\n'
-        'user_pref("devtools.debugger.remote-enabled", true);\n'
-        'user_pref("browser.cache.disk.enable", false);\n'
-    )
-    user_js = 'user_pref("a.b", true);\n' + retired
-    prefs_js = "// mozilla header\n" + retired + 'user_pref("c.d", 1);\n'
-    (profile / "user.js").write_text(user_js, encoding="utf-8")
-    (profile / "prefs.js").write_text(prefs_js, encoding="utf-8")
-
-    assert scrub_retired_prefs(profile) == ["user.js", "prefs.js"]
-
-    assert (profile / "user.js").read_text(encoding="utf-8") == 'user_pref("a.b", true);\n'
-    assert (profile / "user.js.bak").read_text(encoding="utf-8") == user_js
-    remaining = (profile / "prefs.js").read_text(encoding="utf-8")
-    assert "contentblocking" not in remaining
-    assert "abouthome_cache" not in remaining
-    assert "remote-enabled" not in remaining
-    assert "cache.disk.enable" not in remaining
-    assert 'user_pref("c.d", 1);' in remaining
-
-    # Second launch is a no-op.
-    assert scrub_retired_prefs(profile) == []
-
-
-def test_scrub_keeps_deliberate_values(tmp_path: Path) -> None:
-    """Anything but the old shipped values implies user action (or
-    stock) — the migration must not touch it."""
-    from scripts.dev import scrub_retired_prefs
-
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    user_js = (
-        'user_pref("browser.contentblocking.category", "standard");\n'
-        'user_pref("browser.startup.homepage.abouthome_cache.enabled", true);\n'
-        'user_pref("devtools.debugger.remote-enabled", false);\n'
-        'user_pref("browser.cache.disk.enable", true);\n'
-        'user_pref("devtools.chrome.enabled", true);\n'
-    )
-    (profile / "user.js").write_text(user_js, encoding="utf-8")
-    (profile / "prefs.js").write_text(user_js, encoding="utf-8")
-
-    assert scrub_retired_prefs(profile) == []
-    assert (profile / "user.js").read_text(encoding="utf-8") == user_js
-    assert not (profile / "user.js.bak").exists()
-
-
-def test_scrub_skips_while_running(tmp_path: Path) -> None:
-    """Never edit live profile files: while Firefox holds the lock the
-    migration must no-op until the next cold launch."""
-    from scripts.dev import scrub_retired_prefs
-
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    user_js = 'user_pref("browser.contentblocking.category", "strict");\n'
-    (profile / "user.js").write_text(user_js, encoding="utf-8")
-    try:
-        os.symlink(f"127.0.0.1:+{os.getpid()}", profile / "lock")
-    except OSError:
-        pytest.skip("cannot create symlinks on this platform")
-
-    assert scrub_retired_prefs(profile) == []
-    assert (profile / "user.js").read_text(encoding="utf-8") == user_js
-
-
-def test_scrub_missing_files_is_noop(tmp_path: Path) -> None:
-    """Fresh/partial profiles without either file must not fail."""
-    from scripts.dev import scrub_retired_prefs
-
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    assert scrub_retired_prefs(profile) == []
+def test_ensure_rebranded_watches_default_prefs_and_html() -> None:
+    """ensure_rebranded must watch config/default-prefs.js and branding/*.html so
+    updates to preferences or settings pages trigger rebrand on launch."""
+    root = Path(__file__).resolve().parent.parent
+    dev_text = (root / "scripts" / "dev.py").read_text(encoding="utf-8")
+    assert 'root / "config" / "default-prefs.js"' in dev_text
+    assert '.rglob("*.html")' in dev_text

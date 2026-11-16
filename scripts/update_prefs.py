@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Merge latest Betterfox user.js with Aph native overrides.
+"""Merge latest Betterfox user.js with Aph native overrides into default-prefs.js.
 
 On-demand only — never called from dev.py, so launches stay fast and fully
 offline. Usage:
     just update-prefs                  # always fetch + regenerate
-    just bootstrap                     # fetches only if user.js lacks Betterfox
+    just bootstrap                     # fetches only if default-prefs.js lacks Betterfox
 
-The output is seed-once defaults: launchers copy it into a profile only on
-first launch, so user changes via about:config / Settings persist. Re-apply
-on purpose with: just sync-prefs
-
-Firefox applies user.js top-to-bottom ("last line wins"), so Aph's overrides
-are appended after Betterfox and take precedence on conflicts.
+The output is bundled default preferences: injected directly into
+browser/omni.ja defaults/preferences/firefox.js at rebrand time. Setting
+Firefox's default branch natively means user edits in about:config / Aph
+Settings save to prefs.js and stick automatically (no profile seeding needed).
 """
 
 import argparse
@@ -22,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OVERRIDES_FILE = ROOT / "config" / "user-overrides.js"
-TARGET_FILE = ROOT / "config" / "user.js"
+TARGET_FILE = ROOT / "config" / "default-prefs.js"
 BETTERFOX_URL = "https://raw.githubusercontent.com/yokoffing/Betterfox/main/user.js"
 MARKER = "Betterfox"
 TIMEOUT = 30
@@ -31,8 +29,7 @@ TIMEOUT = 30
 BANNER = (
     "// GENERATED — do not edit by hand. "
     "Edit config/user-overrides.js, then run: just update-prefs\n"
-    "// Seed-once defaults: copied into a profile on first launch only; "
-    "user edits persist. Re-apply with: just sync-prefs\n"
+    "// Bundled default preferences injected into browser/omni.ja defaults/preferences/firefox.js.\n"
 )
 
 
@@ -48,11 +45,17 @@ BANNER = (
 # browser.cache.disk.enable: Betterfox disables the disk cache; Aph keeps
 # stock (enabled) — memory-only caching re-downloads everything on every
 # restart while cookies/history stay on disk anyway.
+# The three first-run pins: Betterfox suppresses Firefox's about:welcome,
+# milestone override, and default-browser check. Aph ships the stock
+# onboarding flow instead, so all three stay at their stock defaults.
 BETTERFOX_STRIP_PREFS = (
     "browser.contentblocking.category",
     "privacy.resistFingerprinting",
     "privacy.clearOnShutdown.cookies",
     "browser.cache.disk.enable",
+    "browser.shell.checkDefaultBrowser",
+    "browser.startup.homepage_override.mstone",
+    "browser.aboutwelcome.enabled",
 )
 
 _PREF_RE = re.compile(r"""user_pref\("([^"]+)""")
@@ -68,13 +71,25 @@ def fetch_betterfox() -> str:
         return raw.decode("utf-8", errors="replace")
 
 
+def to_pref(line: str) -> str:
+    return re.sub(r"^\s*user_pref\(", "pref(", line)
+
+
 def merge(betterfox: str, overrides: str) -> str:
     kept = [
-        line
+        to_pref(line)
         for line in betterfox.rstrip("\n").splitlines()
         if (m := _PREF_RE.search(line)) is None or m.group(1) not in BETTERFOX_STRIP_PREFS
     ]
-    parts = [BANNER.rstrip("\n"), "", "\n".join(kept).rstrip("\n"), "", overrides.strip("\n"), ""]
+    overrides_lines = [to_pref(line) for line in overrides.strip("\n").splitlines()]
+    parts = [
+        BANNER.rstrip("\n"),
+        "",
+        "\n".join(kept).rstrip("\n"),
+        "",
+        "\n".join(overrides_lines),
+        "",
+    ]
     return "\n".join(parts)
 
 
@@ -83,7 +98,7 @@ def main() -> int:
     parser.add_argument(
         "--if-missing",
         action="store_true",
-        help="Only fetch when config/user.js lacks Betterfox; "
+        help="Only fetch when config/default-prefs.js lacks Betterfox; "
         "tolerant of offline failures (for bootstrap).",
     )
     args = parser.parse_args()
@@ -91,7 +106,7 @@ def main() -> int:
     if args.if_missing and TARGET_FILE.is_file():
         try:
             if MARKER in TARGET_FILE.read_text(encoding="utf-8"):
-                print("config/user.js already contains Betterfox, skipping.")
+                print("config/default-prefs.js already contains Betterfox, skipping.")
                 return 0
         except OSError as e:
             print(f"Warning: cannot read {TARGET_FILE}: {e}", file=sys.stderr)
@@ -105,8 +120,8 @@ def main() -> int:
     except Exception as e:
         msg = f"ERROR downloading Betterfox: {e}"
         if args.if_missing:
-            # Bootstrap must work offline — keep the existing user.js.
-            print(f"{msg} (offline? keeping existing config/user.js)", file=sys.stderr)
+            # Bootstrap must work offline — keep the existing default-prefs.js.
+            print(f"{msg} (offline? keeping existing config/default-prefs.js)", file=sys.stderr)
             return 0
         print(msg, file=sys.stderr)
         return 1

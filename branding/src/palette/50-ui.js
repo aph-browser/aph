@@ -128,10 +128,8 @@
     if (mode === "history") {
       return q.length < 2 ? "Type 2+ characters to search history" : `No history matches “${q}”`;
     }
-    if (mode === "stash") {
-      return q.length < 2 ? "Type 2+ characters to search the stash" : `Nothing stashed matches “${q}”`;
-    }
-    return `No results for “${q}” — Enter searches DuckDuckGo`;
+    const engine = typeof searchEngineName === "function" ? searchEngineName() : "DuckDuckGo";
+    return `No results for “${q}” — Enter searches ${engine}`;
   }
 
   // Letter avatar for tabs without a favicon: first alnum character of

@@ -6,7 +6,7 @@
 // as tests/pinreset.test.js); the AphStar API is exercised directly.
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { run, makeTab } = require("./helpers");
+const { run, makeTab, makeGroup } = require("./helpers");
 
 const tabVals = new WeakMap();
 const prefStore = {};
@@ -66,7 +66,24 @@ function makeEnv() {
         return t;
       },
       removeTab() {},
-      ungroupTab() {},
+      ungroupTab(t) {
+        if (!t) return;
+        const g = t.group;
+        if (g && Array.isArray(g.tabs)) {
+          const i = g.tabs.indexOf(t);
+          if (i !== -1) g.tabs.splice(i, 1);
+        }
+        t.group = null;
+      },
+      moveTabTo(t, opts) {
+        if (!opts || typeof opts !== "object" || !Number.isInteger(opts.tabIndex)) {
+          throw new Error("moveTabTo requires { tabIndex }");
+        }
+        const cur = tabs.indexOf(t);
+        if (cur === -1) return;
+        tabs.splice(cur, 1);
+        tabs.splice(Math.max(0, Math.min(opts.tabIndex, tabs.length)), 0, t);
+      },
       tabContainer: {
         setAttribute() {},
         // Prod keeps every listener; the mock must too (pinreset, starred,
@@ -470,5 +487,365 @@ describe("star close button", () => {
     assert.equal(ev._pd, false);
     assert.equal(ev._ps, false);
     assert.equal(env.api.isStarred(t), true, "star survives");
+  });
+});
+
+describe("starred tab positioning", () => {
+  it("forces an ungrouped tab to the top of the workspace", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const t1 = makeTab(tabVals, { label: "t1", ws: "1", spec: "https://example.com/1" });
+    const t2 = makeTab(tabVals, { label: "t2", ws: "1", spec: "https://example.com/2" });
+    const t3 = makeTab(tabVals, { label: "t3", ws: "1", spec: "https://example.com/3" });
+    env.tabs.push(t1, t2, t3);
+
+    // Star t3 -> moves to index 0 (top of workspace 1)
+    assert.equal(env.api.starTab(t3), true);
+    assert.deepEqual(env.tabs.map((t) => t.label), ["t3", "t1", "t2"]);
+  });
+
+  it("maintains insertion order among multiple workspace stars", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const t1 = makeTab(tabVals, { label: "t1", ws: "1", spec: "https://example.com/1" });
+    const t2 = makeTab(tabVals, { label: "t2", ws: "1", spec: "https://example.com/2" });
+    const t3 = makeTab(tabVals, { label: "t3", ws: "1", spec: "https://example.com/3" });
+    env.tabs.push(t1, t2, t3);
+
+    env.api.starTab(t3); // ["t3", "t1", "t2"]
+    env.api.starTab(t2); // moves after t3 -> ["t3", "t2", "t1"]
+    assert.deepEqual(env.tabs.map((t) => t.label), ["t3", "t2", "t1"]);
+
+    env.api.starTab(t1); // already immediately after t2 -> ["t3", "t2", "t1"]
+    assert.deepEqual(env.tabs.map((t) => t.label), ["t3", "t2", "t1"]);
+  });
+
+  it("never displaces global pinned tabs", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const pin = makeTab(tabVals, { label: "pin", ws: "1", spec: "https://pin.example/", pinned: true });
+    const t1 = makeTab(tabVals, { label: "t1", ws: "1", spec: "https://example.com/1" });
+    const t2 = makeTab(tabVals, { label: "t2", ws: "1", spec: "https://example.com/2" });
+    env.tabs.push(pin, t1, t2);
+
+    env.api.starTab(t2); // moves to index 1 (after pin)
+    assert.deepEqual(env.tabs.map((t) => t.label), ["pin", "t2", "t1"]);
+  });
+
+  it("forces a tab inside a tab group to the top of that group only", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const outBefore = makeTab(tabVals, { label: "out1", ws: "1", spec: "https://out1.example/" });
+    const g1 = makeTab(tabVals, { label: "g1", ws: "1", spec: "https://g1.example/" });
+    const g2 = makeTab(tabVals, { label: "g2", ws: "1", spec: "https://g2.example/" });
+    const g3 = makeTab(tabVals, { label: "g3", ws: "1", spec: "https://g3.example/" });
+    const outAfter = makeTab(tabVals, { label: "out2", ws: "1", spec: "https://out2.example/" });
+
+    makeGroup([g1, g2, g3], { label: "Project Alpha" });
+    env.tabs.push(outBefore, g1, g2, g3, outAfter);
+
+    // Star g3 -> moves to top of group (index 1), NOT top of workspace (index 0)
+    assert.equal(env.api.starTab(g3), true);
+    assert.deepEqual(env.tabs.map((t) => t.label), ["out1", "g3", "g1", "g2", "out2"]);
+    assert.ok(g3.group, "remains inside the group");
+  });
+
+  it("maintains insertion order among multiple stars in a group", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const g1 = makeTab(tabVals, { label: "g1", ws: "1", spec: "https://g1.example/" });
+    const g2 = makeTab(tabVals, { label: "g2", ws: "1", spec: "https://g2.example/" });
+    const g3 = makeTab(tabVals, { label: "g3", ws: "1", spec: "https://g3.example/" });
+    makeGroup([g1, g2, g3], { label: "Project Alpha" });
+    env.tabs.push(g1, g2, g3);
+
+    env.api.starTab(g3); // ["g3", "g1", "g2"]
+    env.api.starTab(g2); // moves after g3 -> ["g3", "g2", "g1"]
+    assert.deepEqual(env.tabs.map((t) => t.label), ["g3", "g2", "g1"]);
+  });
+
+  it("places ungrouped stars above groups in the same workspace", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const g1 = makeTab(tabVals, { label: "g1", ws: "1", spec: "https://g1.example/" });
+    const g2 = makeTab(tabVals, { label: "g2", ws: "1", spec: "https://g2.example/" });
+    makeGroup([g1, g2], { label: "Project Alpha" });
+    const ungrouped = makeTab(tabVals, { label: "ungrouped", ws: "1", spec: "https://ungrouped.example/" });
+    env.tabs.push(g1, g2, ungrouped);
+
+    // Star ungrouped -> moves to index 0, above group
+    env.api.starTab(ungrouped);
+    assert.deepEqual(env.tabs.map((t) => t.label), ["ungrouped", "g1", "g2"]);
+    assert.equal(ungrouped.group, null, "ungrouped tab stays outside group");
+
+    // Star g2 inside group -> moves to top of group (index 1)
+    env.api.starTab(g2);
+    assert.deepEqual(env.tabs.map((t) => t.label), ["ungrouped", "g2", "g1"]);
+  });
+
+  it("keeps tabs from other workspaces undisturbed", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const w1_a = makeTab(tabVals, { label: "w1_a", ws: "1", spec: "https://w1a.example/" });
+    const w1_b = makeTab(tabVals, { label: "w1_b", ws: "1", spec: "https://w1b.example/" });
+    const w2_a = makeTab(tabVals, { label: "w2_a", ws: "2", spec: "https://w2a.example/" });
+    const w2_b = makeTab(tabVals, { label: "w2_b", ws: "2", spec: "https://w2b.example/" });
+    env.tabs.push(w1_a, w1_b, w2_a, w2_b);
+
+    // Star w2_b -> moves to index 2 (top of WS2), not index 0 (WS1)
+    env.api.starTab(w2_b);
+    assert.deepEqual(env.tabs.map((t) => t.label), ["w1_a", "w1_b", "w2_b", "w2_a"]);
+  });
+
+  it("unstarTab does not reposition the tab when it is already at the boundary", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const t1 = makeTab(tabVals, { label: "t1", ws: "1", spec: "https://example.com/1" });
+    const t2 = makeTab(tabVals, { label: "t2", ws: "1", spec: "https://example.com/2" });
+    env.tabs.push(t1, t2);
+
+    env.api.starTab(t2); // ["t2", "t1"]
+    assert.deepEqual(env.tabs.map((t) => t.label), ["t2", "t1"]);
+
+    env.api.unstarTab(t2);
+    assert.deepEqual(env.tabs.map((t) => t.label), ["t2", "t1"], "remains in place on unstar");
+  });
+
+  it("unstarring a middle starred tab keeps it in place without moving", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const s1 = makeTab(tabVals, { label: "s1", ws: "1", spec: "https://example.com/1" });
+    const s2 = makeTab(tabVals, { label: "s2", ws: "1", spec: "https://example.com/2" });
+    const s3 = makeTab(tabVals, { label: "s3", ws: "1", spec: "https://example.com/3" });
+    const u1 = makeTab(tabVals, { label: "u1", ws: "1", spec: "https://example.com/u1" });
+    env.tabs.push(s1, s2, s3, u1);
+
+    env.api.starTab(s1);
+    env.api.starTab(s2);
+    env.api.starTab(s3);
+    assert.deepEqual(env.tabs.map((t) => t.label), ["s1", "s2", "s3", "u1"]);
+
+    // Unstar s2 (the middle star): tab remains in place, never zaps down
+    assert.equal(env.api.unstarTab(s2), true);
+    assert.deepEqual(env.tabs.map((t) => t.label), ["s1", "s2", "s3", "u1"]);
+    assert.equal(env.api.isStarred(s1), true);
+    assert.equal(env.api.isStarred(s3), true);
+    assert.equal(env.api.isStarred(s2), false);
+  });
+
+  it("dragging an unstarred tab into the starred zone auto-stars it", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const s1 = makeTab(tabVals, { label: "s1", ws: "1", spec: "https://example.com/1" });
+    const s2 = makeTab(tabVals, { label: "s2", ws: "1", spec: "https://example.com/2" });
+    const u1 = makeTab(tabVals, { label: "u1", ws: "1", spec: "https://example.com/u1" });
+    env.tabs.push(s1, s2, u1);
+
+    env.api.starTab(s1);
+    env.api.starTab(s2);
+    assert.equal(env.api.isStarred(u1), false);
+
+    // Simulate drag: user moves u1 between s1 and s2
+    env.tabs.splice(2, 1);
+    env.tabs.splice(1, 0, u1);
+    fireContainer(env, "TabMove", { target: u1 });
+
+    assert.equal(env.api.isStarred(u1), true, "dragging into starred zone auto-stars");
+    assert.equal(env.api.getStarURL(u1), "https://example.com/u1");
+    assert.deepEqual(env.tabs.map((t) => t.label), ["s1", "u1", "s2"]);
+  });
+
+  it("dragging a starred tab down below unstarred tabs auto-unstars it", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const s1 = makeTab(tabVals, { label: "s1", ws: "1", spec: "https://example.com/1" });
+    const s2 = makeTab(tabVals, { label: "s2", ws: "1", spec: "https://example.com/2" });
+    const u1 = makeTab(tabVals, { label: "u1", ws: "1", spec: "https://example.com/u1" });
+    env.tabs.push(s1, s2, u1);
+
+    env.api.starTab(s1);
+    env.api.starTab(s2);
+
+    // Simulate drag: user moves s1 below u1
+    env.tabs.splice(0, 1);
+    env.tabs.splice(2, 0, s1);
+    fireContainer(env, "TabMove", { target: s1 });
+
+    assert.equal(env.api.isStarred(s1), false, "dragging below unstarred tabs auto-unstars");
+    assert.deepEqual(env.tabs.map((t) => t.label), ["s2", "u1", "s1"]);
+    assert.equal(env.api.isStarred(s2), true);
+  });
+
+  it("reordering unstarred tabs when no starred tabs exist never auto-stars", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const u1 = makeTab(tabVals, { label: "u1", ws: "1", spec: "https://example.com/u1" });
+    const u2 = makeTab(tabVals, { label: "u2", ws: "1", spec: "https://example.com/u2" });
+    env.tabs.push(u1, u2);
+
+    // Drag u2 to index 0
+    env.tabs.splice(1, 1);
+    env.tabs.splice(0, 0, u2);
+    fireContainer(env, "TabMove", { target: u2 });
+
+    assert.equal(env.api.isStarred(u2), false, "no auto-star when no starred zone exists");
+  });
+
+  it("free reordering within the starred zone preserves star status", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const s1 = makeTab(tabVals, { label: "s1", ws: "1", spec: "https://example.com/1" });
+    const s2 = makeTab(tabVals, { label: "s2", ws: "1", spec: "https://example.com/2" });
+    const u1 = makeTab(tabVals, { label: "u1", ws: "1", spec: "https://example.com/u1" });
+    env.tabs.push(s1, s2, u1);
+
+    env.api.starTab(s1);
+    env.api.starTab(s2);
+
+    // Simulate drag: user moves s2 before s1
+    env.tabs.splice(1, 1);
+    env.tabs.splice(0, 0, s2);
+    fireContainer(env, "TabMove", { target: s2 });
+
+    assert.deepEqual(env.tabs.map((t) => t.label), ["s2", "s1", "u1"]);
+    assert.equal(env.api.isStarred(s1), true);
+    assert.equal(env.api.isStarred(s2), true);
+  });
+
+  it("inside a tab group: drag into group starred zone auto-stars and drag down auto-unstars", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const g1 = makeTab(tabVals, { label: "g1", ws: "1", spec: "https://g1.example/" });
+    const g2 = makeTab(tabVals, { label: "g2", ws: "1", spec: "https://g2.example/" });
+    const g3 = makeTab(tabVals, { label: "g3", ws: "1", spec: "https://g3.example/" });
+    makeGroup([g1, g2, g3], { label: "Project Alpha" });
+    env.tabs.push(g1, g2, g3);
+
+    env.api.starTab(g1);
+    assert.equal(env.api.isStarred(g1), true);
+    assert.equal(env.api.isStarred(g3), false);
+
+    // Drag g3 above g1 in the group -> auto-stars
+    env.tabs.splice(2, 1);
+    env.tabs.splice(0, 0, g3);
+    g3.group.tabs = [g3, g1, g2];
+    fireContainer(env, "TabMove", { target: g3 });
+    assert.equal(env.api.isStarred(g3), true, "g3 auto-stars in group");
+
+    // Drag g1 below g2 in the group -> auto-unstars
+    env.tabs.splice(1, 1);
+    env.tabs.splice(2, 0, g1);
+    g1.group.tabs = [g3, g2, g1];
+    fireContainer(env, "TabMove", { target: g1 });
+    assert.equal(env.api.isStarred(g1), false, "g1 auto-unstars when dragged down in group");
+  });
+
+  it("new tabs spawn strictly below the starred zone", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const s1 = makeTab(tabVals, { label: "s1", ws: "1", spec: "https://example.com/1" });
+    const s2 = makeTab(tabVals, { label: "s2", ws: "1", spec: "https://example.com/2" });
+    env.tabs.push(s1, s2);
+
+    env.api.starTab(s1);
+    env.api.starTab(s2);
+    env.sb.gBrowser.selectedTab = s1; // Focus is on top star
+
+    // Open new tab in bound workspace
+    const newTab = env.sb.window.AphWorkspaces
+      ? env.sb.window.AphWorkspaces.openBoundTab("about:newtab", "1")
+      : null;
+
+    if (newTab) {
+      const idx = env.tabs.indexOf(newTab);
+      const s1Idx = env.tabs.indexOf(s1);
+      const s2Idx = env.tabs.indexOf(s2);
+      assert.ok(idx > s1Idx && idx > s2Idx, "new tab must be placed below all starred tabs");
+    }
+  });
+
+  it("manual new tabs spawn at the top of the working list in LIFO order", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const pin = makeTab(tabVals, { label: "pin", ws: "1", spec: "https://pin.example/", pinned: true });
+    const s1 = makeTab(tabVals, { label: "s1", ws: "1", spec: "https://example.com/1" });
+    const s2 = makeTab(tabVals, { label: "s2", ws: "1", spec: "https://example.com/2" });
+    const oldTab = makeTab(tabVals, { label: "oldTab", ws: "1", spec: "https://example.com/old" });
+    env.tabs.push(pin, s1, s2, oldTab);
+
+    env.api.starTab(s1);
+    env.api.starTab(s2);
+    assert.deepEqual(env.tabs.map((t) => t.label), ["pin", "s1", "s2", "oldTab"]);
+
+    // Spawn first new tab: targets index 3 (immediately below s2)
+    const t1 = env.sb.window.AphWorkspaces.openBoundTab("about:newtab", "1");
+    t1.label = "t1";
+    assert.deepEqual(env.tabs.map((t) => t.label), ["pin", "s1", "s2", "t1", "oldTab"]);
+
+    // Spawn second new tab: targets index 3 (pushes t1 and oldTab down)
+    const t2 = env.sb.window.AphWorkspaces.openBoundTab("about:newtab", "1");
+    t2.label = "t2";
+    assert.deepEqual(env.tabs.map((t) => t.label), ["pin", "s1", "s2", "t2", "t1", "oldTab"]);
+  });
+
+  it("stamps data-aph-starred-first and data-aph-starred-last on the boundary tabs in workspace and groups", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const s1 = makeTab(tabVals, { label: "s1", ws: "1", spec: "https://example.com/1" });
+    const s2 = makeTab(tabVals, { label: "s2", ws: "1", spec: "https://example.com/2" });
+    const u1 = makeTab(tabVals, { label: "u1", ws: "1", spec: "https://example.com/u1" });
+    env.tabs.push(s1, s2, u1);
+
+    env.api.starTab(s1);
+    env.api.starTab(s2);
+
+    assert.equal(s1.getAttribute(env.api.STAR_FIRST_ATTR), "1", "s1 is first star and marked");
+    assert.equal(s1.hasAttribute(env.api.STAR_LAST_ATTR), false, "s1 is not last star");
+    assert.equal(s2.hasAttribute(env.api.STAR_FIRST_ATTR), false, "s2 is not first star");
+    assert.equal(s2.getAttribute(env.api.STAR_LAST_ATTR), "1", "s2 is last star and marked");
+
+    // Unstar s2 -> s1 becomes both first and last star
+    env.api.unstarTab(s2);
+    assert.equal(s1.getAttribute(env.api.STAR_FIRST_ATTR), "1", "s1 is first star");
+    assert.equal(s1.getAttribute(env.api.STAR_LAST_ATTR), "1", "s1 now becomes last star");
+    assert.equal(s2.hasAttribute(env.api.STAR_FIRST_ATTR), false, "s2 unstarred");
+    assert.equal(s2.hasAttribute(env.api.STAR_LAST_ATTR), false, "s2 unstarred, no marker");
+
+    // Group-scoped check:
+    const g1 = makeTab(tabVals, { label: "g1", ws: "1", spec: "https://g1.example/" });
+    const g2 = makeTab(tabVals, { label: "g2", ws: "1", spec: "https://g2.example/" });
+    const g3 = makeTab(tabVals, { label: "g3", ws: "1", spec: "https://g3.example/" });
+    makeGroup([g1, g2, g3], { label: "Team" });
+    env.tabs.push(g1, g2, g3);
+
+    env.api.starTab(g1);
+    env.api.starTab(g2);
+    assert.equal(g1.getAttribute(env.api.STAR_FIRST_ATTR), "1", "g1 is first star in group and marked");
+    assert.equal(g1.hasAttribute(env.api.STAR_LAST_ATTR), false, "g1 is not last star in group");
+    assert.equal(g2.hasAttribute(env.api.STAR_FIRST_ATTR), false, "g2 is not first star in group");
+    assert.equal(g2.getAttribute(env.api.STAR_LAST_ATTR), "1", "g2 is last star in group and marked");
+  });
+
+  it("stamps data-aph-starred-drift when navigated away from base URL and clears on match", () => {
+    const env = makeEnv();
+    env.tabs.length = 0;
+    const s1 = makeTab(tabVals, { label: "s1", ws: "1", spec: "https://example.com/home" });
+    env.tabs.push(s1);
+
+    env.api.starTab(s1);
+    assert.equal(s1.hasAttribute(env.api.STAR_DRIFT_ATTR), false, "at base URL, no drift");
+    assert.equal(env.api.isDrifted(s1), false);
+
+    // Navigate to subpage
+    s1.linkedBrowser.currentURI.spec = "https://example.com/home/subpage";
+    env.api.starTab(s1); // Re-apply sync
+    assert.equal(s1.getAttribute(env.api.STAR_DRIFT_ATTR), "1", "drifted, marked with drift attr");
+    assert.equal(env.api.isDrifted(s1), true);
+
+    // Navigate back to base
+    s1.linkedBrowser.currentURI.spec = "https://example.com/home";
+    env.api.starTab(s1);
+    assert.equal(s1.hasAttribute(env.api.STAR_DRIFT_ATTR), false, "returned to base, drift cleared");
+    assert.equal(env.api.isDrifted(s1), false);
   });
 });

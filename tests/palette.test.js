@@ -64,10 +64,10 @@ describe("fuzzy tiers", () => {
     assert.ok(nt[0] && nt[0].title === "New Tab", nt[0] && nt[0].title);
   });
 
-  it("finds the text picker on 'copy'", () => {
+  it("finds copy commands on 'copy'", () => {
     const res = T.allItems("copy");
     assert.ok(
-      res[0] && res[0].title.startsWith("Copy Text From Page"),
+      res[0] && res[0].title.startsWith("Copy"),
       res[0] && res[0].title
     );
   });
@@ -264,11 +264,14 @@ describe("bookmarks + history search", () => {
       };
       sb2.Ci = { nsINavHistoryService: {} };
     }
+    if (o.searchEngine) {
+      sb2.Services = { search: { defaultEngine: o.searchEngine } };
+    }
     run(
       "command-palette.js",
       sb2,
       'window.addEventListener("keydown", onKey, true);',
-      "window.__aphTest = { allItems, aphPlacesRowsForQuery };"
+      "window.__aphTest = { allItems, aphPlacesRowsForQuery, navFallback };"
     );
     return { api: sb2.window.__aphTest, opened };
   }
@@ -428,129 +431,25 @@ describe("bookmarks + history search", () => {
     // Commands still work — places absence never breaks the palette.
     assert.ok(api.allItems("new tab").some((r) => r.title === "New Tab"));
   });
-});
 
-describe("stash search", () => {
-  function stashSandbox(opts) {
-    const o = opts || {};
-    const restored = [];
-    const sb2 = {
-      window: {
-        addEventListener() {},
-        AphWorkspaces: {
-          getCurrent: () => "1",
-          getWsName: () => "",
-          getWsContainer: () => 0,
-          describeContainer: () => null,
-          getRoutes: () => ({}),
-          setRoute: () => {},
-          deleteRoute: () => {},
-          getWs: () => "1",
-          switchTo: () => {},
-          sendTabTo: () => {},
-          openBoundTab: () => ({}),
-          openTempTab: () => ({}),
-        },
+  it("uses the configured default search engine for the fallback", () => {
+    const engine = {
+      name: "Kagi",
+      queryCharset: "UTF-8",
+      getSubmission(q) {
+        return { uri: { spec: `https://kagi.com/search?q=${encodeURIComponent(q)}` } };
       },
-      document: { readyState: "loading" },
-      gBrowser: {
-        tabs: o.tabs || [],
-        addTrustedTab: () => ({}),
-        get selectedTab() {
-          return { linkedBrowser: { currentURI: { spec: "about:newtab" } } };
-        },
-      },
-      SessionStore: {},
     };
-    if (o.stash !== undefined) {
-      sb2.window.AphStash = o.stash;
-    }
-    if (o.private) {
-      sb2.window.PrivateBrowsingUtils = { isWindowPrivate: () => true };
-    }
-    run(
-      "command-palette.js",
-      sb2,
-      'window.addEventListener("keydown", onKey, true);',
-      "window.__aphTest = { allItems, aphStashPoolItems };"
+    const { api } = placesSandbox({ searchEngine: engine });
+    const fb = api.navFallback("privacy browser");
+    assert.equal(fb.title, 'Search Kagi for: "privacy browser"');
+    assert.ok(
+      fb.sub.startsWith("https://kagi.com/search?q=privacy%20browser"),
+      fb.sub
     );
-    return { api: sb2.window.__aphTest, restored };
-  }
-
-  function demoStash(restored) {
-    return {
-      getStashEntries: () => [
-        { id: "a1", title: "Quarterly Report", url: "https://docs.example.com/q3", ws: "2", cname: "Work" },
-        { id: "a2", title: "Dentist booking", url: "https://dentist.example.net/", ws: "1", cname: "" },
-      ],
-      restoreStashEntry: (id, opts) => {
-        restored.push([id, !!(opts && opts.keep)]);
-        return { ok: true };
-      },
-    };
-  }
-
-  it("shows matching stash rows above the search fallback", () => {
-    const restored = [];
-    const { api } = stashSandbox({ stash: demoStash(restored) });
-    const res = api.allItems("quarterly");
-    const row = res.find((r) => r.hint === "Stash");
-    assert.ok(row, res.map((r) => `${r.title}[${r.hint}]`).join(" | "));
-    assert.equal(row.title, "Quarterly Report");
-    assert.ok(row.sub.includes("https://docs.example.com/q3"), row.sub);
-    assert.ok(row.sub.includes("WS 2") && row.sub.includes("Work"), row.sub);
-    const search = res.findIndex((r) => r.title.startsWith("Search DuckDuckGo"));
-    assert.ok(res.indexOf(row) < search, "stash rows before search fallback");
-  });
-
-  it("restores by id, Alt+Enter restores without consuming", () => {
-    const restored = [];
-    const { api } = stashSandbox({ stash: demoStash(restored) });
-    const row = api.allItems("quarterly").find((r) => r.hint === "Stash");
-    row.run();
-    assert.deepEqual(restored[restored.length - 1], ["a1", false]);
-    row.runInTemp();
-    assert.deepEqual(restored[restored.length - 1], ["a1", true]);
-  });
-
-  it("stays out of the empty view and needs 2+ chars, skips junk", () => {
-    const restored = [];
-    const { api } = stashSandbox({
-      stash: {
-        getStashEntries: () => [
-          { id: "x1", title: "No URL", url: "", ws: "1", cname: "" },
-          { id: "", title: "No id", url: "https://noid.example/", ws: "1", cname: "" },
-          { id: "x3", title: "About page", url: "about:newtab", ws: "1", cname: "" },
-          { id: "x4", title: "Good", url: "https://good.example/", ws: "1", cname: "" },
-        ],
-        restoreStashEntry: () => ({ ok: true }),
-      },
-    });
-    assert.ok(!api.allItems("").some((r) => r.hint === "Stash"));
-    assert.equal(api.aphStashPoolItems("g").length, 0);
-    assert.equal(api.aphStashPoolItems("").length, 0);
-    const rows = api.aphStashPoolItems("go");
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].sub.split(" ")[0], "https://good.example/");
-  });
-
-  it("hides in private windows and skips open-tab URLs", () => {
-    const openTab = {
-      label: "Quarterly Report",
-      linkedBrowser: { currentURI: { spec: "https://docs.example.com/q3" } },
-    };
-    const restored = [];
-    const priv = stashSandbox({ stash: demoStash(restored), private: true });
-    assert.equal(priv.api.aphStashPoolItems("qu").length, 0);
-    assert.ok(!priv.api.allItems("quarterly").some((r) => r.hint === "Stash"));
-    const { api } = stashSandbox({ stash: demoStash(restored), tabs: [openTab] });
-    assert.ok(!api.allItems("quarterly").some((r) => r.hint === "Stash"));
-  });
-
-  it("returns no stash rows without the controller", () => {
-    const { api } = stashSandbox({});
-    assert.equal(api.aphStashPoolItems("quarterly").length, 0);
-    assert.ok(api.allItems("new tab").some((r) => r.title === "New Tab"));
+    const res = api.allItems("privacy browser");
+    const last = res[res.length - 1];
+    assert.ok(last && last.title.startsWith("Search Kagi"), last && last.title);
   });
 });
 
@@ -1234,6 +1133,19 @@ describe("duplicate tabs + workspace markdown", () => {
     assert.equal(cmd.title, "Close Duplicate Tabs (2)");
     cmd.run();
     assert.deepEqual(removed, [t2, t7]);
+  });
+
+  it("offers Close Duplicate Tabs Across All Workspaces when duplicates span workspaces", () => {
+    const t1 = dupTab("A", "https://example.com/a", { ws: "1" });
+    const t2 = dupTab("B", "https://example.com/b", { ws: "1" });
+    const t3 = dupTab("A ws2", "https://example.com/a", { ws: "2" });
+    const { T2, removed } = dupSandbox([t1, t2, t3], t1);
+    const rows = T2.allItems("close duplicate");
+    const cmd = rows.find((r) => r.title.includes("All Workspaces"));
+    assert.ok(cmd, "command found");
+    assert.equal(cmd.title, "Close Duplicate Tabs Across All Workspaces (1)");
+    cmd.run();
+    assert.deepEqual(removed, [t3]);
   });
 
   it("copies workspace tabs as one markdown link per line", () => {

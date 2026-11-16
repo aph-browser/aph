@@ -20,6 +20,7 @@ function makeEnv(opts) {
   let browserFocused = false;
   const sb = {
     window: {
+      innerHeight: 800,
       addEventListener(type, fn) {
         // The window key handler registers first (bundle init); the focus
         // poke listeners arm later, on entry — keep them separate so the
@@ -179,8 +180,8 @@ function makeEnv(opts) {
     // poke shares its type with the window hotkey handler, so arming is
     // tracked through the two pointer registrations.
     pokeCount: () => pokeHandlers.filter((h) => h.type === "pointermove" || h.type === "pointerdown").length,
-    firePoke: (type) => {
-      for (const h of pokeHandlers.filter((h) => h.type === type)) h.fn({});
+    firePoke: (type, event) => {
+      for (const h of pokeHandlers.filter((h) => h.type === type)) h.fn(event || {});
     },
     // Plant a stray pill node (desync harness): the resync tests verify
     // a redundant disable still removes it and a redundant enable still
@@ -299,6 +300,20 @@ describe("focus mode", () => {
     assert.equal(env.isIdle(), true, "hint fades again when quiet returns");
     env.api.setFocusMode(false);
     assert.equal(env.exitPill(), null);
+  });
+
+  it("only bottom-edge pointer activity restores the faded hint", async () => {
+    const env = makeEnv({ idleMs: 20 });
+    env.api.setFocusMode(true);
+    await sleep(60);
+    assert.equal(env.isIdle(), true);
+    // Page-wide movement (top/middle) must not keep the badge alive.
+    env.firePoke("pointermove", { clientY: 120 });
+    assert.equal(env.isIdle(), true, "ordinary movement leaves the hint faded");
+    // The bottom band is the deliberate exit gesture.
+    env.firePoke("pointermove", { clientY: 760 });
+    assert.equal(env.isIdle(), false, "bottom-edge movement restores the hint");
+    env.api.setFocusMode(false);
   });
 
   it("exit clears the idle marker and disarms pokes", async () => {

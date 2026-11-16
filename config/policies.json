@@ -4,10 +4,9 @@
     "DisableFirefoxStudies": true,
     "DisablePocket": true,
     "DisableFeedbackCommands": true,
-    "OverrideFirstRunPage": "https://aph-browser.github.io/",
     "OverridePostUpdatePage": "",
-    "DontCheckDefaultBrowser": true,
     "DisableDefaultBrowserAgent": true,
+    "DontCheckDefaultBrowser": true,
     "DisableRemoteImprovements": true,
     "AppUpdateURL": "https://localhost",
     "WebsiteFilter": {
@@ -84,7 +83,6 @@
       "ExtensionRecommendations": false,
       "FeatureRecommendations": false,
       "UrlbarInterventions": false,
-      "SkipOnboarding": true,
       "MoreFromMozilla": false,
       "FirefoxLabs": false,
       "WhatsNew": false

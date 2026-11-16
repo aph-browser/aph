@@ -21,22 +21,22 @@
   const DOCK_MENU_ID = "aph-ws-dock-menu";
   // Accent hue names for the dock Accent submenu + settings picker.
   // Full 16-stop scale (theme.css §21). Default nine are the deep→bright
-  // ramp (1 Indigo → 9 Violet); Ruby/Green/Purple/Pink/Plum/Slate/Tomato
+  // ramp (1 Purple → 9 Crimson); Tomato/Ruby/Green/Violet/Pink/Plum/Slate
   // are accent-only extras. Labels only — the CSS owns the hexes.
   const WS_ACCENT_NAMES = {
-    1: "Indigo",
-    2: "Blue",
-    3: "Cyan",
-    4: "Jade",
-    5: "Grass",
-    6: "Amber",
-    7: "Orange",
-    8: "Crimson",
-    9: "Violet",
+    1: "Purple",
+    2: "Indigo",
+    3: "Blue",
+    4: "Cyan",
+    5: "Jade",
+    6: "Grass",
+    7: "Amber",
+    8: "Orange",
+    9: "Crimson",
     10: "Tomato",
     11: "Ruby",
     12: "Green",
-    13: "Purple",
+    13: "Violet",
     14: "Pink",
     15: "Plum",
     16: "Slate",
@@ -500,35 +500,12 @@
     }
   }
 
-  // Bulk-close safety net: at least this many doomed tabs auto-stash before
-  // the close fires. Low enough that a real "clear this workspace" gesture
-  // is always covered, high enough that closing two tabs doesn't litter
-  // the stash with noise. Default only — the live value comes from the
-  // stash controller (aph.stash.safetyMin, Settings-tunable).
-  const SNAPSHOT_SAFETY_MIN = 3;
-
-  // Live safety threshold: controller pref when available, default above
-  // otherwise (tests, early init, missing controller all read the default).
-  function snapshotSafetyMin() {
-    try {
-      const ctl = window.AphStash;
-      if (ctl && typeof ctl.safetyThreshold === "function") {
-        const n = Number(ctl.safetyThreshold());
-        if (Number.isFinite(n) && n > 0) {
-          return Math.floor(n);
-        }
-      }
-    } catch (e) {}
-    return SNAPSHOT_SAFETY_MIN;
-  }
-
   // Close every unpinned tab tagged `id`. Current-workspace closes switch
   // to the nearest other active workspace first (never strand the window
   // tabless: sole-workspace closes abort with a pulse). Pinned tabs are
   // global and always survive. SessionStore-owned (restoring) tabs are
   // never touched: their tags are unsettled and getWs defaults tagless
   // to "1", so WS1 would otherwise absorb pages the user never saw.
-  // Closes at the safety threshold or more auto-stash first (see above).
   function closeWorkspaceTabs(id) {
     try {
       if (!isValidId(id)) {
@@ -568,19 +545,6 @@
       if (!doomed.length) {
         return { closed: 0 };
       }
-      // Safety stash: a bulk workspace close is the one bulk destructive
-      // action Aph owns, so capture the doomed tabs first (append-only
-      // restore means a regretted close is always undoable from the
-      // Stash page). Skipped below the threshold (a stray close is not
-      // worth a capture) and when the controller or the pref is off.
-      try {
-        if (doomed.length >= snapshotSafetyMin()) {
-          const stashCtl = window.AphStash;
-          if (stashCtl && typeof stashCtl.autoStashTabs === "function") {
-            stashCtl.autoStashTabs(doomed, `Before closing WS ${id}`);
-          }
-        }
-      } catch (e) {}
       if (id === current) {
         const others = getActiveIds()
           .filter((x) => x !== id)
@@ -642,16 +606,6 @@
       }
       try {
         renderDock();
-      } catch (e) {}
-      // Undo offer for the safety net above: the stash controller
-      // remembers the capture and toasts with Undo when it just ran.
-      // Absent controller (or no capture) stays silent; the close
-      // result itself never changes.
-      try {
-        const stashCtl = window.AphStash;
-        if (stashCtl && typeof stashCtl.confirmBulkClose === "function") {
-          stashCtl.confirmBulkClose(id, closed);
-        }
       } catch (e) {}
       return { closed };
     } catch (e) {
@@ -1066,18 +1020,6 @@
     } catch (e) {}
   }
 
-  function aphOpenStash() {
-    try {
-      const a = window.AphStash || null;
-      if (a && typeof a.openStash === "function" && a.openStash()) {
-        return;
-      }
-    } catch (e) {}
-    try {
-      aphOpenTab("chrome://browser/content/aph-stash.html");
-    } catch (e) {}
-  }
-
   // Reuse one settings tab per window instead of stacking duplicates.
   function aphOpenSettings() {
     try {
@@ -1114,16 +1056,6 @@
       try {
         gBrowser.selectedTab = t;
       } catch (_e) {}
-    } catch (e) {}
-  }
-
-  function aphStashCurrent() {
-    try {
-      const a = window.AphStash || null;
-      if (a && typeof a.stashCurrent === "function") {
-        a.stashCurrent();
-        return;
-      }
     } catch (e) {}
   }
 
@@ -1335,42 +1267,6 @@
           menu.appendChild(closeWs);
         } catch (err) {}
       }
-      let stashTitle = "Stash Current Tab";
-      try {
-        if (typeof stashCmdTitle === "function") {
-          stashTitle = stashCmdTitle();
-        }
-      } catch (err) {}
-      // Disabled with nothing archivable (pendingCount 0): the shared
-      // skin dims the row in place. An absent controller fails open
-      // (previous behavior) so tests and early init keep working.
-      let stashDisabled = false;
-      try {
-        const stashCtl = window.AphStash;
-        if (stashCtl && typeof stashCtl.pendingStashCount === "function") {
-          stashDisabled = stashCtl.pendingStashCount() === 0;
-        }
-      } catch (err) {}
-      const stashRow = makeDockMenuItem("aph-aph-stash", stashTitle, () => {
-        try {
-          aphStashCurrent();
-        } catch (err) {}
-      }, stashDisabled, "stash");
-      if (stashRow) {
-        try {
-          menu.appendChild(stashRow);
-        } catch (err) {}
-      }
-      const openStash = makeDockMenuItem("aph-aph-open-stash", "Open Stash", () => {
-        try {
-          aphOpenStash();
-        } catch (err) {}
-      }, false, "open-stash");
-      if (openStash) {
-        try {
-          menu.appendChild(openStash);
-        } catch (err) {}
-      }
       try {
         const sep =
           typeof document.createXULElement === "function"
@@ -1421,16 +1317,6 @@
       if (appMenu) {
         try {
           menu.appendChild(appMenu);
-        } catch (err) {}
-      }
-      const welcome = makeDockMenuItem("aph-aph-welcome", "Aph Welcome Tour", () => {
-        try {
-          aphOpenWelcome();
-        } catch (err) {}
-      }, false, "welcome");
-      if (welcome) {
-        try {
-          menu.appendChild(welcome);
         } catch (err) {}
       }
       const about = makeDockMenuItem("aph-aph-about", "About Aph", () => {
@@ -1927,7 +1813,7 @@
     } catch (e) {}
   }
 
-  // Resolve the right-clicked pill: explicit data-ws stashed by our own
+  // Resolve the right-clicked pill: explicit data-ws set by our own
   // contextmenu opener first, then the pinreset pattern (triggerNode,
   // document.popupNode fallback).
   function dockMenuTargetWs(menu) {

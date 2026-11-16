@@ -1,0 +1,8 @@
+# Generated bundles
+branding/workspaces.js
+branding/command-palette.js
+
+# Tests — harnesses and mocks dominate these trees. Pack them ad hoc for
+# test-authoring sessions: bunx repomix tests tests_py
+tests/**
+tests_py/**

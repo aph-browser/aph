@@ -42,29 +42,11 @@ rebrand:
 build-assets:
     uv run python scripts/build_assets.py
 
-# Build the update payload (Aph-owned bytes + version.json) from a
-# rebranded tree (`just rebrand` first). Release CI publishes the output
-# as aph-payload-<ver>.zip; Windows installs self-apply it on launch.
-payload:
-    uv run python scripts/build_payload.py --out build/payload
-
-# Re-render logo PNG masters from branding/aph.svg geometry
-# (scripts/render_logo.py; tests_py/test_logo.py guards drift)
-render-logo:
-    uv run python scripts/render_logo.py
-
 # Verify committed bundles match branding/src/ (CI guard)
 check-assets:
     uv run python scripts/build_assets.py --check
 
 # Derived version strings must match pyproject.toml (the source of truth)
-check-version:
-    uv run python scripts/sync_version.py --check
-
-# Re-sync every derived version string from pyproject.toml
-sync-version:
-    uv run python scripts/sync_version.py
-
 # Python lint + format check
 lint:
     uv tool run ruff check scripts/ tests_py/
@@ -75,24 +57,12 @@ test-py:
     uv run --group dev pytest tests_py/ -q
 
 # All static gates: lint + asset freshness + python + node harness tests
-check: lint check-assets check-version test-py test
+check: lint check-assets test-py test
 
-# Download latest Betterfox and merge with Aph overrides into config/user.js
-# (seed-once: only affects fresh profiles until `just sync-prefs`)
+# Download latest Betterfox and merge with Aph overrides into config/default-prefs.js
+# (injected into browser/omni.ja defaults/preferences/firefox.js on rebrand)
 update-prefs:
     uv run python scripts/update_prefs.py
-
-# Force re-apply config/user.js over a profile (backs up user.js to user.js.bak).
-# Next launch Firefox applies it over prefs.js, overwriting user edits to listed
-# prefs. Defaults to the repo profile; `just sync-prefs local` targets the daily
-# profile at ~/.config/aph/profile. Quit Aph on that profile first.
-sync-prefs *args:
-    uv run python -c "import sys; sys.path.insert(0, '.'); from scripts.dev import sync_user_js; from pathlib import Path; sync_user_js(Path('.').resolve(), Path.home() / '.config' / 'aph' / 'profile' if '{{args}}' == 'local' else Path('.').resolve() / 'profile')"
-
-# Force re-apply branding/userChrome.css over a profile (backs up existing
-# to userChrome.css.bak). Same profile selection and quit-first rule as sync-prefs.
-sync-chrome *args:
-    uv run python -c "import sys; sys.path.insert(0, '.'); from scripts.dev import sync_chrome_css; from pathlib import Path; sync_chrome_css(Path('.').resolve(), Path.home() / '.config' / 'aph' / 'profile' if '{{args}}' == 'local' else Path('.').resolve() / 'profile')"
 
 # Run node harness tests for the injected browser scripts
 test:
@@ -110,7 +80,7 @@ test:
 #   (bunx repomix tests tests_py) for test-authoring sessions.
 # - packaging/winget/**, packaging/Output/**: generator output
 #   (scripts/winget_manifest.py) and local installer builds.
-# NOTE: config/user.js is intentionally KEPT: it embeds the upstream Betterfox
+# NOTE: config/default-prefs.js is intentionally KEPT: it embeds the upstream Betterfox
 # block (~220 lines) that lives nowhere else in the repo; excluding it would
 # drop that context. The ~67-line Aph tail duplicates config/user-overrides.js
 # by design (last-line-wins merge, see scripts/update_prefs.py).
@@ -124,9 +94,7 @@ repomix:
 # Show profile and build status
 status:
     @echo "profile: $(test -d profile && echo exists || echo missing)"
-    @echo "config: $(test -f config/user.js && echo ready || echo missing)"
-    @test -f profile/user.js && diff -u config/user.js profile/user.js | head -n 20 || echo "profile user.js not yet seeded (run: just dev)"
-    @echo "prefs: seed-once (user edits persist; \`just sync-prefs\` to re-apply config)"
+    @echo "default prefs: $(test -f config/default-prefs.js && echo ready || echo missing)"
     @echo "omni.ja: $(test -f build/firefox/browser/omni.ja.bak && echo rebranded || echo original)"
     @test -f build/firefox/browser/omni.ja && uv run python -c "print(open('build/firefox/browser/omni.ja','rb').read().find(b'Aph'))" | grep -q "^-1" && echo "brand: Firefox" || echo "brand: Aph"
 
@@ -152,12 +120,11 @@ clear-profile *args: (nuke args)
 # Alias of nuke (forwards --yes)
 wipe *args: (nuke args)
 
-# Restore original omni.ja and policies.json from pristine backups
+# Restore original omni.ja from pristine backups
 restore:
     test -f build/firefox/browser/omni.ja.bak && cp build/firefox/browser/omni.ja.bak build/firefox/browser/omni.ja || true
     test -f build/firefox/omni.ja.bak && cp build/firefox/omni.ja.bak build/firefox/omni.ja || true
-    test -f build/firefox/distribution/policies.json.bak && cp build/firefox/distribution/policies.json.bak build/firefox/distribution/policies.json || true
-    @echo "Restored pristine omni.ja and policies.json"
+    @echo "Restored pristine omni.ja"
 
 # Launch Firefox with the daily profile (same as the installed launcher:
 # persistent ~/.config/aph/profile). Quick way to test
@@ -168,7 +135,7 @@ daily *args:
 # Install Aph as a daily driver: desktop launcher + icon + persistent
 # profile at ~/.config/aph/profile (outside the repo, safe from `just nuke`).
 # The installed launcher delegates to scripts/dev.py --daily, so every launch
-# gets the same freshness as `just dev` (seed-once prefs, merged policies,
+# gets the same freshness as `just dev` (merged policies, migration,
 # rebrand-if-stale) — no reinstall needed after `git pull`. Remote is always
 # allowed so external links from Slack/Discord/terminals open in
 # the running Aph instance.
@@ -178,7 +145,7 @@ install-local:
     mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.config/aph/profile"
     touch "$HOME/.local/share/applications/aph.desktop"
     uv run python -c "from PIL import Image; import os; h=os.environ['HOME']+'/.local/share/icons/hicolor'; im=Image.open('branding/aph.png').convert('RGBA'); [(os.makedirs(f'{h}/{s}x{s}/apps', exist_ok=True), im.resize((s,s), Image.LANCZOS).save(f'{h}/{s}x{s}/apps/aph.png')) for s in (16,32,48,64,128,256)]"
-    printf '%s\n' '#!/bin/sh' '# Aph daily launcher (installed by `just install-local`).' '# Same freshness as `just dev` on every launch (seed, policies,' '# rebrand-if-stale) via scripts/dev.py --daily; the daily profile lives' '# at ~/.config/aph/profile and remote is always allowed so external links' '# reuse the running instance.' 'set -eu' 'APH_ROOT="{{justfile_directory()}}"' 'cd "$APH_ROOT"' 'if command -v uv >/dev/null 2>&1; then' '  exec uv run python scripts/dev.py --daily "$@"' 'else' '  exec python3 scripts/dev.py --daily "$@"' 'fi' > "$HOME/.local/bin/aph"
+    printf '%s\n' '#!/bin/sh' '# Aph daily launcher (installed by `just install-local`).' '# Same freshness as `just dev` on every launch (migration, policies,' '# rebrand-if-stale) via scripts/dev.py --daily; the daily profile lives' '# at ~/.config/aph/profile and remote is always allowed so external links' '# reuse the running instance.' 'set -eu' 'APH_ROOT="{{justfile_directory()}}"' 'cd "$APH_ROOT"' 'if command -v uv >/dev/null 2>&1; then' '  exec uv run python scripts/dev.py --daily "$@"' 'else' '  exec python3 scripts/dev.py --daily "$@"' 'fi' > "$HOME/.local/bin/aph"
     chmod +x "$HOME/.local/bin/aph"
     sed "s|^Exec=.*|Exec=$HOME/.local/bin/aph %u|" packaging/aph.desktop > "$HOME/.local/share/applications/aph.desktop"
     update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true

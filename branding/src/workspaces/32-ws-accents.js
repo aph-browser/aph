@@ -81,9 +81,6 @@
     try {
       renderDock();
     } catch (e) {}
-    try {
-      updateIndicator();
-    } catch (e) {}
     // Immediate room: the window accent (:root[data-aph-accent] -> tab
     // fill, voice, hairline) is otherwise only stamped on switch/birth,
     // so a retune would lag one switch behind. Idempotent re-read of

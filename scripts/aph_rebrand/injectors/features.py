@@ -2,92 +2,73 @@
 
 Each injector appends its files only to the browser omni (the caller gates
 on ``browser.xhtml`` presence) and only when the entry does not exist yet,
-so upgrades never duplicate entries. ``textpick`` / ``stashpage`` cover
-their multi-file groups under a single counter, matching historical logs.
+so upgrades never duplicate entries. ``stashpage`` covers
+its multi-file group under a single counter, matching historical logs.
 """
 
 from __future__ import annotations
 
 from ..constants import (
+    CONTENT_CSS_JA_PATH,
     PALETTE_CSS_JA_PATH,
     PALETTE_JA_PATH,
     SETTINGS_CSS_JA_PATH,
     SETTINGS_HTML_JA_PATH,
     SETTINGS_PAGE_JA_PATH,
-    STASH_CSS_JA_PATH,
-    STASH_HTML_JA_PATH,
-    STASH_JA_PATH,
-    STASH_PAGE_JA_PATH,
-    STASH_SHARED_JA_PATH,
     TABRENAME_JA_PATH,
-    TEXTPICK_CHILD_JA_PATH,
-    TEXTPICK_JA_PATH,
-    TEXTPICK_PARENT_JA_PATH,
-    TEXTPICK_SHARED_JA_PATH,
     THEME_JA_PATH,
     TOKENS_CSS_JA_PATH,
-    WELCOME_CSS_JA_PATH,
-    WELCOME_HTML_JA_PATH,
-    WELCOME_PAGE_JA_PATH,
     WORKSPACES_JA_PATH,
 )
 from .base import PatchCounts
 
 
-class WorkspacesInjector:
-    name = "workspaces"
+class StaticEntriesInjector:
+    """Generic injector for static files added to the browser omni."""
 
+    def __init__(
+        self,
+        entries: list[tuple[str, bytes | None, str]],
+        name: str = "static-entries",
+    ) -> None:
+        self._entries = entries
+        self.name = name
+
+    def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
+        return data
+
+    def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
+        out: list[tuple[str, bytes]] = []
+        for ja_path, data, count_attr in self._entries:
+            if data is not None and ja_path not in existing:
+                setattr(counts, count_attr, getattr(counts, count_attr) + 1)
+                out.append((ja_path, data))
+        return out
+
+
+class WorkspacesInjector(StaticEntriesInjector):
     def __init__(self, js: bytes | None) -> None:
-        self._js = js
-
-    def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
-        return data
-
-    def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
-        if self._js is not None and WORKSPACES_JA_PATH not in existing:
-            counts.wsjs += 1
-            return [(WORKSPACES_JA_PATH, self._js)]
-        return []
+        super().__init__([(WORKSPACES_JA_PATH, js, "wsjs")], name="workspaces")
 
 
-class ThemeInjector:
-    name = "theme"
-
+class ThemeInjector(StaticEntriesInjector):
     def __init__(self, css: bytes | None) -> None:
-        self._css = css
-
-    def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
-        return data
-
-    def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
-        if self._css is not None and THEME_JA_PATH not in existing:
-            counts.css += 1
-            return [(THEME_JA_PATH, self._css)]
-        return []
+        super().__init__([(THEME_JA_PATH, css, "css")], name="theme")
 
 
-class TokensInjector:
-    """Design tokens (aph-tokens.css): tag-less shared @import target.
-
-    Shipped beside the theme; theme + palette + all three pages pull it
-    via ``@import url("chrome://browser/content/aph-tokens.css")`` so no
-    browser.xhtml tag is needed. Local mirrors stay as fallback, so an
-    older omni without this entry still paints correctly.
-    """
-
-    name = "tokens"
-
+class ContentCssInjector(StaticEntriesInjector):
     def __init__(self, css: bytes | None) -> None:
-        self._css = css
+        super().__init__([(CONTENT_CSS_JA_PATH, css, "contentcss")], name="content-css")
 
-    def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
-        return data
 
-    def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
-        if self._css is not None and TOKENS_CSS_JA_PATH not in existing:
-            counts.tokens += 1
-            return [(TOKENS_CSS_JA_PATH, self._css)]
-        return []
+class TokensInjector(StaticEntriesInjector):
+    def __init__(self, css: bytes | None) -> None:
+        super().__init__([(TOKENS_CSS_JA_PATH, css, "tokens")], name="tokens")
+
+
+class TabrenameInjector(StaticEntriesInjector):
+    def __init__(self, js: bytes | None) -> None:
+        super().__init__([(TABRENAME_JA_PATH, js, "tabrenamejs")], name="tabrename")
 
 
 class PaletteInjector:
@@ -109,94 +90,6 @@ class PaletteInjector:
             counts.palcss += 1
             out.append((PALETTE_CSS_JA_PATH, self._css))
         return out
-
-
-class TextpickInjector:
-    """Window controller (xhtml script tag) + tag-less actor modules."""
-
-    name = "textpick"
-
-    def __init__(
-        self,
-        controller_js: bytes | None,
-        extra_files: dict[str, bytes],
-    ) -> None:
-        self._controller_js = controller_js
-        # ja_path -> bytes for shared / child / parent (actor framework URIs).
-        self._extra_files = extra_files
-
-    def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
-        return data
-
-    def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
-        out: list[tuple[str, bytes]] = []
-        if self._controller_js is not None and TEXTPICK_JA_PATH not in existing:
-            counts.textpick += 1
-            out.append((TEXTPICK_JA_PATH, self._controller_js))
-        for key in (
-            TEXTPICK_SHARED_JA_PATH,
-            TEXTPICK_CHILD_JA_PATH,
-            TEXTPICK_PARENT_JA_PATH,
-        ):
-            data = self._extra_files.get(key)
-            if data is not None and key not in existing:
-                counts.textpick += 1
-                out.append((key, data))
-        return out
-
-
-class StashInjector:
-    """Window controllers (xhtml tags) + tag-less stash page files."""
-
-    name = "stash"
-
-    def __init__(
-        self,
-        stash_js: bytes | None,
-        shared_js: bytes | None,
-        page_files: dict[str, bytes],
-    ) -> None:
-        self._stash_js = stash_js
-        self._shared_js = shared_js
-        self._page_files = page_files
-
-    def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
-        return data
-
-    def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
-        out: list[tuple[str, bytes]] = []
-        if self._shared_js is not None and STASH_SHARED_JA_PATH not in existing:
-            counts.stashshared += 1
-            out.append((STASH_SHARED_JA_PATH, self._shared_js))
-        if self._stash_js is not None and STASH_JA_PATH not in existing:
-            counts.stashjs += 1
-            out.append((STASH_JA_PATH, self._stash_js))
-        for key in (
-            STASH_HTML_JA_PATH,
-            STASH_CSS_JA_PATH,
-            STASH_PAGE_JA_PATH,
-        ):
-            data = self._page_files.get(key)
-            if data is not None and key not in existing:
-                counts.stashpage += 1
-                out.append((key, data))
-        return out
-
-
-class TabrenameInjector:
-    name = "tabrename"
-
-    def __init__(self, js: bytes | None) -> None:
-        self._js = js
-
-    def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
-        return data
-
-    def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
-        if self._js is not None and TABRENAME_JA_PATH not in existing:
-            counts.tabrenamejs += 1
-            return [(TABRENAME_JA_PATH, self._js)]
-        return []
 
 
 class SettingsInjector:
@@ -224,35 +117,6 @@ class SettingsInjector:
             data = self._page_files.get(key)
             if data is not None and key not in existing:
                 counts.settingspage += 1
-                out.append((key, data))
-        return out
-
-
-class WelcomeInjector:
-    """Tag-less welcome page files (HTML/CSS/page script).
-
-    Mirrors SettingsInjector: loads by chrome:// URL in its own tab,
-    never via browser.xhtml, so no tag work is needed.
-    """
-
-    name = "welcome"
-
-    def __init__(self, page_files: dict[str, bytes]) -> None:
-        self._page_files = page_files
-
-    def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
-        return data
-
-    def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
-        out: list[tuple[str, bytes]] = []
-        for key in (
-            WELCOME_HTML_JA_PATH,
-            WELCOME_CSS_JA_PATH,
-            WELCOME_PAGE_JA_PATH,
-        ):
-            data = self._page_files.get(key)
-            if data is not None and key not in existing:
-                counts.welcomepage += 1
                 out.append((key, data))
         return out
 

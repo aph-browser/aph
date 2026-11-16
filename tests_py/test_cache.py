@@ -18,7 +18,22 @@ from pathlib import Path
 
 import pytest
 
+import scripts.profile_lock as profile_lock
 from scripts.aph_rebrand import cache as cache_mod
+
+
+@pytest.fixture(autouse=True)
+def _live_lock_is_firefox(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests model a held lock with the pytest PID, not real Firefox."""
+
+    def _live(pid: int, path: Path) -> bool:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
+    monkeypatch.setattr(profile_lock, "_process_matches_firefox_profile", _live)
 
 
 def _seed(profile: Path) -> None:

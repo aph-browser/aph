@@ -398,14 +398,11 @@ describe("workspace dock", () => {
       "Bind Workspace 1 to Container…",
       "Accent for Workspace 1…",
       "Close Workspace (1 tab)",
-      "Stash Current Tab",
-      "Open Stash",
       null,
       "Customize Sidebar…",
       "Aph Settings…",
       "Firefox Settings…",
       "Firefox Menu…",
-      "Aph Welcome Tour",
       "About Aph",
     ]);
     assert.equal(m.children[0].getAttribute("shortcut"), "Ctrl+K");
@@ -509,7 +506,7 @@ describe("workspace dock", () => {
     assert.equal(names.filter((n) => n !== "Follow workspace").length, 16);
     sub.children.find((c) => c.getAttribute("label") === "Crimson").fire("command", {});
     assert.deepEqual(
-      JSON.parse(env.prefStore["aph.workspaces.accents"] || "{}"), { 1: "8" }
+      JSON.parse(env.prefStore["aph.workspaces.accents"] || "{}"), { 1: "9" }
     );
   });
 
@@ -557,19 +554,6 @@ describe("workspace dock", () => {
     assert.ok(row, "set-icon row present");
     row.fire("command", {});
     assert.equal(picked, "1", "picker opens for current workspace");
-  });
-
-  it("Stash row disables when nothing is stashable", () => {
-    const env = makeEnv();
-    const a = addTab(env, { label: "a", ws: "1" });
-    env.select(a);
-    env.api.renderDock();
-    env.sb.window.AphStash = { pendingStashCount: () => 0 };
-    let m = openAphMenu(env);
-    assert.equal(m.children.find((c) => c.id === "aph-aph-stash").getAttribute("disabled"), "true");
-    env.sb.window.AphStash = { pendingStashCount: () => 3 };
-    m.fire("popupshowing", { currentTarget: m, target: m });
-    assert.equal(m.children.find((c) => c.id === "aph-aph-stash").getAttribute("disabled"), null);
   });
 
   it("plus jumps to the lowest inactive workspace and opens exactly one tab", () => {
@@ -777,79 +761,13 @@ describe("workspace dock", () => {
   });
 
   // Safety net: a bulk close is the one bulk destructive action Aph owns,
-  // so >=3 doomed tabs are captured first (append-only restore makes a
-  // regretted close undoable from the Stash page).
-  it("close auto-stashes at the threshold and not below it", () => {
+  it("close proceeds quietly with multiple tabs", () => {
     const env = makeEnv();
-    const calls = [];
-    env.sb.window.AphStash = {
-      autoStashTabs(tabs, name) {
-        calls.push({ n: tabs.length, name });
-        return tabs.length;
-      },
-    };
-    const a = addTab(env, { label: "a", ws: "1" });
-    env.select(a);
-    addTab(env, { label: "c1", ws: "2" });
-    addTab(env, { label: "c2", ws: "2" });
-    assert.equal(env.api.closeWorkspaceTabs("2").closed, 2);
-    assert.equal(calls.length, 0, "two tabs is not a bulk close");
-
-    addTab(env, { label: "d1", ws: "3" });
-    addTab(env, { label: "d2", ws: "3" });
-    addTab(env, { label: "d3", ws: "3" });
-    assert.equal(env.api.closeWorkspaceTabs("3").closed, 3);
-    assert.equal(calls.length, 1, "three tabs auto-stash first");
-    assert.equal(calls[0].n, 3);
-    assert.equal(calls[0].name, "Before closing WS 3");
-  });
-
-  it("close proceeds quietly with no stash controller", () => {
-    const env = makeEnv();
-    const a = addTab(env, { label: "a", ws: "1" });
-    env.select(a);
-    for (const n of ["c1", "c2", "c3"]) addTab(env, { label: n, ws: "2" });
-    delete env.sb.window.AphStash;
-    const res = env.api.closeWorkspaceTabs("2");
-    assert.equal(res.closed, 3, "close still works without the stash controller");
-  });
-
-  it("close honors a custom safety threshold", () => {
-    const env = makeEnv();
-    const calls = [];
-    env.sb.window.AphStash = {
-      autoStashTabs(tabs, name) {
-        calls.push({ n: tabs.length, name });
-        return tabs.length;
-      },
-      safetyThreshold: () => 5,
-    };
-    const a = addTab(env, { label: "a", ws: "1" });
-    env.select(a);
-    for (const n of ["c1", "c2", "c3"]) addTab(env, { label: n, ws: "2" });
-    assert.equal(env.api.closeWorkspaceTabs("2").closed, 3);
-    assert.equal(calls.length, 0, "three tabs below a threshold of five");
-    for (const n of ["d1", "d2", "d3", "d4", "d5"]) addTab(env, { label: n, ws: "3" });
-    assert.equal(env.api.closeWorkspaceTabs("3").closed, 5);
-    assert.equal(calls.length, 1, "five tabs reach the custom threshold");
-  });
-
-  it("close offers the safety-net undo after a bulk close", () => {
-    const env = makeEnv();
-    const confirmCalls = [];
-    env.sb.window.AphStash = {
-      autoStashTabs() { return 3; },
-      confirmBulkClose(id, closed) {
-        confirmCalls.push([id, closed]);
-        return true;
-      },
-    };
     const a = addTab(env, { label: "a", ws: "1" });
     env.select(a);
     for (const n of ["c1", "c2", "c3"]) addTab(env, { label: n, ws: "2" });
     const res = env.api.closeWorkspaceTabs("2");
-    assert.equal(res.closed, 3);
-    assert.deepEqual(confirmCalls, [["2", 3]], "undo offered for the landed close");
+    assert.equal(res.closed, 3, "close works cleanly");
   });
 
   it("close of the current workspace switches to a neighbor first", () => {
@@ -903,7 +821,7 @@ describe("workspace dock", () => {
     );
   });
 
-  it("right-click menu offers rename/unload/close with guards", () => {
+  it("right-click menu offers rename/unload/backup/close with guards", () => {
     const env = makeEnv();
     const a = addTab(env, { label: "a", ws: "1" });
     addTab(env, { label: "c", ws: "2" });
@@ -971,10 +889,10 @@ describe("workspace dock", () => {
     const crimson = sub.children.find((c) => c.getAttribute("label") === "Crimson");
     crimson.fire("command", {});
     assert.deepEqual(
-      JSON.parse(env.prefStore["aph.workspaces.accents"] || "{}"), { 1: "8" }
+      JSON.parse(env.prefStore["aph.workspaces.accents"] || "{}"), { 1: "9" }
     );
     const stamped = env.pills().find((p) => pillWs(p) === "1");
-    assert.equal(stamped.getAttribute("data-accent"), "8");
+    assert.equal(stamped.getAttribute("data-accent"), "9");
     const m2 = openMenuFor(env, stamped);
     const accent2 = m2.children.find((c) => (c.getAttribute("label") || "").startsWith("Accent for"));
     const sub2 = accent2.children.find((c) => c.localName === "menupopup");
@@ -995,9 +913,9 @@ describe("workspace dock", () => {
     const violet = sub.children.find((c) => c.getAttribute("label") === "Violet");
     violet.fire("command", {});
     const root = env.sb.document.documentElement;
-    assert.equal(root.getAttribute("data-aph-accent"), "9", "window retuned at once");
+    assert.equal(root.getAttribute("data-aph-accent"), "13", "window retuned at once");
     const stamped = env.pills().find((p) => pillWs(p) === "1");
-    assert.equal(stamped.getAttribute("data-accent"), "9", "pill retuned at once");
+    assert.equal(stamped.getAttribute("data-accent"), "13", "pill retuned at once");
   });
 
   it("accents pref observer applies external writes immediately", () => {

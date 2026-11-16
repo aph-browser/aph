@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Aph Theme: Clean Auto-Hide Top Bar (Negative-Margin Slide Architecture)
+   Aph Theme
    ========================================================================== */
 
 /* Shared tokens (shipped as chrome://browser/content/aph-tokens.css).
@@ -89,13 +89,94 @@
    diffuse — bar and card share 12px so they read as one machined
    frame). §29 keeps the nav cluster, the urlbar-trailing reload seat,
    home retirement, and C1 rows. */
+/* 1. Toolbar Shell: full-height sidebar rail + floating omnibar over content.
+   The sidebar (#sidebar-container) is pinned full height (top: 0 to bottom: 0),
+   while #navigator-toolbox and #browser offset by the rail width.
+   The toolbox and browser retain flat Aph base backgrounds to prevent any
+   installed theme from tinting chrome. */
+:root {
+  --aph-sidebar-width: var(--sidebar-expanded-launcher-width, 240px);
+}
+:root:has(sidebar-main:not([expanded])) {
+  --aph-sidebar-width: 48px;
+}
+:root[data-aph-focus="1"],
+:root[inDOMFullscreen],
+:root[data-aph-autohide-sidebar="1"] {
+  --aph-sidebar-width: 0px;
+}
+:root[inDOMFullscreen] #sidebar-container {
+  display: none !important;
+}
+
+#sidebar-container {
+  position: fixed !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  inset-inline-start: 0 !important;
+  width: var(--aph-sidebar-width, 240px) !important;
+  height: 100vh !important;
+  z-index: 100 !important;
+  background: color-mix(in oklab, var(--aph-base, #0a0b0e) 85%, transparent) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  box-sizing: border-box !important;
+  border-inline-end: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.04),
+    4px 0 24px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Auto-hide Sidebar (Hover Peek Mode):
+   Collapses off-screen to the left (transform: translateX(-100%)),
+   giving 100% full width to web content. A 14px trigger sensor strip along the
+   viewport left edge smoothly slides it out on hover. */
+:root[data-aph-autohide-sidebar="1"] #sidebar-container {
+  width: var(--sidebar-expanded-launcher-width, 240px) !important;
+  transform: translateX(-100%) !important;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s ease !important;
+  z-index: 1000 !important;
+  box-shadow: none !important;
+}
+
+:root[data-aph-autohide-sidebar="1"] #sidebar-container:-moz-locale-dir(rtl) {
+  transform: translateX(100%) !important;
+}
+
+:root[data-aph-autohide-sidebar="1"] #sidebar-container::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  inset-inline-start: 100%;
+  width: 14px;
+  background: transparent;
+  pointer-events: auto;
+  z-index: 1001;
+}
+
+:root[data-aph-autohide-sidebar="1"] #sidebar-container:hover,
+:root[data-aph-autohide-sidebar="1"][data-aph-sidebar-peek="1"] #sidebar-container {
+  transform: translateX(0) !important;
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.04),
+    6px 0 36px rgba(0, 0, 0, 0.55),
+    2px 0 8px rgba(0, 0, 0, 0.35) !important;
+}
+
+#sidebar-launcher-splitter {
+  display: none !important;
+}
+
 #navigator-toolbox {
+  margin-inline-start: var(--aph-sidebar-width, 240px) !important;
   background: var(--aph-base, #0e0f14) !important;
   border: none !important;
   box-shadow: none !important;
-  margin: 0 !important;
+  margin-top: 0 !important;
   padding: 0 !important;
   color: var(--aph-ink, #e8e8ec) !important;
+  box-sizing: border-box !important;
 }
 
 #nav-bar {
@@ -104,29 +185,22 @@
   height: var(--aph-bar-float-height, 40px) !important;
   min-height: var(--aph-bar-float-height, 40px) !important;
   max-height: var(--aph-bar-float-height, 40px) !important;
-  background-color: var(--aph-surface, #16171e) !important;
-  /* Opaque crown + grounded base over the solid surface (never
-     translucency): milled top-light fading by 45%, faint bottom shade
-     so the pill reads solid — same footprint. */
+  background-color: color-mix(in oklab, var(--aph-surface, #16171e) 72%, transparent) !important;
+  backdrop-filter: blur(20px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
+  /* Glass specular top light and subtle vertical depth gradient */
   background-image: var(
     --aph-bar-highlight,
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 45%)
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 50%, rgba(0, 0, 0, 0.12) 100%)
   ) !important;
-  /* Grain tile repeats at native 160px; gradient layer stays auto. */
-  background-size: 160px 160px, auto !important;
-  border: none !important;
+  background-size: auto !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
   border-radius: var(--aph-bar-float-radius, 12px) !important;
   box-shadow:
-    0 0 0 1px var(
-      --aph-hairline,
-      color-mix(in oklab, var(--aph-ink, #e8e8ec) 12%, transparent)
-    ),
-    var(
-      --aph-specular,
-      inset 0 1px 0 rgba(255, 255, 255, 0.08)
-    ),
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 8px 24px -6px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+    0 2px 4px rgba(0, 0, 0, 0.2),
+    0 8px 32px -4px rgba(0, 0, 0, 0.45),
     var(
       --aph-bar-glow,
       0 0 16px -6px rgba(0, 144, 255, 0.25)
@@ -144,22 +218,14 @@
    Opaque still; HC-exempt. */
 @media not (forced-colors) {
   :root[data-aph-ws] #nav-bar {
+    border: 1px solid color-mix(in oklab, var(--aph-ws-accent) 22%, rgba(255, 255, 255, 0.08)) !important;
     box-shadow:
-      0 0 0 1px var(
-        --aph-hairline,
-        color-mix(in oklab, var(--aph-ink, #e8e8ec) 12%, transparent)
-      ),
-      inset 0 1px 0 color-mix(in oklab, var(--aph-ws-accent) 18%, transparent),
-      var(
-        --aph-specular,
-        inset 0 1px 0 rgba(255, 255, 255, 0.08)
-      ),
-      0 1px 2px rgba(0, 0, 0, 0.3),
-      0 8px 24px -6px rgba(0, 0, 0, 0.5),
-      var(
-        --aph-bar-glow,
-        0 0 16px -6px rgba(0, 144, 255, 0.25)
-      ) !important;
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      inset 0 1px 0 color-mix(in oklab, var(--aph-ws-accent) 25%, transparent),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+      0 2px 4px rgba(0, 0, 0, 0.2),
+      0 8px 32px -4px rgba(0, 0, 0, 0.45),
+      0 0 20px -4px color-mix(in oklab, var(--aph-ws-accent, #0090ff) 30%, transparent) !important;
   }
 }
 
@@ -171,12 +237,14 @@
   gap: 0 !important;
 }
 
-/* 2. Kill invisible fixed spacers (titlebar edges, vertical-strip gap).
+/* 2. Kill invisible fixed spacers (titlebar edges, vertical-strip gap)
+   and retired stock controls (home button covered by palette + new-tab).
    Flexible spaces (toolbarspring) STAY: they flank the urlbar as
    cushions and ride the generic §3 full-ink rules by DOM position
    like everything else. */
 #nav-bar .titlebar-spacer,
-#nav-bar #vertical-spacer {
+#nav-bar #vertical-spacer,
+#home-button {
   display: none !important;
 }
 
@@ -201,7 +269,7 @@
    ========================================================================== */
 
 /* Tier 1 idle: full ink (dim retired — see block note above) */
-#nav-bar-customization-target > :not(#urlbar-container):not(#back-button):not(#forward-button):not(#reload-button):not(#home-button),
+#nav-bar-customization-target > :not(#urlbar-container):not(#back-button):not(#forward-button):not(#reload-button),
 #nav-bar-overflow-button {
   opacity: 1 !important;
   visibility: visible !important;
@@ -210,7 +278,7 @@
 }
 
 /* Tier 0 pinned: full ink, untouched by the dim system */
-#nav-bar-customization-target > :is(#back-button, #forward-button, #reload-button, #home-button),
+#nav-bar-customization-target > :is(#back-button, #forward-button, #reload-button),
 #PanelUI-button,
 #nav-bar-customization-target > #urlbar-container {
   opacity: 1 !important;
@@ -219,39 +287,9 @@
 }
 
 /* ==========================================================================
-   4. Buttons: Full Ink on Hover / Focus / Open Popup (explicit).
-   The bar idles at full ink (§3), so these rules re-affirm opacity 1
-   on hover / focus-within / open popup — belt-and-braces that keep the
-   open button's popup anchor at full ink while it is open. Paint only
-   (position never moved, so no close race).
+   4. Buttons: Full Ink (Idle & Active).
+   The bar idles at full ink (§3); all buttons remain visible at opacity 1.
    ========================================================================== */
-
-#navigator-toolbox:hover #nav-bar-customization-target > :not(#urlbar-container):not(#back-button):not(#forward-button):not(#reload-button):not(#home-button):has(~ #urlbar-container),
-#nav-bar:hover #nav-bar-customization-target > :not(#urlbar-container):not(#back-button):not(#forward-button):not(#reload-button):not(#home-button):has(~ #urlbar-container),
-#nav-bar:focus-within #nav-bar-customization-target > :not(#urlbar-container):not(#back-button):not(#forward-button):not(#reload-button):not(#home-button):has(~ #urlbar-container),
-#navigator-toolbox:has(#nav-bar :is(toolbarbutton, toolbaritem)[open="true"]) #nav-bar-customization-target > :not(#urlbar-container):not(#back-button):not(#forward-button):not(#reload-button):not(#home-button):has(~ #urlbar-container),
-#nav-bar:has(:is(toolbarbutton, toolbaritem)[open="true"]) #nav-bar-customization-target > :not(#urlbar-container):not(#back-button):not(#forward-button):not(#reload-button):not(#home-button):has(~ #urlbar-container),
-#navigator-toolbox[data-aph-popup-open] #nav-bar-customization-target > :not(#urlbar-container):not(#back-button):not(#forward-button):not(#reload-button):not(#home-button):has(~ #urlbar-container),
-#nav-bar[data-aph-popup-open] #nav-bar-customization-target > :not(#urlbar-container):not(#back-button):not(#forward-button):not(#reload-button):not(#home-button):has(~ #urlbar-container),
-#navigator-toolbox:hover #nav-bar-customization-target > #urlbar-container ~ *:not(#back-button):not(#forward-button):not(#reload-button):not(#home-button),
-#nav-bar:hover #nav-bar-customization-target > #urlbar-container ~ *:not(#back-button):not(#forward-button):not(#reload-button):not(#home-button),
-#nav-bar:focus-within #nav-bar-customization-target > #urlbar-container ~ *:not(#back-button):not(#forward-button):not(#reload-button):not(#home-button),
-#navigator-toolbox:has(#nav-bar :is(toolbarbutton, toolbaritem)[open="true"]) #nav-bar-customization-target > #urlbar-container ~ *:not(#back-button):not(#forward-button):not(#reload-button):not(#home-button),
-#nav-bar:has(:is(toolbarbutton, toolbaritem)[open="true"]) #nav-bar-customization-target > #urlbar-container ~ *:not(#back-button):not(#forward-button):not(#reload-button):not(#home-button),
-#navigator-toolbox[data-aph-popup-open] #nav-bar-customization-target > #urlbar-container ~ *:not(#back-button):not(#forward-button):not(#reload-button):not(#home-button),
-#nav-bar[data-aph-popup-open] #nav-bar-customization-target > #urlbar-container ~ *:not(#back-button):not(#forward-button):not(#reload-button):not(#home-button),
-#navigator-toolbox:hover #nav-bar-overflow-button,
-#nav-bar:hover #nav-bar-overflow-button,
-#nav-bar:focus-within #nav-bar-overflow-button,
-#navigator-toolbox:has(#nav-bar :is(toolbarbutton, toolbaritem)[open="true"]) #nav-bar-overflow-button,
-#nav-bar:has(:is(toolbarbutton, toolbaritem)[open="true"]) #nav-bar-overflow-button,
-#navigator-toolbox[data-aph-popup-open] #nav-bar-overflow-button,
-#nav-bar[data-aph-popup-open] #nav-bar-overflow-button {
-  opacity: 1 !important;
-  visibility: visible !important;
-  transform: none !important;
-  transition: opacity 0.15s ease 0s !important;
-}
 
 /* ==========================================================================
    4b. Downloads Button: Full Ink on Activity (Progress / Unviewed)
@@ -286,6 +324,38 @@
   height: var(--aph-bar-button, 30px) !important;
   min-height: var(--aph-bar-button, 30px) !important;
   max-height: var(--aph-bar-button, 30px) !important;
+}
+
+/* Segmented nav cluster: back + forward read as one split control (zero
+   inter-button gap) with a 1px inset divider on the forward leading edge.
+   Paint-only (inset shadow, never layout); RTL mirrors the side. Forward
+   dims out when stock disables it (nowhere to go) instead of sitting at
+   full ink. */
+#nav-bar-customization-target > #back-button {
+  margin-inline-end: 0 !important;
+  border-start-start-radius: var(--aph-radius-md, 8px) !important;
+  border-end-start-radius: var(--aph-radius-md, 8px) !important;
+  border-start-end-radius: 0 !important;
+  border-end-end-radius: 0 !important;
+}
+#nav-bar-customization-target > #forward-button {
+  margin-inline-start: 0 !important;
+  border-start-start-radius: 0 !important;
+  border-end-start-radius: 0 !important;
+  border-start-end-radius: var(--aph-radius-md, 8px) !important;
+  border-end-end-radius: var(--aph-radius-md, 8px) !important;
+  box-shadow: inset -1px 0 0 var(--aph-bar-divider, rgba(255, 255, 255, 0.08)) !important;
+}
+#nav-bar-customization-target > #forward-button:-moz-locale-dir(rtl) {
+  box-shadow: inset 1px 0 0 var(--aph-bar-divider, rgba(255, 255, 255, 0.08)) !important;
+}
+#forward-button[disabled] {
+  opacity: var(--aph-secondary-opacity, 0.5) !important;
+}
+
+/* Bar finish: hover depth on the same inners native paints. */
+#nav-bar toolbarbutton:not([disabled]):hover > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack) {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
 }
 
 /* ==========================================================================
@@ -332,6 +402,7 @@
 .urlbar-input-container {
   min-height: var(--aph-hit-min, 28px) !important;
   height: var(--aph-hit-min, 28px) !important;
+  border-radius: var(--aph-radius-pill, 999px) !important;
   /* Roomy start so the container badge never kisses the field edge;
      logical props keep LTR/RTL mirrored. Start follows space-3;
      end is optical 10px. */
@@ -346,25 +417,56 @@
    accent stamped). Low enough that ink contrast barely moves, high
    enough to read. Never the theme field, so a vivid installed theme
    can't repaint it. */
+.urlbar-background {
+  border-radius: var(--aph-radius-pill, 999px) !important;
+  background-image: none !important;
+  transition: border-color 0.15s ease-out, box-shadow 0.15s ease-out, background-color 0.15s ease-out !important;
+}
+
+.urlbar[open] .urlbar-background {
+  border-radius: var(--aph-radius-xl, 14px) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 12px 32px rgba(0, 0, 0, 0.5) !important;
+}
+
 .urlbar-background,
 .urlbarView {
-  background-color: color-mix(
-    in oklab,
-    var(--aph-voice, #0090ff) 12%,
-    var(--aph-urlbar-bg, #2e3135)
-  ) !important;
+  background-color: rgba(0, 0, 0, 0.28) !important;
+}
+
+.urlbar-input {
+  color: var(--aph-ink, #e8e8ec) !important;
+  font-family: var(--aph-font-chrome) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}
+
+.urlbar-input::placeholder {
+  color: var(--aph-ink-dim, #a3a8ba) !important;
+  opacity: 0.8 !important;
+}
+
+/* Urlbar-trailing reload (moved into .urlbar-input-container by
+   110-chrome-init.js): compact, quiet at rest, full ink on hover. */
+#nav-bar #reload-button:is(:hover, :focus-visible, [open]),
+#nav-bar #stop-button:is(:hover, :focus-visible, [open]) {
+  opacity: 1 !important;
+}
+#nav-bar .urlbar-input-container > :is(#reload-button, #stop-button) {
+  height: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  margin: 0 !important;
+  opacity: var(--aph-secondary-opacity, 0.5) !important;
+  background: transparent !important;
+  transition: opacity 0.15s ease !important;
 }
 
 /* Clean square hamburger icon */
 #PanelUI-menu-button .toolbarbutton-text {
   display: none !important;
 }
-
-/* ==========================================================================
-   6. Workspace indicator: REMOVED. The nav-bar pill is gone — the dock's
-   current pill (§16) is the readout now. Section number kept so §13/§21
-   cross-references still resolve.
-   ========================================================================== */
 
 /* Switch arrival: incoming workspace tabs glide 10px as one unified
    plane — ascending rises from below, descending sinks from above —
@@ -396,6 +498,9 @@ tab.aph-ws-enter-down,
   tab.aph-ws-enter-down,
   .tabbrowser-tab.aph-ws-enter-down {
     animation: none !important;
+  }
+  :root[data-aph-autohide-sidebar="1"] #sidebar-container {
+    transition: none !important;
   }
 }
 
@@ -472,29 +577,33 @@ tab[usercontextid]:not([data-aph-bound-match="1"]):not([selected]) .tab-context-
 /* ==========================================================================
    8. Unloaded (discarded) tabs: parked rows must read parked at a glance.
    Loaded is the default state, so only pending tabs are styled. Stock
-   Firefox sets `pending` on discard and grays the icon; icon-only proved
-   too quiet — loaded vs unloaded was unreadable. So pending desaturates
-   the icon AND steps icon + label down together (opacity, never a
-   smaller size or italic, so rows stay legible and scannable). The icon
-   holds 0.6 — parked, not gone (the old 0.45 read as a broken favicon).
-   The label holds 0.9, not 0.6: opacity multiplies, and the unselected
-   base is already an 80/20 dim mix, so 0.6 on top landed pending rows at
-   ~3.9:1 dark / ~2.5:1 paper — below the 4.5:1 gate and the "almost
-   unreadable" report. 0.9 restores ~7.2 dark / ~4.5 paper while staying
-   a full tier under loaded (~8.6 / ~5.5), and the grayed icon still owns
-   the parked-at-a-glance signal. Opacity only (never layout) so
-   horizontal / vertical / collapsed geometry never shifts. Selected is
-   exempt: pending+selected is transient (reload fires on select).
+   Firefox sets `pending` on discard and fades explicitly unloaded
+   favicons (grayscale + half opacity, inverted on dark); a dimmed or
+   inverted favicon read as a broken icon, so Aph pins the icon back to
+   full color and the label alone carries the parked state, stepped down
+   a tier (opacity, never a smaller size or italic, so rows stay legible
+   and scannable). The label holds 0.9, not 0.6: opacity multiplies, and
+   the unselected base is already an 80/20 dim mix, so 0.6 on top landed
+   pending rows at ~3.9:1 dark / ~2.5:1 paper — below the 4.5:1 gate and
+   the "almost unreadable" report. 0.9 restores ~7.2 dark / ~4.5 paper
+   while staying a full tier under loaded (~8.6 / ~5.5). Opacity only
+   (never layout) so horizontal / vertical / collapsed geometry never
+   shifts. Selected is exempt: pending+selected is transient (reload
+   fires on select).
    ========================================================================== */
 
-/* Pending = parked: the favicon steps down + fully desaturates while the
-   label steps down a tier. Both stay legible — parked, not gone.
-   Selected is exempt: pending+selected is transient (reload fires on
-   select). */
-tab[pending]:not([selected]) .tab-icon-image,
-.tabbrowser-tab[pending]:not([selected]) .tab-icon-image {
-  opacity: 0.6 !important;
-  filter: grayscale(1) !important;
+/* Pending = parked: the label steps down a tier while the favicon keeps
+   its site colors. Stock's fadeOutExplicitlyUnloadedTabs hook styles
+   .tab-icon-image[pending] directly (grayscale + 0.5, inverted on dark),
+   so pin opacity/filter explicitly — removing Aph's old dim rule alone
+   would leave stock graying the icon.
+   Selected is exempt from the label step: pending+selected is transient
+   (reload fires on select). */
+.tab-icon-image[pending],
+tab[pending] .tab-icon-image,
+.tabbrowser-tab[pending] .tab-icon-image {
+  opacity: 1 !important;
+  filter: none !important;
 }
 tab[pending]:not([selected]) .tab-label,
 .tabbrowser-tab[pending]:not([selected]) .tab-label {
@@ -633,7 +742,7 @@ tab[pending]:not([selected]) .tab-label,
    surface. Unstamped windows use the slate fallback instead of
    transparency. Exempt from the §12 hover rule by its :not([selected])
    guard, so the two never fight. Container identity lines and pending
-   dim keep working untouched; background-only, both orientations.
+   label dim keep working untouched; background-only, both orientations.
    ========================================================================== */
 
 .tabbrowser-tab[selected] > .tab-stack > .tab-background,
@@ -678,28 +787,44 @@ tab[selected] > .tab-stack > .tab-background {
     var(--aph-ws-accent, #0090ff) 28%,
     var(--aph-base, #0e0f14)
   ) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
   /* Calm rows: rounded pill in all states (lg), 2px spine inside the
      leading edge + crown top-light + whisper outer glow so the selected
      row leads in screenshots — wash + spine + light + glow only. No
      edge-to-edge span, no square corners, no hairline ring
      (no triple-signaling). Logical props throughout (the RTL rule below
-     only re-aims the shadow). Glow is 14px spread at 30% mix — screenshot
+     only re-aims the shadow). Glow is 16px spread at 30% mix — screenshot
      presence without glaring past the dock 45% current pill. Never raw
      accent: full-strength outer glow outreads presence hierarchy and
      blows out pale hues. */
   border-radius: var(--aph-radius-lg, 10px) !important;
   box-shadow:
     inset 2px 0 0 0 var(--aph-ws-accent, #0090ff),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 0 14px -4px color-mix(in oklab, var(--aph-ws-accent, #0090ff) 30%, transparent) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 1px 3px rgba(0, 0, 0, 0.25),
+    0 0 16px -4px color-mix(in oklab, var(--aph-ws-accent, #0090ff) 30%, transparent) !important;
 }
 .tabbrowser-tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl),
 tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
   border-radius: var(--aph-radius-lg, 10px) !important;
   box-shadow:
     inset -2px 0 0 0 var(--aph-ws-accent, #0090ff),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 0 14px -4px color-mix(in oklab, var(--aph-ws-accent, #0090ff) 30%, transparent) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 1px 3px rgba(0, 0, 0, 0.25),
+    0 0 16px -4px color-mix(in oklab, var(--aph-ws-accent, #0090ff) 30%, transparent) !important;
+}
+
+/* Zenith specular sheen on selected tab stack */
+.tabbrowser-tab[selected] > .tab-stack,
+tab[selected] > .tab-stack {
+  background-image: radial-gradient(
+    ellipse 80% 120% at 50% 0%,
+    rgba(255, 255, 255, 0.16),
+    rgba(255, 255, 255, 0.03) 70%,
+    transparent 100%
+  ) !important;
+  border-radius: var(--aph-radius-lg, 10px) !important;
 }
 
 /* ==========================================================================
@@ -755,49 +880,40 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
    and the hairline stays in the mix so the edge never floats off the
    room. */
 .urlbar:not([focused]) .urlbar-background {
+  border: 1px solid var(
+    --aph-hairline,
+    color-mix(in oklab, var(--aph-ink, #e8e8ec) 12%, transparent)
+  ) !important;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.40) !important;
+}
+
+/* Field focus: quiet, calm focus without loud glowing rings or bright borders.
+   Kills stock and custom focus rings/outlines so the URL bar stays serene
+   and unobtrusive when clicked. */
+.urlbar:focus-within .urlbar-background {
   border: 1px solid color-mix(
     in oklab,
-    var(--aph-voice, #0090ff) 35%,
+    var(--aph-voice, #0090ff) 40%,
     var(
       --aph-hairline,
       color-mix(in oklab, var(--aph-ink, #e8e8ec) 12%, transparent)
     )
   ) !important;
+  outline: none !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 1px 3px rgba(0, 0, 0, 0.35) !important;
+    inset 0 1px 2px rgba(0, 0, 0, 0.40),
+    0 0 12px -3px color-mix(in oklab, var(--aph-voice, #0090ff) 35%, transparent) !important;
 }
 
-/* Field focus: accent border (via the §14 root var) + whisper halo so the
-   centered field reads as the bar's primary control. Class-based (urlbar
-   internals carry classes, never #ids); paint-only, never layout.
-   outline:none kills stock's own focus outline on the same element —
-   without it the native ring stacks with our halo as a double ring.
-   Our border + halo is the single indicator (never outline removal
-   without replacement). */
-.urlbar:focus-within .urlbar-background {
-  border-color: var(--aph-urlbar-accent, #0090ff) !important;
+/* Host-level and container kills: eliminate all focus rings, secondary
+   borders, and outlines on the container, host, and input elements. */
+.urlbar:focus-within,
+#urlbar-container:focus-within,
+.urlbar:is([focused], [open], [popover-open]) > .urlbar-input-container,
+.urlbar-input:focus-visible {
   outline: none !important;
-  box-shadow: var(
-    --aph-bar-focus-ring,
-    0 0 0 3px rgba(0, 144, 255, 0.25)
-  ) !important;
-}
-
-/* Host-level belt-and-braces: if stock ever paints its focus outline on
-   the urlbar box instead of the background, it dies here too — the
-   background halo above stays the single indicator either way. */
-.urlbar:focus-within {
-  outline: none !important;
-}
-
-/* Second-ring kill: stock paints ANOTHER accent outline on
-   .urlbar-input-container when open/focused
-   (--urlbar-input-container-outline-open-focused), a slightly different
-   box from the background ring — that was the visible double. Class
-   form (internals carry classes, never #ids); paint-only. */
-.urlbar:is([focused], [open], [popover-open]) > .urlbar-input-container {
-  outline: none !important;
+  box-shadow: none !important;
 }
 
 /* ==========================================================================
@@ -821,7 +937,7 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
     --aph-color-blue stop — workspace accent once §21 flips it), so tabs
     share the menu hover language instead of stock gray.
     Background-only, never layout: container identity lines and the
-    pending-tab dim keep working untouched, and the selector hits both
+    pending-tab label dim keep working untouched, and the selector hits both
     horizontal and vertical strips (.tab-background exists in both).
     Selected is exempt — presence (28%, §13) must always outread hover.
     24% keeps label contrast safe on cream and dark strips. Small-surface
@@ -835,14 +951,63 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
     var(--aph-voice, #0090ff) 24%,
     var(--aph-base, #0e0f14)
   ) !important;
-  /* Machined top-light (bar specular language): the hover wash catches
-     light like the floating pill, so rows rise from whisper instead of
-     just tinting. Shadow-only lift like the §29 bar buttons — the wash
-     never doubles and anchors never slide. Paint-only — geometry
+  background-image: radial-gradient(
+    ellipse 80% 120% at 50% 0%,
+    rgba(255, 255, 255, 0.16),
+    rgba(255, 255, 255, 0.02) 70%,
+    transparent 100%
+  ) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  /* Machined top-light (bar specular language) and prismatic glass perimeter:
+     the hover wash catches light like the floating pill, so rows rise from
+     whisper instead of just tinting. Shadow-only lift like the §29 bar buttons —
+     the wash never doubles and anchors never slide. Paint-only — geometry
      untouched, and the §24 tab wash glide already eases box-shadow
      both ways. */
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 0 0 1px color-mix(in oklab, var(--aph-voice, #0090ff) 35%, rgba(255, 255, 255, 0.12)),
+    0 1px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Prismatic hover inside tab groups: harmonizes with the group hue */
+#tabbrowser-tabs[orient="vertical"] tab-group .tabbrowser-tab:not([selected]):hover > .tab-stack > .tab-background,
+#tabbrowser-tabs[orient="vertical"] tab-group tab:not([selected]):hover > .tab-stack > .tab-background {
+  background-color: color-mix(
+    in oklab,
+    var(--tab-group-color, var(--aph-voice, #0090ff)) 20%,
+    rgba(255, 255, 255, 0.04)
+  ) !important;
+  background-image: radial-gradient(
+    ellipse 80% 120% at 50% 0%,
+    rgba(255, 255, 255, 0.18),
+    rgba(255, 255, 255, 0.02) 70%,
+    transparent 100%
+  ) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 0 0 1px color-mix(in oklab, var(--tab-group-color, var(--aph-voice, #0090ff)) 40%, rgba(255, 255, 255, 0.14)),
+    0 1px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Prismatic hover on starred tabs: warm gold specular light */
+#tabbrowser-tabs[orient="vertical"] tab[data-aph-starred="1"]:hover:not([selected]) > .tab-stack > .tab-background,
+#tabbrowser-tabs[orient="vertical"] .tabbrowser-tab[data-aph-starred="1"]:hover:not([selected]) > .tab-stack > .tab-background {
+  background-color: color-mix(
+    in oklab,
+    #f5b301 22%,
+    rgba(255, 255, 255, 0.05)
+  ) !important;
+  background-image: radial-gradient(
+    ellipse 80% 120% at 50% 0%,
+    rgba(255, 230, 120, 0.24),
+    rgba(255, 255, 255, 0.03) 70%,
+    transparent 100%
+  ) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 0 0 1px color-mix(in oklab, #f5b301 45%, rgba(255, 255, 255, 0.15)),
     0 1px 4px rgba(0, 0, 0, 0.3) !important;
 }
 
@@ -873,7 +1038,7 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
   flex-direction: column !important;
   color: var(--aph-ink, #e8e8ec) !important;
   padding-inline: var(--aph-sidebar-pad, 6px) !important;
-  padding-block-start: var(--aph-space-1, 4px) !important;
+  padding-block-start: var(--aph-bar-float-margin, 8px) !important;
   padding-block-end: 0 !important;
   box-sizing: border-box !important;
 }
@@ -881,29 +1046,32 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
 #aph-ws-dock {
   flex: none !important;
   display: flex !important;
-  flex-wrap: wrap !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
   align-items: center !important;
-  align-content: center !important;
-  justify-content: center !important;
-  row-gap: var(--aph-sidebar-dock-gap, 6px) !important;
-  column-gap: var(--aph-sidebar-dock-gap, 6px) !important;
-  /* Bottom toolbar, not a card: transparent field with a 1px hairline
-     divider above (proximity over boxes). The rail gutter lives on
-     #vertical-tabs, so inline margins stay 0 — no double gutter.
-     8px above the divider separates tabs from tools, 8px below it
-     separates divider from the grid; the grid breathes 6px below its
-     last row, so a wrapped second row packs as a centered grid instead
-     of an orphan — depth lives on the pills, never here. */
-  border-top: 1px solid var(
+  justify-content: space-between !important;
+  overflow: hidden !important;
+  gap: 3px !important;
+  /* Floating glass dock tray: elevated pill container with subtle glass backdrop.
+     Pills dynamically scale across the width so + and Aph menu never clip. */
+  border: 1px solid var(
     --aph-hairline,
     color-mix(in oklab, var(--aph-ink, #e8e8ec) 12%, transparent)
   ) !important;
-  margin-inline: 0 !important;
+  margin-inline: 4px !important;
   margin-block: var(--aph-space-2, 8px) var(--aph-space-1, 4px) !important;
-  padding: var(--aph-space-2, 8px) 2px 6px !important;
-  background: transparent !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
+  padding: 3px 5px !important;
+  background: color-mix(in oklab, var(--aph-surface, #212225) 75%, transparent) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  border-radius: var(--aph-radius-xl, 14px) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 2px 8px rgba(0, 0, 0, 0.25) !important;
+}
+
+#aph-ws-dock::-webkit-scrollbar {
+  display: none !important;
 }
 
 #aph-ws-dock[hidden] {
@@ -911,7 +1079,9 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
 }
 
 .aph-ws-pill {
-  flex: none !important;
+  flex: 1 1 0px !important;
+  min-width: 0 !important;
+  max-width: 32px !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -923,9 +1093,8 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
   /* hit-min: the urlbar rhythm — pills, indicator, and urlbar read as one
      system. Solid ink throughout; quiet comes from the fill, never
      faded text. */
-  min-width: var(--aph-hit-min, 28px) !important;
   height: var(--aph-hit-min, 28px) !important;
-  padding: 0 7px !important;
+  padding: 0 2px !important;
   box-sizing: border-box !important;
   font-size: 12px !important;
   font-weight: 600 !important;
@@ -997,6 +1166,9 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
    tooltips/titles and the palette, never as badge chrome. */
 
 .aph-ws-add {
+  flex: 0 0 var(--aph-hit-min, 28px) !important;
+  width: var(--aph-hit-min, 28px) !important;
+  min-width: var(--aph-hit-min, 28px) !important;
   opacity: 0.8 !important;
 }
 
@@ -1015,13 +1187,14 @@ tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
    with brand. Brand marks keep their color (no dim story on the logo).
    Native <button>: zero the platform border like the pills. */
 .aph-dock-aph {
-  flex: none !important;
+  flex: 0 0 var(--aph-hit-min, 28px) !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   appearance: none !important;
   border: none !important;
   width: var(--aph-hit-min, 28px) !important;
+  min-width: var(--aph-hit-min, 28px) !important;
   min-height: var(--aph-hit-min, 28px) !important;
   height: var(--aph-hit-min, 28px) !important;
   padding: 0 6px !important;
@@ -1177,6 +1350,44 @@ tab[data-aph-starred="1"] .tab-close-button,
 .tabbrowser-tab[data-aph-starred="1"] .tab-close-button {
   list-style-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='%23f5b301' d='M6 1l1.4 2.9 3.1.4-2.3 2.2.6 3.1L6 8.1 3.2 9.6l.6-3.1L1.5 4.3l3.1-.4z'/></svg>") !important;
 }
+
+/* Persistent star indicator: on unhovered, unselected starred tabs,
+   keep the star glyph visible at quiet opacity (0.55), so starred tabs
+   can be scanned without moving the pointer. Hover or selection restores
+   full opacity. */
+tab[data-aph-starred="1"]:not(:hover):not([selected]) .tab-close-button,
+.tabbrowser-tab[data-aph-starred="1"]:not(:hover):not([selected]) .tab-close-button {
+  visibility: visible !important;
+  opacity: 0.55 !important;
+}
+
+tab[data-aph-starred="1"] .tab-close-button:hover,
+.tabbrowser-tab[data-aph-starred="1"] .tab-close-button:hover {
+  opacity: 1 !important;
+}
+
+/* Star drift indicator: when a starred tab navigates away from its
+   stored base URL (76-starred.js stamps data-aph-starred-drift="1"),
+   the star glyph adds a distinct amber reset pip beside the star.
+   Signals to the user that the tab is drifted and Ctrl+W / reset
+   will return to the base URL. */
+tab[data-aph-starred-drift="1"] .tab-close-button,
+.tabbrowser-tab[data-aph-starred-drift="1"] .tab-close-button {
+  list-style-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='12' viewBox='0 0 16 12'><path fill='%23f5b301' d='M5 1l1.2 2.5 2.7.4-2 1.9.5 2.7L5 7.2 2.6 8.5l.5-2.7L1.1 3.9l2.7-.4z'/><circle cx='13' cy='6' r='1.75' fill='%23f5b301'/></svg>") !important;
+  width: 18px !important;
+}
+
+/* Starred zone boundary: the final starred tab in each contiguous
+   starred block (76-starred.js stamps data-aph-starred-last="1")
+   carries a subtle hairline divider at its bottom edge in the vertical strip,
+   clearly delimiting the workspace/group essentials from the regular
+   stream of tabs. Paint-only (never layout margins) to keep stock row
+   geometry and drop indicators intact. */
+#tabbrowser-tabs[orient="vertical"] tab[data-aph-starred-last="1"] > .tab-stack,
+#tabbrowser-tabs[orient="vertical"] .tabbrowser-tab[data-aph-starred-last="1"] > .tab-stack {
+  border-block-end: 1px solid color-mix(in oklab, var(--aph-ink, #e8e8ec) 22%, transparent) !important;
+  padding-block-end: 6px !important;
+}
 /* ==========================================================================
    19. Canvas frame: the webpage as an elevated card on a desk (Arc/Zen
    look). #browser paints the desk; the toolbox (§1, a vertical sibling,
@@ -1198,6 +1409,7 @@ tab[data-aph-starred="1"] .tab-close-button,
    ========================================================================== */
 
 #browser {
+  margin-inline-start: var(--aph-sidebar-width, 240px) !important;
   /* Desk flat by default: the same flat base as the toolbox (§1) and the
      launcher (§22b), so gutters, bar, and strip read as one room. Depth
      stays card-borne (ring + layered/adaptive shadow on
@@ -1213,15 +1425,15 @@ tab[data-aph-starred="1"] .tab-close-button,
    are unaffected. High-contrast keeps flat (forced-colors exempt). */
 @media not (forced-colors) {
   :root[data-aph-ws] #navigator-toolbox,
-  :root[data-aph-ws] #browser,
-  :root[data-aph-ws] sidebar-main {
+  :root[data-aph-ws] #browser {
     background:
       linear-gradient(
         to bottom,
-        color-mix(in oklab, var(--aph-ws-accent) 10%, transparent),
-        transparent 140px
+        color-mix(in oklab, var(--aph-ws-accent) 14%, transparent) 0%,
+        color-mix(in oklab, var(--aph-ws-accent) 4%, transparent) 100px,
+        transparent 180px
       ),
-      var(--aph-base, #0e0f14) !important;
+      var(--aph-base, #0a0b0e) !important;
   }
 }
 
@@ -1236,20 +1448,39 @@ tab[data-aph-starred="1"] .tab-close-button,
   margin-inline-end: var(--aph-gutter-side, 8px) !important;
   border-radius: var(--aph-radius-card, 12px) !important;
   overflow: clip !important;
+  background-color: var(--aph-surface, #16171e) !important;
   box-shadow:
     0 0 0 1px var(
       --aph-hairline,
       color-mix(in oklab, var(--aph-ink, #e8e8ec) 12%, transparent)
     ),
-    0 1px 2px rgba(0, 0, 0, 0.25),
-    0 8px 24px -8px rgba(0, 0, 0, 0.45),
-    0 12px 32px -8px rgba(0, 0, 0, 0.6) !important;
+    0 1px 3px 0 rgba(0, 0, 0, 0.4),
+    0 4px 12px -2px rgba(0, 0, 0, 0.45),
+    0 8px 24px -8px rgba(0, 0, 0, 0.65),
+    0 16px 40px -12px rgba(0, 0, 0, 0.75) !important;
+}
+
+#tabbrowser-tabpanels,
+.browserSidebarContainer,
+.browserStack,
+.split-view-panel,
+#tabbrowser-tabpanels browser[type="content"] {
+  border-radius: var(--aph-radius-card, 12px) !important;
+  overflow: hidden !important;
 }
 
 :root[inDOMFullscreen] #tabbrowser-tabbox {
   margin: 0 !important;
   border-radius: 0 !important;
   box-shadow: none !important;
+}
+
+:root[inDOMFullscreen] #tabbrowser-tabpanels,
+:root[inDOMFullscreen] #tabbrowser-tabpanels .browserSidebarContainer,
+:root[inDOMFullscreen] #tabbrowser-tabpanels .browserContainer,
+:root[inDOMFullscreen] #tabbrowser-tabpanels .browserStack,
+:root[inDOMFullscreen] #tabbrowser-tabpanels browser[type="content"] {
+  border-radius: 0 !important;
 }
 
 /* ==========================================================================
@@ -1281,6 +1512,8 @@ tab[data-aph-starred="1"] .tab-close-button,
 
 #tabbrowser-tabpanels > :not(.split-view-panel) .browserContainer {
   border-block-start-color: transparent !important;
+  border-radius: var(--aph-radius-card, 12px) !important;
+  overflow: hidden !important;
 }
 
 /* Dialog guard (§19 companion): tab-modal dialogs (cookie removal,
@@ -1325,6 +1558,96 @@ menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-ch
   border-bottom-right-radius: var(--aph-radius-md) !important;
 }
 
+/* 1. Neutral menu surface + ink. NOTE: context menus paint their visible
+   surface from the --panel-background-color VARIABLE (toolkit popup.css
+   reads it inside the popup's shadow part), so the surface is delivered
+   by redefining the variable on the host — the same mechanism
+   lightweight themes use. The host/::part background rules below are
+   belt-and-braces. */
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) {
+  --panel-background-color: var(--aph-surface, Menu) !important;
+}
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist),
+panelview {
+  background-color: var(--aph-surface, Window) !important;
+  color: var(--aph-ink, WindowText) !important;
+}
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist)::part(content) {
+  background-color: var(--aph-surface, Window) !important;
+}
+
+/* 2+3. Hovered/open item: the voice at hover spend (30%) — solid voice
+   (theme blue unstamped, workspace accent stamped) mixed opaque over the
+   menu surface in oklab, never translucent film. Quieter than presence
+   (45%) on purpose, so rest < hover < selected reads.
+   6px rows match the palette. */
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > :is(menu, menuitem)[_moz-menuactive="true"],
+panelview :is(.subviewbutton, toolbarbutton):is(:hover, [_moz-menuactive="true"]) {
+  background-color: color-mix(
+    in oklab,
+    var(--aph-voice, #0090ff) 30%,
+    var(--aph-surface, Menu)
+  ) !important;
+  border-radius: var(--aph-radius-md, 8px) !important;
+}
+
+/* 3. Separator hairlines: kill the native groove (appearance:none) and
+   draw a single 1px ink wash with vertical breathing room. Covers
+   context menus (menuseparator) and panels (toolbarseparator). */
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) menuseparator,
+panelview toolbarseparator {
+  appearance: none !important;
+  -moz-appearance: none !important;
+  background: transparent !important;
+  border: none !important;
+  border-top: 1px solid color-mix(in oklab, var(--aph-ink, WindowText) 8%, transparent) !important;
+  margin: 4px 8px !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+}
+
+/* 4. Disabled items: dim in place. Opacity only — geometry, ink, and
+   layout pass through untouched. */
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > :is(menu, menuitem)[disabled="true"],
+panelview :is(.subviewbutton, toolbarbutton)[disabled="true"] {
+  opacity: 0.45 !important;
+}
+
+/* 5. Item insets: constant 4px side margins (rest AND hover — margin
+   never changes between states, so hover can't reflow the list) so
+   the 6px hover pills float off the popup edge. Comfortable 6px block
+   padding keeps rows tappable; icons align on a 16px grid. */
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > :is(menu, menuitem) {
+  margin-inline: 4px !important;
+  padding-block: 6px !important;
+}
+
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > :is(menu, menuitem) > .menu-iconic-icon,
+panelview .subviewbutton > .toolbarbutton-icon {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+/* Keyboard focus: same voice wash as hover, never the stock dotted ring. */
+menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > :is(menu, menuitem):focus-visible,
+panelview :is(.subviewbutton, toolbarbutton):focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--aph-voice, #0090ff) 60%, transparent) !important;
+  outline-offset: -2px !important;
+}
+
+/* Web-content <select> text stays readable: pair both to the theme canvas
+   (surface+ink switch together, contrast-gated) so any page + any
+   light/dark theme reads. Active row left alone (already white-on-voice). */
+menulist#ContentSelectDropdown > menupopup {
+  --panel-background-color: var(--aph-surface, Menu) !important;
+}
+menulist#ContentSelectDropdown > menupopup::part(content) {
+  background-color: var(--aph-surface, Window) !important;
+}
+menulist#ContentSelectDropdown > menupopup > :is(menuitem, menucaption):not([_moz-menuactive="true"]) {
+  color: var(--aph-ink, MenuText) !important;
+}
+
 /* ==========================================================================
    20b. Aph-menu glyphs: stock 157 paints .menu-icon from --menuitem-icon
    (content: var) — the classic image attribute only unhides an empty
@@ -1356,12 +1679,6 @@ menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-ch
 #aph-aph-menu > #aph-aph-bind {
   --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><circle cx='5.6' cy='8' r='2.9'/><circle cx='10.4' cy='8' r='2.9'/></g></svg>") !important;
 }
-#aph-aph-menu > #aph-aph-stash {
-  --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='2.5' y='4.5' width='11' height='8.5' rx='1.5'/><path d='M2.5 7h11'/><path d='M6.5 4.5V3h3v1.5'/></g></svg>") !important;
-}
-#aph-aph-menu > #aph-aph-open-stash {
-  --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M1.8 5c0-.8.5-1.3 1.2-1.3h2.6l1.4 1.7h5.9c.7 0 1.2.5 1.2 1.2v4.7c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2z'/></g></svg>") !important;
-}
 #aph-aph-menu > #aph-aph-customize {
   --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M2.5 4h11M2.5 8h11M2.5 12h11'/><circle cx='10.5' cy='4' r='1.7' fill='%23e8e8ec' stroke='none'/><circle cx='5.5' cy='8' r='1.7' fill='%23e8e8ec' stroke='none'/><circle cx='11' cy='12' r='1.7' fill='%23e8e8ec' stroke='none'/></g></svg>") !important;
 }
@@ -1373,9 +1690,6 @@ menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-ch
 }
 #aph-aph-menu > #aph-aph-appmenu {
   --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M2.5 4h11M2.5 8h11M2.5 12h11'/></g></svg>") !important;
-}
-#aph-aph-menu > #aph-aph-welcome {
-  --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8' r='6'/><path d='M6.8 5.6l3.8 2.4-3.8 2.4z' fill='%23e8e8ec' stroke='none'/></g></svg>") !important;
 }
 #aph-aph-menu > #aph-aph-about {
   --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8' r='6'/><path d='M8 7.4v3.2'/><circle cx='8' cy='5.1' r='1' fill='%23e8e8ec' stroke='none'/></g></svg>") !important;
@@ -1399,12 +1713,6 @@ menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-ch
   #aph-aph-menu > #aph-aph-bind {
     --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%2323252f' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><circle cx='5.6' cy='8' r='2.9'/><circle cx='10.4' cy='8' r='2.9'/></g></svg>") !important;
   }
-  #aph-aph-menu > #aph-aph-stash {
-    --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%2323252f' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='2.5' y='4.5' width='11' height='8.5' rx='1.5'/><path d='M2.5 7h11'/><path d='M6.5 4.5V3h3v1.5'/></g></svg>") !important;
-  }
-  #aph-aph-menu > #aph-aph-open-stash {
-    --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%2323252f' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M1.8 5c0-.8.5-1.3 1.2-1.3h2.6l1.4 1.7h5.9c.7 0 1.2.5 1.2 1.2v4.7c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2z'/></g></svg>") !important;
-  }
   #aph-aph-menu > #aph-aph-customize {
     --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%2323252f' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M2.5 4h11M2.5 8h11M2.5 12h11'/><circle cx='10.5' cy='4' r='1.7' fill='%2323252f' stroke='none'/><circle cx='5.5' cy='8' r='1.7' fill='%2323252f' stroke='none'/><circle cx='11' cy='12' r='1.7' fill='%2323252f' stroke='none'/></g></svg>") !important;
   }
@@ -1416,9 +1724,6 @@ menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-ch
   }
   #aph-aph-menu > #aph-aph-appmenu {
     --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%2323252f' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M2.5 4h11M2.5 8h11M2.5 12h11'/></g></svg>") !important;
-  }
-  #aph-aph-menu > #aph-aph-welcome {
-    --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%2323252f' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8' r='6'/><path d='M6.8 5.6l3.8 2.4-3.8 2.4z' fill='%2323252f' stroke='none'/></g></svg>") !important;
   }
   #aph-aph-menu > #aph-aph-about {
     --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%2323252f' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8' r='6'/><path d='M8 7.4v3.2'/><circle cx='8' cy='5.1' r='1' fill='%2323252f' stroke='none'/></g></svg>") !important;
@@ -1443,12 +1748,12 @@ menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-ch
 :root {
   /* Row colors live in aph-tokens.css (single source: --aph-color-*
      + --aph-ws-1..16). No literals here — stops resolve via import.
-     Default nine is the deep→bright ramp: WS1 Indigo, WS2 Blue,
-     WS3 Cyan, WS4 Jade, WS5 Grass, WS6 muted Amber #f5b301, WS7 Orange,
-     WS8 Crimson, WS9 Violet; ws-10..16 accent-only extras via
-     data-accent. The interaction voice is NOT slot-tied —
-     --aph-ws-accent above aliases the Blue color stop directly, so the
-     ramp can change without repainting unstamped windows. */
+     Default nine is the deep→bright ramp: WS1 Purple, WS2 Indigo,
+     WS3 Blue, WS4 Cyan, WS5 Jade, WS6 Grass, WS7 Amber, WS8 Orange,
+     WS9 Crimson; ws-10..16 accent-only extras via data-accent. The
+     interaction voice is NOT slot-tied — --aph-ws-accent above aliases
+     the Blue color stop directly, so the ramp can change without
+     repainting unstamped windows. */
 }
 :root[data-aph-ws="1"] { --aph-ws-accent: var(--aph-ws-1); }
 :root[data-aph-ws="2"] { --aph-ws-accent: var(--aph-ws-2); }
@@ -1487,14 +1792,13 @@ menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-ch
    black; identity lives on the pills, tab, and hairline). */
 :root[data-aph-ws] {
   --aph-voice: var(--aph-ws-accent);
-  /* Hairline follows the accent: the same 12% alpha as the neutral
-     default, re-split ~5% accent / 7% ink instead of 12% ink. Total
-     opacity is deliberately unchanged so the ring gains hue without
-     gaining weight. oklab so the hue survives at 5%. */
+  /* Hairline follows the accent: quiet presence (~8% accent, 12% ink)
+     so the floating card and boundaries stay crisp neutral diamond glass
+     with a whisper of the living workspace prism. */
   --aph-hairline: color-mix(
     in oklab,
-    var(--aph-ws-accent) 5%,
-    var(--aph-ink, #e8e8ec) 7%,
+    var(--aph-ws-accent) 8%,
+    var(--aph-ink, #e8e8ec) 12%,
     transparent
   );
 }
@@ -1558,7 +1862,10 @@ menupopup:not(#ContentSelectDropdown menupopup, .in-menulist) > menuitem:last-ch
   background-image: none !important;
   color: var(--aph-ink, #e8e8ec) !important;
   font-weight: 700 !important;
-  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--aph-ws-accent) 85%, var(--aph-ink, #e8e8ec)), 0 1px 8px rgba(0, 0, 0, 0.4) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 0 0 1.5px color-mix(in oklab, var(--aph-ws-accent) 85%, var(--aph-ink, #e8e8ec)),
+    0 1px 8px rgba(0, 0, 0, 0.4) !important;
 }
 
 /* Drop-ingestion micro-pulse: a 2px dip-and-release on the destination
@@ -1615,6 +1922,8 @@ tab:not([selected]):not(:hover) > .tab-stack > .tab-background {
 }
 sidebar-main {
   background: var(--aph-base, #0e0f14) !important;
+  border-inline-end: 1px solid var(--aph-hairline, rgba(255, 255, 255, 0.08)) !important;
+  box-sizing: border-box !important;
 }
 
 /* Atmospheric wash (Linear-style ambient light): stamped windows cast a
@@ -1631,9 +1940,9 @@ sidebar-main {
     background:
       linear-gradient(
         to bottom,
-        color-mix(in oklab, var(--aph-ws-accent) 10%, var(--aph-base, #111113)) 0%,
-        color-mix(in oklab, var(--aph-ws-accent) 4%, var(--aph-base, #111113)) 120px,
-        var(--aph-base, #111113) 200px
+        color-mix(in oklab, var(--aph-ws-accent) 11%, var(--aph-base, #0a0b0e)) 0%,
+        color-mix(in oklab, var(--aph-ws-accent) 4%, var(--aph-base, #0a0b0e)) 140px,
+        var(--aph-base, #0a0b0e) 240px
       ) !important;
   }
 }
@@ -1737,9 +2046,7 @@ tab[image] .tab-icon-pending {
     from the surface contrast gate the same way. Unstamped windows fall
     back to Blue (the --aph-color-blue stop, in-palette, never the old
     off-palette blue).
-   Below the storm threshold (73-loadrings.js) rings breathe via
-   aph-load-pulse; past it every ring renders static so a restore storm
-   never becomes a shimmer wall. Opacity-only motion, symmetric in RTL
+   Rings breathe via aph-load-pulse. Opacity-only motion, symmetric in RTL
    (no mirror), forced-colors exempt (HC keeps the stock throbber).
    ========================================================================== */
 @media not (forced-colors) {
@@ -1757,14 +2064,6 @@ tab[image] .tab-icon-pending {
     box-shadow:
       inset 0 0 0 1px color-mix(in oklab, var(--aph-ws-accent, #0090ff) 65%, transparent),
       0 0 0 2px color-mix(in oklab, var(--aph-ws-accent, #0090ff) 35%, transparent) !important;
-  }
-
-  :root:not([data-aph-load-storm]) .tabbrowser-tab[busy] .tab-icon-image,
-  :root:not([data-aph-load-storm]) tab[busy] .tab-icon-image,
-  :root:not([data-aph-load-storm]) .tabbrowser-tab[busy] .tab-throbber,
-  :root:not([data-aph-load-storm]) tab[busy] .tab-throbber,
-  :root:not([data-aph-load-storm]) .tabbrowser-tab[busy] .tab-icon-pending,
-  :root:not([data-aph-load-storm]) tab[busy] .tab-icon-pending {
     animation: aph-load-pulse 1.2s ease-in-out infinite !important;
   }
 }
@@ -1802,6 +2101,38 @@ tab:not([pinned]) > .tab-stack {
   padding-block: 2px !important;
 }
 
+/* Tab close affordance: hidden at rest on regular tabs for visual calm,
+   smoothly fades in on tab hover or selection. Starred tabs keep their
+   quiet star indicator visible (§18) and are excluded here. */
+.tabbrowser-tab:not([data-aph-starred="1"]):not(:hover):not([selected]) .tab-close-button,
+tab:not([data-aph-starred="1"]):not(:hover):not([selected]) .tab-close-button {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.tabbrowser-tab .tab-close-button,
+tab .tab-close-button {
+  border-radius: var(--aph-radius-pill, 999px) !important;
+  padding: 4px !important;
+  box-sizing: border-box !important;
+  opacity: 0.7 !important;
+  transition: opacity 0.15s ease-out, background-color 0.12s ease-out !important;
+}
+
+.tabbrowser-tab:hover .tab-close-button,
+tab:hover .tab-close-button,
+.tabbrowser-tab[selected] .tab-close-button,
+tab[selected] .tab-close-button {
+  opacity: 0.75 !important;
+  pointer-events: auto !important;
+}
+
+.tabbrowser-tab .tab-close-button:hover,
+tab .tab-close-button:hover {
+  opacity: 1 !important;
+  background-color: color-mix(in oklab, var(--aph-ink, #e8e8ec) 16%, transparent) !important;
+}
+
 /* ==========================================================================
    22d. Row gaps: tighten stock inter-tab air from 4px to 0 total.
    Stock vertical tabs carry margin-block: var(--tab-vertical-block-margin)
@@ -1817,6 +2148,24 @@ tab:not([pinned]) > .tab-stack {
    ========================================================================== */
 #tabbrowser-tabs[orient="vertical"] {
   --tab-vertical-block-margin: 0 !important;
+}
+
+/* ==========================================================================
+   22e. Vertical tab scrollbar: stock leaves --tab-vertical-scrollbar-color
+   at `auto` on Linux, so an overflowing tab strip grows the platform's
+   chunky gray bar inside the launcher. Override the same leaf token stock
+   defines on #tabbrowser-tabs with Aph's thin ink wash (§15's scrollbar
+   color). The token is consumed by the arrowscrollbox shadow scrollbox
+   (and the pinned container), so one definition covers both lists; the
+   stock scrollbar-width: thin stays untouched.
+   ========================================================================== */
+#tabbrowser-tabs[orient="vertical"] {
+  --tab-vertical-scrollbar-color: color-mix(
+      in oklab,
+      var(--aph-ink, #e8e8ec) 30%,
+      transparent
+    )
+    transparent !important;
 }
 
 /* ==========================================================================
@@ -1954,7 +2303,9 @@ tab > .tab-stack > .tab-background {
       var(--aph-voice, #0090ff) 30%,
       var(--aph-base, #0e0f14)
     ) !important;
+    --urlbarview-row-border-radius: var(--aph-radius-md) !important;
     --urlbarView-row-border-radius: var(--aph-radius-md) !important;
+    --urlbarview-row-padding-inline: 10px !important;
     --urlbarView-row-padding-inline: 10px !important;
     /* Pin the glyph size so stock geometry math stays valid: favicon
        16px, badge mask 24px at -4px offset
@@ -1987,8 +2338,8 @@ tab > .tab-stack > .tab-background {
     font-weight: 500 !important;
   }
 
-  /* Icon paint only — geometry is stock-owned via --urlbarView-icon-size
-     / --urlbarView-icon-margin-start/end (favicon 16px, rich-search 28px,
+  /* Icon paint only — geometry is stock-owned via --urlbarview-icon-size
+     / --urlbarview-icon-margin-start/end (favicon 16px, rich-search 28px,
      badge 24px absolute overlay). A prior fixed 20px box with margin:0
      killed the stock icon->text gap (margin-end = base + centering) and
      squished every icon against its title, hardest on search rows, and
@@ -2080,6 +2431,12 @@ sidebar-main toolbarbutton:not([disabled]):is(:hover:active, [open], [checked]) 
   background-color: transparent !important;
 }
 
+/* Sidebar toggle button: stay quiet when checked so it never screams with a
+   loud solid accent fill inside the glass bar. */
+#nav-bar #sidebar-button:is([checked], [open]) > .toolbarbutton-icon {
+  background-color: transparent !important;
+}
+
 /* Identity button: native paints .identity-box-button (not the box) in
    exactly these states — mirror the scope, repaint the same element. */
 #urlbar #identity-box[pageproxystate="valid"]:is(.notSecureText, .chromeUI, .extensionPage) > .identity-box-button:hover:not([open]) {
@@ -2096,91 +2453,6 @@ sidebar-main toolbarbutton:not([disabled]):is(:hover:active, [open], [checked]) 
     var(--aph-voice, #0090ff) 45%,
     transparent
   ) !important;
-}
-
-/* ==========================================================================
-   26c. New Tab button: one full-row wash, never inner pills.
-   The vertical-strip New Tab is a full-width toolbarbutton (plus +
-   label). §26b's generic inner-pill wash paints the icon and the label
-   as two separate boxes around the Plus and the text. These rules come
-   later with higher specificity (two IDs), so they win: inners go back
-   to transparent, the button box takes a single 30% wash / 45% pressed
-   with md corners — the tab-row language (§12 whisper, 6px pills), never
-   the selected lg presence (§13). focus-visible
-   keeps its native ring; disabled untouched; horizontal strip untouched
-   (scoped to the vertical launcher). Glide matches the tab wash (0.12s).
-   ========================================================================== */
-#vertical-tabs #tabs-newtab-button:not([disabled]):not(:focus-visible):hover > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
-sidebar-main #tabs-newtab-button:not([disabled]):not(:focus-visible):hover > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
-#vertical-tabs toolbarbutton[data-l10n-id*="newtab"]:not([disabled]):not(:focus-visible):hover > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
-#vertical-tabs toolbarbutton[data-l10n-id*="new-tab"]:not([disabled]):not(:focus-visible):hover > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack) {
-  background-color: transparent !important;
-}
-
-#vertical-tabs #tabs-newtab-button:not([disabled]):not(:focus-visible):hover,
-sidebar-main #tabs-newtab-button:not([disabled]):not(:focus-visible):hover,
-#vertical-tabs toolbarbutton[data-l10n-id*="newtab"]:not([disabled]):not(:focus-visible):hover,
-#vertical-tabs toolbarbutton[data-l10n-id*="new-tab"]:not([disabled]):not(:focus-visible):hover {
-  background-color: color-mix(
-    in oklab,
-    var(--aph-voice, #0090ff) 30%,
-    transparent
-  ) !important;
-  border-radius: var(--aph-radius-md) !important;
-  outline-color: transparent !important;
-  border-color: transparent !important;
-  transition: background-color 0.12s ease-out !important;
-}
-
-#vertical-tabs #tabs-newtab-button:not([disabled]):is(:hover:active, [open], [checked]),
-sidebar-main #tabs-newtab-button:not([disabled]):is(:hover:active, [open], [checked]),
-#vertical-tabs toolbarbutton[data-l10n-id*="newtab"]:not([disabled]):is(:hover:active, [open], [checked]),
-#vertical-tabs toolbarbutton[data-l10n-id*="new-tab"]:not([disabled]):is(:hover:active, [open], [checked]) {
-  background-color: color-mix(
-    in oklab,
-    var(--aph-voice, #0090ff) 45%,
-    transparent
-  ) !important;
-  border-radius: var(--aph-radius-md) !important;
-  outline-color: transparent !important;
-  border-color: transparent !important;
-}
-
-#vertical-tabs #tabs-newtab-button:not([disabled]):is(:hover:active, [open], [checked]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
-sidebar-main #tabs-newtab-button:not([disabled]):is(:hover:active, [open], [checked]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack) {
-  background-color: transparent !important;
-}
-
-/* ==========================================================================
-   26d. New Tab button at rest: idle like a tab row, never stock.
-   With no Aph rest rule the button rendered full-opacity stock (icon +
-   label at full ink over any native fill) inside a strip where tabs idle
-   quiet — the sore-thumb half of the problem. So: transparent box, icon
-   and label at the secondary dim tier with the same 0.15s glide as §3/§4,
-   full ink on hover, focus, or open. Paint-only by design (stock row
-   metrics already match the tab rhythm); disabled keeps native dim.
-   ========================================================================== */
-#vertical-tabs #tabs-newtab-button:not([disabled]),
-sidebar-main #tabs-newtab-button:not([disabled]),
-#vertical-tabs toolbarbutton[data-l10n-id*="newtab"]:not([disabled]),
-#vertical-tabs toolbarbutton[data-l10n-id*="new-tab"]:not([disabled]) {
-  background: transparent !important;
-  background-color: transparent !important;
-  border-color: transparent !important;
-  color: var(--aph-ink, inherit) !important;
-}
-#vertical-tabs #tabs-newtab-button:not([disabled]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
-sidebar-main #tabs-newtab-button:not([disabled]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
-#vertical-tabs toolbarbutton[data-l10n-id*="newtab"]:not([disabled]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
-#vertical-tabs toolbarbutton[data-l10n-id*="new-tab"]:not([disabled]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack) {
-  opacity: var(--aph-secondary-opacity, 0.5) !important;
-  transition: opacity 0.15s ease !important;
-}
-#vertical-tabs #tabs-newtab-button:not([disabled]):is(:hover, :focus-visible, [open]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
-sidebar-main #tabs-newtab-button:not([disabled]):is(:hover, :focus-visible, [open]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
-#vertical-tabs toolbarbutton[data-l10n-id*="newtab"]:not([disabled]):is(:hover, :focus-visible, [open]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack),
-#vertical-tabs toolbarbutton[data-l10n-id*="new-tab"]:not([disabled]):is(:hover, :focus-visible, [open]) > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack) {
-  opacity: 1 !important;
 }
 
 /* ==========================================================================
@@ -2363,14 +2635,25 @@ sidebar-main #tabs-newtab-button,
     padding: var(--aph-group-card-pad);
     background-color: color-mix(
       in oklab,
-      var(--tab-group-color) 8%,
-      transparent
+      var(--tab-group-color, var(--aph-surface, #212225)) 12%,
+      rgba(255, 255, 255, 0.03)
     ) !important;
+    background-image: radial-gradient(
+      ellipse 80% 120% at 50% 0%,
+      rgba(255, 255, 255, 0.12),
+      rgba(255, 255, 255, 0.02) 70%,
+      transparent 100%
+    ) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
     border: 1px solid color-mix(
       in oklab,
-      var(--tab-group-color) 20%,
-      transparent
+      var(--tab-group-color, var(--aph-ink, #e8e8ec)) 18%,
+      rgba(255, 255, 255, 0.08)
     ) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      0 2px 8px rgba(0, 0, 0, 0.25) !important;
     border-radius: var(--aph-radius-card, 12px) !important;
   }
 
@@ -2464,6 +2747,33 @@ sidebar-main #tabs-newtab-button,
   #tabbrowser-tabs[orient="vertical"] .tab-group-overflow-count-container::after {
     transition: background-color var(--aph-motion-glide, 0.15s ease-out);
   }
+
+  /* Active tab inside a tab group: harmonizes with the group's hue
+     (--tab-group-color) instead of fighting it with the workspace accent.
+     The rail, card border, and active spine/glow speak one coherent color,
+     eliminating the complementary hue clash at the guide line. */
+  #tabbrowser-tabs[orient="vertical"] tab-group .tabbrowser-tab[selected] > .tab-stack > .tab-background,
+  #tabbrowser-tabs[orient="vertical"] tab-group tab[selected] > .tab-stack > .tab-background {
+    background-color: color-mix(
+      in oklab,
+      var(--tab-group-color, var(--aph-ws-accent, #0090ff)) 28%,
+      var(--aph-base, #0e0f14)
+    ) !important;
+    box-shadow:
+      inset 2px 0 0 0 var(--tab-group-color, var(--aph-ws-accent, #0090ff)),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 1px 3px rgba(0, 0, 0, 0.25),
+      0 0 16px -4px color-mix(in oklab, var(--tab-group-color, var(--aph-ws-accent, #0090ff)) 30%, transparent) !important;
+  }
+
+  #tabbrowser-tabs[orient="vertical"] tab-group .tabbrowser-tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl),
+  #tabbrowser-tabs[orient="vertical"] tab-group tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
+    box-shadow:
+      inset -2px 0 0 0 var(--tab-group-color, var(--aph-ws-accent, #0090ff)),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 1px 3px rgba(0, 0, 0, 0.25),
+      0 0 16px -4px color-mix(in oklab, var(--tab-group-color, var(--aph-ws-accent, #0090ff)) 30%, transparent) !important;
+  }
 }
 
 /* ==========================================================================
@@ -2479,10 +2789,22 @@ sidebar-main #tabs-newtab-button,
    content).
    ========================================================================== */
 :root[data-aph-focus="1"] #navigator-toolbox,
-:root[data-aph-focus="1"] sidebar-main,
+:root[data-aph-focus="1"] #sidebar-container,
 :root[data-aph-focus="1"] #sidebar-box,
+:root[data-aph-focus="1"] #sidebar-launcher-splitter,
+:root[data-aph-focus="1"] #sidebar-splitter,
+:root[data-aph-focus="1"] #ai-window-box,
+:root[data-aph-focus="1"] #ai-window-splitter,
 :root[data-aph-focus="1"] #aph-ws-dock {
   display: none !important;
+}
+
+/* The tabbox can still carry stock launcher-compensation margins after
+   the sidebar box is gone (hover/ongoing-animation attributes). Reclaim
+   the full page width explicitly; inline margins are the RTL-neutral
+   pair the stock rules themselves use. */
+:root[data-aph-focus="1"] #tabbrowser-tabbox {
+  margin-inline: 0 !important;
 }
 
 /* Focus exit pill: bottom-center floating button, the mouse exit path.
@@ -2494,8 +2816,8 @@ sidebar-main #tabs-newtab-button,
    the RTL gate allows (same as the toast). A hint, not furniture: after
    a few idle seconds 72-focus.js stamps data-aph-focus-idle and the
    pill cross-fades out (opacity + visibility, never display — fixed
-   positioning means no layout either way); the next pointer/key poke
-   clears the marker and it fades back. Toast transition discipline:
+   positioning means no layout either way); the next bottom-edge pointer
+   poke clears the marker and it fades back. Toast transition discipline:
    base carries the hide delay, the show rule the instant flip. */
 #aph-focus-exit {
   position: fixed !important;
@@ -2533,8 +2855,9 @@ sidebar-main #tabs-newtab-button,
 }
 /* Idle fade (later + equal specificity vs the show rule, so it owns the
    pill while both markers are stamped; the base display:none still owns
-   it outside focus mode). Paint-only — the pill keeps its hit area and
-   its click-to-exit while faded, so the way out never moves. */
+   it outside focus mode). Paint-only: a faded pill leaves the hit-test
+   tree, but 72-focus.js brings it back as soon as the pointer enters the
+   bottom band, so the way out never moves. */
 :root[data-aph-focus-idle="1"] #aph-focus-exit {
   opacity: 0 !important;
   visibility: hidden !important;
@@ -2550,121 +2873,4 @@ sidebar-main #tabs-newtab-button,
 #aph-focus-exit:focus-visible {
   outline: 2px solid var(--aph-urlbar-accent, #0090ff) !important;
   outline-offset: 2px !important;
-}
-
-/* ==========================================================================
-   29. Next-gen chrome (Package D): floating pill bar, segmented nav
-   cluster, urlbar-trailing reload, C1 tab rows. EVERY rule here carries
-   :root[data-aph-chrome-v2] (stamped unconditionally at load by
-   115-chrome-v2.js — no pref, no toggle). Logical props throughout
-   (RTL gate holds); transform/background-only motion. The base #nav-bar
-   rule in §1 already carries the v2 pill geometry unconditionally, so
-   the bar floats even before the stamp lands; this block re-affirms it
-   under the gate (auditability) and owns the cluster details below.
-   ========================================================================== */
-
-/* Floating pill (gate re-affirmation of the §1 canonical geometry):
-   surface fill + gradient top light + hairline + specular + tight contact
-   + whisper glow, floating off the desk like the content card. Margins
-   come from the float tokens. */
-:root[data-aph-chrome-v2] #nav-bar {
-  height: var(--aph-bar-float-height, 40px) !important;
-  min-height: var(--aph-bar-float-height, 40px) !important;
-  max-height: var(--aph-bar-float-height, 40px) !important;
-  margin: var(--aph-bar-float-margin, 8px) var(--aph-bar-float-side, 8px) 0 !important;
-  padding: 0 12px !important;
-  background-color: var(--aph-surface, Window) !important;
-  background-image: var(
-    --aph-bar-highlight,
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 45%)
-  ) !important;
-  border-radius: var(--aph-bar-float-radius, 12px) !important;
-  box-shadow:
-    0 0 0 1px var(
-      --aph-hairline,
-      color-mix(in oklab, var(--aph-ink, #e8e8ec) 12%, transparent)
-    ),
-    var(
-      --aph-specular,
-      inset 0 1px 0 rgba(255, 255, 255, 0.08)
-    ),
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 8px 24px -6px rgba(0, 0, 0, 0.5),
-    var(
-      --aph-bar-glow,
-      0 0 16px -6px rgba(0, 144, 255, 0.25)
-    ) !important;
-}
-
-/* Segmented nav cluster: back + forward read as one split control (zero
-   inter-button gap) with a 1px inset divider on the forward leading edge.
-   Paint-only (inset shadow, never layout); RTL mirrors the side. Forward
-   dims out when stock disables it (nowhere to go) instead of sitting at
-   full ink. */
-:root[data-aph-chrome-v2] #nav-bar-customization-target > #back-button {
-  margin-inline-end: 0 !important;
-}
-:root[data-aph-chrome-v2] #nav-bar-customization-target > #forward-button {
-  margin-inline-start: 0 !important;
-  box-shadow: inset -1px 0 0 var(--aph-bar-divider, rgba(255, 255, 255, 0.08)) !important;
-}
-:root[data-aph-chrome-v2] #nav-bar-customization-target > #forward-button:-moz-locale-dir(rtl) {
-  box-shadow: inset 1px 0 0 var(--aph-bar-divider, rgba(255, 255, 255, 0.08)) !important;
-}
-:root[data-aph-chrome-v2] #forward-button[disabled] {
-  opacity: var(--aph-secondary-opacity, 0.5) !important;
-}
-
-/* Urlbar-trailing reload (moved into .urlbar-input-container by
-   115-chrome-v2.js): compact, quiet at rest, full ink on hover. The
-   Tier height rule still matches inside #nav-bar, so this later, more
-   specific rule wins it back down. */
-:root[data-aph-chrome-v2] #nav-bar #reload-button:is(:hover, :focus-visible, [open]),
-:root[data-aph-chrome-v2] #nav-bar #stop-button:is(:hover, :focus-visible, [open]) {
-  opacity: 1 !important;
-}
-:root[data-aph-chrome-v2] #nav-bar .urlbar-input-container > :is(#reload-button, #stop-button) {
-  height: 24px !important;
-  min-height: 24px !important;
-  max-height: 24px !important;
-  margin: 0 !important;
-  opacity: var(--aph-secondary-opacity, 0.5) !important;
-  background: transparent !important;
-  transition: opacity 0.15s ease !important;
-}
-
-/* Home retires (palette + new-tab cover it). Hamburger stays visible:
-   the native app panel anchors on its button, so hiding it misplaces
-   the panel — the Aph menu keeps its Firefox Menu… row as a shortcut. */
-:root[data-aph-chrome-v2] #home-button {
-  display: none !important;
-}
-
-/* C1 rows: gate re-affirmation of the §13 base (same values — the base
-   rule now owns calm wash + 2px spine + crown light + whisper glow +
-   rounded pill unconditionally). Kept so the chrome generation stays
-   auditable in one gated block (see the §29 coverage test). Spine side
-   mirrors for RTL like stock. */
-:root[data-aph-chrome-v2] .tabbrowser-tab[selected] > .tab-stack > .tab-background,
-:root[data-aph-chrome-v2] tab[selected] > .tab-stack > .tab-background {
-  border-radius: var(--aph-radius-lg, 10px) !important;
-  box-shadow:
-    inset 2px 0 0 0 var(--aph-ws-accent, #0090ff),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 0 14px -4px color-mix(in oklab, var(--aph-ws-accent, #0090ff) 30%, transparent) !important;
-}
-:root[data-aph-chrome-v2] .tabbrowser-tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl),
-:root[data-aph-chrome-v2] tab[selected] > .tab-stack > .tab-background:-moz-locale-dir(rtl) {
-  box-shadow:
-    inset -2px 0 0 0 var(--aph-ws-accent, #0090ff),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 0 14px -4px color-mix(in oklab, var(--aph-ws-accent, #0090ff) 30%, transparent) !important;
-}
-
-/* Bar finish: hover depth on the same inners native paints (§26b).
-   Shadow-only lift (never background, never transform) so the wash never
-   doubles and anchors never slide. No transition shorthand here either:
-   instant depth needs no reduced-motion mirror. */
-:root[data-aph-chrome-v2] #nav-bar toolbarbutton:not([disabled]):hover > :is(.toolbarbutton-icon, .toolbarbutton-text, .toolbarbutton-badge-stack) {
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
 }

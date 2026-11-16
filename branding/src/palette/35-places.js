@@ -145,22 +145,41 @@
       } catch (e) {
         return out;
       }
+      // Interface constants live on Ci.nsINavHistoryQueryOptions; older
+      // test doubles expose them on the options instance instead. Read the
+      // interface first (real Firefox), then the instance, then numeric
+      // fallbacks (0 history / 1 bookmarks).
+      let PH = null;
       try {
-        if (wantBookmarks) {
-          opts.queryType =
-            opts.QUERY_TYPE_BOOKMARKS !== undefined ? opts.QUERY_TYPE_BOOKMARKS : 1;
-        } else {
-          opts.queryType =
-            opts.QUERY_TYPE_HISTORY !== undefined ? opts.QUERY_TYPE_HISTORY : 0;
-        }
+        PH = (typeof Ci !== "undefined" && Ci && Ci.nsINavHistoryQueryOptions) || null;
+      } catch (e) {
+        PH = null;
+      }
+      const pickConst = (name, fallback) => {
+        try {
+          if (PH && PH[name] !== undefined) {
+            return PH[name];
+          }
+        } catch (_e) {}
+        try {
+          if (opts[name] !== undefined) {
+            return opts[name];
+          }
+        } catch (_e) {}
+        return fallback;
+      };
+      try {
+        opts.queryType = wantBookmarks
+          ? pickConst("QUERY_TYPE_BOOKMARKS", 1)
+          : pickConst("QUERY_TYPE_HISTORY", 0);
       } catch (e) {}
       try {
-        if (opts.SORT_BY_FRECENCY_DESCENDING !== undefined) {
-          opts.sortingMode = opts.SORT_BY_FRECENCY_DESCENDING;
-        } else if (opts.SORT_BY_VISITCOUNT_DESCENDING !== undefined) {
-          opts.sortingMode = opts.SORT_BY_VISITCOUNT_DESCENDING;
-        } else if (opts.SORT_BY_DATE_DESCENDING !== undefined) {
-          opts.sortingMode = opts.SORT_BY_DATE_DESCENDING;
+        const sort =
+          pickConst("SORT_BY_FRECENCY_DESCENDING", null) ??
+          pickConst("SORT_BY_VISITCOUNT_DESCENDING", null) ??
+          pickConst("SORT_BY_DATE_DESCENDING", null);
+        if (sort !== null) {
+          opts.sortingMode = sort;
         }
       } catch (e) {}
       try {

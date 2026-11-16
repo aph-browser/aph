@@ -54,7 +54,7 @@
         return;
       }
     } catch (err) {}
-    // Birth counts as viewed for auto-stash staleness.
+    // Birth counts as viewed for unloader staleness.
     try {
       if (typeof stampLastViewed === "function") {
         stampLastViewed(tab);
@@ -100,7 +100,19 @@
     }
     stampTab(tab);
     try {
+      if (typeof ensureTabBelowStarred === "function" && tab && !tab.pinned) {
+        ensureTabBelowStarred(tab);
+      }
+    } catch (err) {}
+    try {
       renderDock();
+    } catch (err) {}
+    try {
+      if (typeof syncStarredBoundaries === "function") {
+        syncStarredBoundaries();
+      } else if (window.AphStar && typeof window.AphStar.syncStarredBoundaries === "function") {
+        window.AphStar.syncStarredBoundaries();
+      }
     } catch (err) {}
   }
 
@@ -217,9 +229,16 @@
     try {
       renderDock();
     } catch (err) {}
+    try {
+      if (typeof syncStarredBoundaries === "function") {
+        syncStarredBoundaries();
+      } else if (window.AphStar && typeof window.AphStar.syncStarredBoundaries === "function") {
+        window.AphStar.syncStarredBoundaries();
+      }
+    } catch (err) {}
   }
 
-  // Selecting counts as viewing for auto-stash staleness (same stamp
+  // Selecting counts as viewing for unloader staleness (same stamp
   // as birth in onTabOpen; never on SSTabRestored, where restore must
   // not look like viewing).
   function onTabSelect(e) {
@@ -255,6 +274,13 @@
     } catch (err) {}
     try {
       renderDock();
+    } catch (err) {}
+    try {
+      if (typeof syncStarredBoundaries === "function") {
+        syncStarredBoundaries();
+      } else if (window.AphStar && typeof window.AphStar.syncStarredBoundaries === "function") {
+        window.AphStar.syncStarredBoundaries();
+      }
     } catch (err) {}
   }
 
@@ -308,6 +334,13 @@
     } catch (err) {}
     try {
       renderDock();
+    } catch (err) {}
+    try {
+      if (typeof syncStarredBoundaries === "function") {
+        syncStarredBoundaries();
+      } else if (window.AphStar && typeof window.AphStar.syncStarredBoundaries === "function") {
+        window.AphStar.syncStarredBoundaries();
+      }
     } catch (err) {}
   }
 

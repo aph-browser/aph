@@ -1,0 +1,13 @@
+{
+  "name": "aph",
+  "private": true,
+  "description": "Aph browser chrome scripts and toolchain",
+  "scripts": {
+    "build": "node scripts/build_assets.js",
+    "lint": "oxlint"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "oxlint": "^0.15.11"
+  }
+}

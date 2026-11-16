@@ -1,0 +1,36 @@
+{
+  "globals": {
+    "window": "readonly",
+    "document": "readonly",
+    "console": "readonly",
+    "setTimeout": "readonly",
+    "clearTimeout": "readonly",
+    "setInterval": "readonly",
+    "clearInterval": "readonly",
+    "requestAnimationFrame": "readonly",
+    "cancelAnimationFrame": "readonly",
+    "CustomEvent": "readonly",
+    "MutationObserver": "readonly",
+    "IntersectionObserver": "readonly",
+    "gBrowser": "readonly",
+    "Services": "readonly",
+    "SessionStore": "readonly",
+    "ChromeUtils": "readonly",
+    "Cc": "readonly",
+    "Ci": "readonly",
+    "Cr": "readonly",
+    "gURLBar": "readonly"
+  },
+  "rules": {
+    "no-undef": "error",
+    "no-unused-vars": [
+      "error",
+      {
+        "caughtErrors": "none",
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    "no-redeclare": "error"
+  }
+}

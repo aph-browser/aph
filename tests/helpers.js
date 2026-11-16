@@ -213,7 +213,7 @@ function makeGroup(tabs, o) {
 
 module.exports = { ROOT, load, run, makeTab, makeContentNode, makeTextNode, makeFakeNode, makeSessionStore, makeCi, makeChromeUtils, nullIdentityService, makeGroup };
 
-// Minimal content-DOM stand-in for textpick-shared.js (duck-typed surface:
+// Content-DOM stand-in (duck-typed surface:
 // nodeType, tagName, parentNode/parentElement, innerText/textContent).
 function makeContentNode(tag, o) {
   const opts = o || {};

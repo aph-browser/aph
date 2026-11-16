@@ -44,10 +44,7 @@
 
   // Staleness threshold for the automatic sweeper: minutes (pref
   // aph.unload.staleMin, default 30), read live so about:config flips apply
-  // to the next sweep. Separate from aph.stash.autoStaleMin on purpose:
-  // unloading is cheap and reversible (click reloads) while stashing
-  // closes the tab, so they deserve different thresholds. Pair them as
-  // unload < stash so tabs discard before they close.
+  // to the next sweep.
   function getUnloadStaleMs() {
     try {
       if (Services.prefs && typeof Services.prefs.getIntPref === "function") {
@@ -62,8 +59,7 @@
 
   // Last-viewed read for staleness: SessionStore custom tab value
   // "aphLastViewed" (ms epoch, stamped by the workspaces bundle on
-  // TabSelect/TabOpen — key duplicated here by design, same pattern as
-  // "aphStarred" and stash.js). Missing/unreadable/malformed reads as 0
+  // TabSelect/TabOpen). Missing/unreadable/malformed reads as 0
   // (epoch): untracked tabs count as stale.
   const UNLOAD_LAST_VIEWED_KEY = "aphLastViewed";
 
@@ -104,9 +100,8 @@
   }
 
   // Auto-only eligibility: the manual guards plus the starred exemption
-  // and staleness. Starred tabs are user-marked keepers
-  // (stash.js already exempts them); manual scopes stay a force tool and
-  // skip both filters.
+  // and staleness. Starred tabs are user-marked keepers;
+  // manual scopes stay a force tool and skip both filters.
   // nowMs/staleMs are parameters so tests can drive time deterministically;
   // callers that pass nothing get live values.
   function isAutoUnloadEligible(tab, nowMs, staleMs) {
@@ -494,9 +489,8 @@
     }
   }
 
-  // Settle delay (the time-based foundation, same shape as stash.js):
-  // the switch hook does not sweep instantly — it arms this, and every
-  // further switch re-arms it, so the sweep only fires once you've sat on
+  // Settle delay: the switch hook does not sweep instantly — it arms this,
+  // and every further switch re-arms it, so the sweep only fires once you've sat on
   // one workspace for the full delay. Guards + the hidden set re-check at
   // fire time, so a stale timer can never unload a tab you came back to.
   // When auto-unload is on the sweep runs scope "auto" (staleness covers

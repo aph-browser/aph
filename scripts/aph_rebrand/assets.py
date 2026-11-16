@@ -14,6 +14,8 @@ from .constants import (
     BRAND_FTL_SRC,
     BRANDING_DIR,
     BRANDINGS_FTL_SRC,
+    CONTENT_CSS_SRC,
+    DEFAULT_PREFS_SRC,
     FONT_SRC_PAIRS,
     PALETTE_CSS_SRC,
     PALETTE_JS_SRC,
@@ -23,31 +25,10 @@ from .constants import (
     SETTINGS_HTML_SRC,
     SETTINGS_PAGE_JA_PATH,
     SETTINGS_PAGE_SRC,
-    STASH_CSS_JA_PATH,
-    STASH_CSS_SRC,
-    STASH_HTML_JA_PATH,
-    STASH_HTML_SRC,
-    STASH_JS_SRC,
-    STASH_PAGE_JA_PATH,
-    STASH_PAGE_SRC,
-    STASH_SHARED_SRC,
     SYNC_BRAND_FTL_SRC,
     TABRENAME_JS_SRC,
-    TEXTPICK_CHILD_JA_PATH,
-    TEXTPICK_CHILD_SRC,
-    TEXTPICK_JS_SRC,
-    TEXTPICK_PARENT_JA_PATH,
-    TEXTPICK_PARENT_SRC,
-    TEXTPICK_SHARED_JA_PATH,
-    TEXTPICK_SHARED_SRC,
     THEME_CSS_SRC,
     TOKENS_CSS_SRC,
-    WELCOME_CSS_JA_PATH,
-    WELCOME_CSS_SRC,
-    WELCOME_HTML_JA_PATH,
-    WELCOME_HTML_SRC,
-    WELCOME_PAGE_JA_PATH,
-    WELCOME_PAGE_SRC,
     WORKSPACES_JS_SRC,
 )
 
@@ -63,15 +44,11 @@ class PatchPayloads:
     tokens_css: bytes | None = None
     palette_js: bytes | None = None
     palette_css: bytes | None = None
-    textpick_js: bytes | None = None
-    textpick_files: dict[str, bytes] = field(default_factory=dict)
-    stash_js: bytes | None = None
-    stash_shared_js: bytes | None = None
-    stash_page_files: dict[str, bytes] = field(default_factory=dict)
     settings_page_files: dict[str, bytes] = field(default_factory=dict)
-    welcome_page_files: dict[str, bytes] = field(default_factory=dict)
     tabrename_js: bytes | None = None
     font_files: dict[str, bytes] = field(default_factory=dict)
+    content_css: bytes | None = None
+    default_prefs: bytes | None = None
 
 
 def _read(src, label: str) -> bytes | None:
@@ -162,28 +139,6 @@ def load_payloads(icon_buffers: dict[int, bytes]) -> PatchPayloads:
     payloads.tokens_css = _read(TOKENS_CSS_SRC, "tokens injection")
     payloads.palette_js = _read(PALETTE_JS_SRC, "palette injection")
     payloads.palette_css = _read(PALETTE_CSS_SRC, "palette CSS injection")
-    payloads.textpick_js = _read(TEXTPICK_JS_SRC, "picker injection")
-
-    payloads.textpick_files = _load_map(
-        [
-            (TEXTPICK_SHARED_SRC, TEXTPICK_SHARED_JA_PATH),
-            (TEXTPICK_CHILD_SRC, TEXTPICK_CHILD_JA_PATH),
-            (TEXTPICK_PARENT_SRC, TEXTPICK_PARENT_JA_PATH),
-        ],
-        "picker file",
-    )
-
-    payloads.stash_shared_js = _read(STASH_SHARED_SRC, "stash shared injection")
-    payloads.stash_js = _read(STASH_JS_SRC, "stash injection")
-
-    payloads.stash_page_files = _load_map(
-        [
-            (STASH_HTML_SRC, STASH_HTML_JA_PATH),
-            (STASH_CSS_SRC, STASH_CSS_JA_PATH),
-            (STASH_PAGE_SRC, STASH_PAGE_JA_PATH),
-        ],
-        "stash page file",
-    )
 
     payloads.settings_page_files = _load_map(
         [
@@ -194,15 +149,8 @@ def load_payloads(icon_buffers: dict[int, bytes]) -> PatchPayloads:
         "settings page file",
     )
 
-    payloads.welcome_page_files = _load_map(
-        [
-            (WELCOME_HTML_SRC, WELCOME_HTML_JA_PATH),
-            (WELCOME_CSS_SRC, WELCOME_CSS_JA_PATH),
-            (WELCOME_PAGE_SRC, WELCOME_PAGE_JA_PATH),
-        ],
-        "welcome page file",
-    )
-
     payloads.tabrename_js = _read(TABRENAME_JS_SRC, "tab rename injection")
     payloads.font_files = _load_map(FONT_SRC_PAIRS, "chrome font")
+    payloads.content_css = _read(CONTENT_CSS_SRC, "content CSS injection")
+    payloads.default_prefs = _read(DEFAULT_PREFS_SRC, "default prefs injection")
     return payloads

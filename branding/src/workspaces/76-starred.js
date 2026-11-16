@@ -10,10 +10,14 @@
   const STAR_FLAG_KEY = "aphStarred";
   const STAR_URL_KEY = "aphStarURL";
   const STAR_ATTR = "data-aph-starred";
+  const STAR_FIRST_ATTR = "data-aph-starred-first";
+  const STAR_LAST_ATTR = "data-aph-starred-last";
+  const STAR_DRIFT_ATTR = "data-aph-starred-drift";
   // The tab close button shows a star instead of the X on starred tabs
   // (theme.css §18 swaps the glyph); activating it unstars (below).
   const STAR_CLOSE_SELECTOR = ".tab-close-button";
   const STAR_CLOSE_TIP = "Unstar tab";
+  const STAR_DRIFT_TIP = "Starred tab (drifted · Ctrl+W to reset, click to unstar)";
 
   // Last failure code for Browser-Console diagnosis (AphStar.debug()).
   // House style stays silent in prod; this keeps the silence debuggable.
@@ -39,13 +43,10 @@
       if (v === "1") {
         return true;
       }
-      // Restored before SSTabRestored re-applies: attribute backstop. A
-      // present-but-false hasAttribute implies getAttribute is null, so a
-      // single branch covers both DOM and exotic tab-likes.
+      if (v === "0" || v === "") {
+        return false;
+      }
       try {
-        if (typeof tab.hasAttribute === "function") {
-          return tab.hasAttribute(STAR_ATTR);
-        }
         if (typeof tab.getAttribute === "function") {
           return tab.getAttribute(STAR_ATTR) === "1";
         }
@@ -66,19 +67,63 @@
     return setStoredURL(tab, STAR_URL_KEY, url, starNoteErr);
   }
 
+  // Starred tabs without a stored value (flag restored, URL lost) fall
+  // back to the live URL so reset/menu never dead-end on them.
+  function effectiveStarURL(tab) {
+    try {
+      return getStarURL(tab) || tabSpec(tab);
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Returns true when a starred tab has navigated away from its stored base URL.
+  function isStarDrifted(tab) {
+    try {
+      if (!tab || !isStarredTab(tab) || tab.pinned) {
+        return false;
+      }
+      const base = effectiveStarURL(tab);
+      if (!base) {
+        return false;
+      }
+      const cur = tabSpec(tab);
+      if (!cur || cur === "about:blank") {
+        return false;
+      }
+      if (cur === base) {
+        return false;
+      }
+      const bNorm = base.endsWith("/") ? base.slice(0, -1) : base;
+      const cNorm = cur.endsWith("/") ? cur.slice(0, -1) : cur;
+      return bNorm !== cNorm;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function applyStarAttribute(tab) {
     try {
       if (!tab) {
         return;
       }
       const on = isStarredTab(tab);
+      const drifted = on && isStarDrifted(tab);
       try {
         if (on) {
           if (typeof tab.setAttribute === "function") {
             tab.setAttribute(STAR_ATTR, "1");
+            if (drifted) {
+              tab.setAttribute(STAR_DRIFT_ATTR, "1");
+            } else if (typeof tab.removeAttribute === "function") {
+              tab.removeAttribute(STAR_DRIFT_ATTR);
+            }
           }
         } else if (typeof tab.removeAttribute === "function") {
           tab.removeAttribute(STAR_ATTR);
+          tab.removeAttribute(STAR_DRIFT_ATTR);
+          tab.removeAttribute(STAR_FIRST_ATTR);
+          tab.removeAttribute(STAR_LAST_ATTR);
         }
       } catch (e) {}
     } catch (e) {}
@@ -101,22 +146,15 @@
       try {
         if (typeof tab.removeAttribute === "function") {
           tab.removeAttribute(STAR_ATTR);
+          tab.removeAttribute(STAR_DRIFT_ATTR);
+          tab.removeAttribute(STAR_FIRST_ATTR);
+          tab.removeAttribute(STAR_LAST_ATTR);
         }
       } catch (e) {}
       try {
         syncStarCloseTooltip(tab);
       } catch (e) {}
     } catch (e) {}
-  }
-
-  // Starred tabs without a stored value (flag restored, URL lost) fall
-  // back to the live URL so reset/menu never dead-end on them.
-  function effectiveStarURL(tab) {
-    try {
-      return getStarURL(tab) || tabSpec(tab);
-    } catch (e) {
-      return "";
-    }
   }
 
   // Returns true when navigation was kicked off.
@@ -176,10 +214,410 @@
       try {
         syncStarCloseTooltip(tab);
       } catch (e) {}
+      try {
+        promoteStarredTab(tab);
+      } catch (e) {}
+      try {
+        syncStarredBoundaries();
+      } catch (e) {}
       return true;
     } catch (e) {
       return false;
     }
+  }
+
+  let starMovingTab = false;
+
+  // Target index for a newly starred tab:
+  // - If inside a native tab group: forced to the top of that group (before
+  //   the first unstarred tab in that group).
+  // - If ungrouped: forced to the top of the workspace (before the first
+  //   unstarred tab or tab group in that workspace).
+  // Guaranteed to only promote upwards towards the top, never downwards.
+  function targetStarIndex(tab) {
+    try {
+      if (!gBrowser || !gBrowser.tabs || !tab) {
+        return -1;
+      }
+      const allTabs = Array.from(gBrowser.tabs);
+      const curIdx = allTabs.indexOf(tab);
+      if (curIdx === -1) {
+        return -1;
+      }
+
+      // Case 1: Inside a native tab group -> top of the group.
+      if (tab.group) {
+        const groupTabs = allTabs.filter((t) => t.group === tab.group && !t.closing);
+        if (groupTabs.length <= 1) {
+          return curIdx;
+        }
+        // First member of the group that is not starred (excluding tab).
+        const boundary = groupTabs.find((t) => t !== tab && !isStarredTab(t));
+        if (!boundary) {
+          return curIdx;
+        }
+        const targetIdx = allTabs.indexOf(boundary);
+        return targetIdx !== -1 && curIdx > targetIdx ? targetIdx : curIdx;
+      }
+
+      // Case 2: Ungrouped workspace tab -> top of the workspace.
+      const ws = typeof getWs === "function" ? getWs(tab) : "1";
+      const wsTabs = allTabs.filter(
+        (t) =>
+          !t.closing &&
+          !t.pinned &&
+          (typeof getWs === "function" ? getWs(t) : "1") === ws
+      );
+      if (wsTabs.length <= 1) {
+        return curIdx;
+      }
+
+      // First tab in workspace that is NOT an ungrouped star (excluding tab itself).
+      // This is either the first unstarred tab or the first tab belonging to a group.
+      const boundary = wsTabs.find((t) => t !== tab && (!isStarredTab(t) || t.group));
+      if (!boundary) {
+        return curIdx;
+      }
+
+      const boundaryIdx = allTabs.indexOf(boundary);
+      if (boundaryIdx === -1) {
+        return curIdx;
+      }
+
+      const numPinned =
+        typeof gBrowser._numPinnedTabs === "number"
+          ? gBrowser._numPinnedTabs
+          : allTabs.filter((t) => t.pinned).length;
+
+      const targetIdx = Math.max(numPinned, boundaryIdx);
+      return curIdx > targetIdx ? targetIdx : curIdx;
+    } catch (e) {
+      return -1;
+    }
+  }
+
+  function promoteStarredTab(tab) {
+    try {
+      if (!tab || tab.pinned || tab.closing) {
+        return false;
+      }
+      if (!gBrowser || typeof gBrowser.moveTabTo !== "function") {
+        return false;
+      }
+      const curIdx = Array.from(gBrowser.tabs || []).indexOf(tab);
+      const targetIdx = targetStarIndex(tab);
+      if (targetIdx === -1 || curIdx <= targetIdx) {
+        return false;
+      }
+
+      if (tab.group && Array.isArray(tab.group.tabs)) {
+        try {
+          const gi = tab.group.tabs.indexOf(tab);
+          if (gi !== -1) {
+            tab.group.tabs.splice(gi, 1);
+            const boundaryGroup = tab.group.tabs.find((t) => !isStarredTab(t));
+            const targetGroupIdx = boundaryGroup
+              ? tab.group.tabs.indexOf(boundaryGroup)
+              : tab.group.tabs.length;
+            tab.group.tabs.splice(targetGroupIdx, 0, tab);
+          }
+        } catch (err) {}
+      }
+
+      const opts = { tabIndex: targetIdx };
+      if (!tab.group) {
+        opts.forceUngrouped = true;
+      }
+
+      try {
+        starMovingTab = true;
+        gBrowser.moveTabTo(tab, opts);
+      } catch (e) {
+        try {
+          gBrowser.moveTabTo(tab, targetIdx);
+        } catch (err) {}
+      } finally {
+        starMovingTab = false;
+      }
+
+      try {
+        syncStarredBoundaries();
+      } catch (err) {}
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // When an existing starred tab is unstarred, keep it in place.
+  // We do not auto-demote tabs on unstar.
+  function demoteUnstarredTab(tab) {
+    try {
+      syncStarredBoundaries();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Enforces Invariant 4: New tabs strictly spawn below the starred zone.
+  function ensureTabBelowStarred(tab) {
+    try {
+      if (!tab || tab.pinned || tab.closing) {
+        return false;
+      }
+      if (isStarredTab(tab)) {
+        return false;
+      }
+      if (!gBrowser || typeof gBrowser.moveTabTo !== "function") {
+        return false;
+      }
+      const allTabs = Array.from(gBrowser.tabs || []);
+      const curIdx = allTabs.indexOf(tab);
+      if (curIdx === -1) {
+        return false;
+      }
+
+      // Case 1: In a tab group
+      if (tab.group) {
+        const groupTabs = allTabs.filter((t) => t.group === tab.group && !t.closing);
+        const groupStars = groupTabs.filter((t) => isStarredTab(t));
+        if (!groupStars.length) {
+          return false;
+        }
+        const lastStar = groupStars[groupStars.length - 1];
+        const lastStarIdx = allTabs.indexOf(lastStar);
+        if (lastStarIdx !== -1 && curIdx <= lastStarIdx) {
+          if (Array.isArray(tab.group.tabs)) {
+            try {
+              const gi = tab.group.tabs.indexOf(tab);
+              if (gi !== -1) {
+                tab.group.tabs.splice(gi, 1);
+                const lastStarGroupIdx = tab.group.tabs.indexOf(lastStar);
+                tab.group.tabs.splice(lastStarGroupIdx + 1, 0, tab);
+              }
+            } catch (err) {}
+          }
+          try {
+            starMovingTab = true;
+            gBrowser.moveTabTo(tab, { tabIndex: lastStarIdx });
+          } catch (e) {
+            try { gBrowser.moveTabTo(tab, lastStarIdx); } catch (err) {}
+          } finally {
+            starMovingTab = false;
+          }
+          try {
+            syncStarredBoundaries();
+          } catch (err) {}
+          return true;
+        }
+        return false;
+      }
+
+      // Case 2: Ungrouped tab
+      const ws = typeof getWs === "function" ? getWs(tab) : "1";
+      const wsTabs = allTabs.filter(
+        (t) =>
+          !t.closing &&
+          !t.pinned &&
+          (typeof getWs === "function" ? getWs(t) : "1") === ws
+      );
+      const wsStars = wsTabs.filter((t) => !t.group && isStarredTab(t));
+      if (!wsStars.length) {
+        return false;
+      }
+      const lastStar = wsStars[wsStars.length - 1];
+      const lastStarIdx = allTabs.indexOf(lastStar);
+      if (lastStarIdx !== -1 && curIdx <= lastStarIdx) {
+        try {
+          starMovingTab = true;
+          gBrowser.moveTabTo(tab, { tabIndex: lastStarIdx, forceUngrouped: true });
+        } catch (e) {
+          try { gBrowser.moveTabTo(tab, lastStarIdx); } catch (err) {}
+        } finally {
+          starMovingTab = false;
+        }
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Handle tab movements: Auto-star when dropped into a starred zone,
+  // auto-unstar when dropped below it into regular stream tabs (Arc/Zen model).
+  function handleTabMoveZone(tab) {
+    try {
+      if (!tab || tab.pinned || tab.closing || !gBrowser || !gBrowser.tabs) {
+        return;
+      }
+      const allTabs = Array.from(gBrowser.tabs);
+      const curIdx = allTabs.indexOf(tab);
+      if (curIdx === -1) {
+        return;
+      }
+
+      // Case 1: Inside a native tab group
+      if (tab.group) {
+        const groupTabs = allTabs.filter(
+          (t) => t.group === tab.group && !t.closing && !t.pinned
+        );
+        const otherStars = groupTabs.filter((t) => t !== tab && isStarredTab(t));
+        const otherUnstars = groupTabs.filter((t) => t !== tab && !isStarredTab(t));
+
+        if (!isStarredTab(tab)) {
+          if (otherStars.length > 0) {
+            const lastStar = otherStars[otherStars.length - 1];
+            if (curIdx <= allTabs.indexOf(lastStar)) {
+              starTab(tab);
+            }
+          }
+        } else if (otherUnstars.length > 0) {
+          const firstUnstar = otherUnstars[0];
+          if (curIdx >= allTabs.indexOf(firstUnstar)) {
+            unstarTab(tab);
+          }
+        }
+        return;
+      }
+
+      // Case 2: Ungrouped workspace tab
+      const ws = typeof getWs === "function" ? getWs(tab) : "1";
+      const allWsTabs = allTabs.filter(
+        (t) =>
+          !t.closing &&
+          !t.pinned &&
+          (typeof getWs === "function" ? getWs(t) : "1") === ws
+      );
+      const otherStars = allWsTabs.filter(
+        (t) => t !== tab && !t.group && isStarredTab(t)
+      );
+      const otherNonStars = allWsTabs.filter(
+        (t) => t !== tab && (t.group || !isStarredTab(t))
+      );
+
+      if (!isStarredTab(tab)) {
+        if (otherStars.length > 0) {
+          const lastStar = otherStars[otherStars.length - 1];
+          if (curIdx <= allTabs.indexOf(lastStar)) {
+            starTab(tab);
+          }
+        }
+      } else if (otherNonStars.length > 0) {
+        const firstNonStar = otherNonStars[0];
+        if (curIdx >= allTabs.indexOf(firstNonStar)) {
+          unstarTab(tab);
+        }
+      }
+    } catch (err) {}
+  }
+
+  // Stamping data-aph-starred-last="1" on the final starred tab in each
+  // contiguous starred zone (both ungrouped workspace stars and group stars).
+  // Theme rules use this marker to paint a subtle hairline divider separating
+  // the starred essentials from unstarred stream tabs.
+  function syncStarredBoundaries() {
+    try {
+      if (!gBrowser || !gBrowser.tabs) {
+        return;
+      }
+      const allTabs = Array.from(gBrowser.tabs);
+
+      const wsTabsMap = new Map();
+      const groupTabsMap = new Map();
+
+      for (const t of allTabs) {
+        if (!t || t.closing || t.pinned) {
+          try {
+            if (t && typeof t.removeAttribute === "function") {
+              t.removeAttribute(STAR_FIRST_ATTR);
+              t.removeAttribute(STAR_LAST_ATTR);
+            }
+          } catch (_e) {}
+          continue;
+        }
+
+        if (t.group) {
+          if (!groupTabsMap.has(t.group)) {
+            groupTabsMap.set(t.group, []);
+          }
+          groupTabsMap.get(t.group).push(t);
+        } else {
+          const ws = typeof getWs === "function" ? getWs(t) : "1";
+          if (!wsTabsMap.has(ws)) {
+            wsTabsMap.set(ws, []);
+          }
+          wsTabsMap.get(ws).push(t);
+        }
+      }
+
+      for (const [, tabs] of wsTabsMap) {
+        const stars = tabs.filter((t) => isStarredTab(t));
+        const firstStar = stars.length ? stars[0] : null;
+        const lastStar = stars.length ? stars[stars.length - 1] : null;
+        for (const t of tabs) {
+          try {
+            if (t === firstStar) {
+              if (typeof t.setAttribute === "function") {
+                t.setAttribute(STAR_FIRST_ATTR, "1");
+              }
+            } else if (typeof t.removeAttribute === "function") {
+              t.removeAttribute(STAR_FIRST_ATTR);
+            }
+            if (t === lastStar) {
+              if (typeof t.setAttribute === "function") {
+                t.setAttribute(STAR_LAST_ATTR, "1");
+              }
+            } else if (typeof t.removeAttribute === "function") {
+              t.removeAttribute(STAR_LAST_ATTR);
+            }
+          } catch (_e) {}
+        }
+      }
+
+      for (const [, tabs] of groupTabsMap) {
+        const stars = tabs.filter((t) => isStarredTab(t));
+        const firstStar = stars.length ? stars[0] : null;
+        const lastStar = stars.length ? stars[stars.length - 1] : null;
+        for (const t of tabs) {
+          try {
+            if (t === firstStar) {
+              if (typeof t.setAttribute === "function") {
+                t.setAttribute(STAR_FIRST_ATTR, "1");
+              }
+            } else if (typeof t.removeAttribute === "function") {
+              t.removeAttribute(STAR_FIRST_ATTR);
+            }
+            if (t === lastStar) {
+              if (typeof t.setAttribute === "function") {
+                t.setAttribute(STAR_LAST_ATTR, "1");
+              }
+            } else if (typeof t.removeAttribute === "function") {
+              t.removeAttribute(STAR_LAST_ATTR);
+            }
+          } catch (_e) {}
+        }
+      }
+    } catch (e) {}
+  }
+
+  function onStarTabMove(e) {
+    if (starMovingTab) {
+      return;
+    }
+    const tab = e && e.target;
+    if (tab) {
+      try {
+        starMovingTab = true;
+        handleTabMoveZone(tab);
+      } finally {
+        starMovingTab = false;
+      }
+    }
+    try {
+      syncStarredBoundaries();
+    } catch (err) {}
   }
 
   function unstarTab(tab) {
@@ -188,6 +626,9 @@
         return false;
       }
       clearStar(tab);
+      try {
+        syncStarredBoundaries();
+      } catch (e) {}
       return true;
     } catch (e) {
       return false;
@@ -349,7 +790,10 @@
     try {
       if (isStarredTab(tab) && !(tab && tab.pinned)) {
         if (typeof btn.setAttribute === "function") {
-          btn.setAttribute("tooltiptext", STAR_CLOSE_TIP);
+          btn.setAttribute(
+            "tooltiptext",
+            isStarDrifted(tab) ? STAR_DRIFT_TIP : STAR_CLOSE_TIP
+          );
         }
       } else if (typeof btn.removeAttribute === "function") {
         btn.removeAttribute("tooltiptext");
@@ -431,8 +875,46 @@
           syncStarTabChrome(t);
         } catch (e) {}
       }
+      try {
+        syncStarredBoundaries();
+      } catch (e) {}
     } catch (e) {}
   }
+
+  function onStarTabAttrModified(e) {
+    try {
+      const tab = e && e.target;
+      if (tab && isStarredTab(tab)) {
+        syncStarTabChrome(tab);
+      }
+    } catch (err) {}
+  }
+
+  function onStarTabSelect(e) {
+    try {
+      const tab = e && e.target;
+      if (tab && isStarredTab(tab)) {
+        syncStarTabChrome(tab);
+      }
+    } catch (err) {}
+  }
+
+  const starProgressListener = {
+    onLocationChange(browser, webProgress, request, locationURI, flags) {
+      try {
+        if (!browser) {
+          return;
+        }
+        const tab =
+          typeof gBrowser !== "undefined" && gBrowser && typeof gBrowser.getTabForBrowser === "function"
+            ? gBrowser.getTabForBrowser(browser)
+            : ((browser && browser.__tab) || null);
+        if (tab && isStarredTab(tab)) {
+          syncStarTabChrome(tab);
+        }
+      } catch (e) {}
+    },
+  };
 
   function cleanupStar() {
     try {
@@ -442,8 +924,16 @@
       if (gBrowser && gBrowser.tabContainer) {
         gBrowser.tabContainer.removeEventListener("TabPinned", onStarTabPinned);
         gBrowser.tabContainer.removeEventListener("SSTabRestored", onStarTabRestored);
+        gBrowser.tabContainer.removeEventListener("TabMove", onStarTabMove);
+        gBrowser.tabContainer.removeEventListener("TabAttrModified", onStarTabAttrModified);
+        gBrowser.tabContainer.removeEventListener("TabSelect", onStarTabSelect);
         gBrowser.tabContainer.removeEventListener("click", onStarCloseEvent, true);
         gBrowser.tabContainer.removeEventListener("command", onStarCloseEvent, true);
+      }
+    } catch (e) {}
+    try {
+      if (gBrowser && typeof gBrowser.removeTabsProgressListener === "function") {
+        gBrowser.removeTabsProgressListener(starProgressListener);
       }
     } catch (e) {}
     try {
@@ -462,8 +952,16 @@
       if (gBrowser && gBrowser.tabContainer) {
         gBrowser.tabContainer.addEventListener("TabPinned", onStarTabPinned);
         gBrowser.tabContainer.addEventListener("SSTabRestored", onStarTabRestored);
+        gBrowser.tabContainer.addEventListener("TabMove", onStarTabMove);
+        gBrowser.tabContainer.addEventListener("TabAttrModified", onStarTabAttrModified);
+        gBrowser.tabContainer.addEventListener("TabSelect", onStarTabSelect);
         gBrowser.tabContainer.addEventListener("click", onStarCloseEvent, true);
         gBrowser.tabContainer.addEventListener("command", onStarCloseEvent, true);
+      }
+    } catch (e) {}
+    try {
+      if (gBrowser && typeof gBrowser.addTabsProgressListener === "function") {
+        gBrowser.addTabsProgressListener(starProgressListener);
       }
     } catch (e) {}
     try {
@@ -478,6 +976,7 @@
     try {
       window.AphStar = {
         isStarred: isStarredTab,
+        isDrifted: isStarDrifted,
         getStarURL,
         setStarURL,
         starTab,
@@ -486,8 +985,18 @@
         toggleSelectedStar,
         resetStarTab,
         promptStarURL,
+        promoteStarredTab,
+        demoteUnstarredTab,
+        ensureTabBelowStarred,
+        handleTabMoveZone,
+        onStarTabMove,
+        syncStarredBoundaries,
         STAR_FLAG_KEY,
         STAR_URL_KEY,
+        STAR_ATTR,
+        STAR_FIRST_ATTR,
+        STAR_LAST_ATTR,
+        STAR_DRIFT_ATTR,
         debug: () => {
           try {
             return { lastError: starLastError || null };

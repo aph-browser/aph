@@ -1,11 +1,10 @@
 /* Aph command palette: Ctrl+K / Cmd+K toggles a filterable overlay.
  * Commands + open tabs in one list, scored fuzzy matching with match
  * highlighting. Typed queries also search Places bookmarks and history
- * (frecency-ordered, history hidden in private windows) and saved
- * stash entries (restoring re-opens with workspace + container).
+ * (frecency-ordered, history hidden in private windows).
  * Doubles as navigation: URL-like input offers "Go to …"
  * (opened in the current workspace's bound container), anything else falls
- * back to a DuckDuckGo search. Enter opens, Alt+Enter opens in a new
+ * back to a search through Firefox's default engine. Enter opens, Alt+Enter opens in a new
  * disposable temp container. Up/Down + Enter to run, Esc to close.
  * Injected into browser.xhtml via rebrand.py (chrome://browser/content/command-palette.js).
  */
@@ -45,7 +44,7 @@
   let rowPool = [];
   let headerPool = [];
   let emptyEl = null;
-  const PLACEHOLDER = "Type a command, tab, bookmark, history, stash, URL, or search…";
+  const PLACEHOLDER = "Type a command, tab, bookmark, history, URL, or search…";
   // Per-open caches: commands()/openTabs() are rebuilt once per open() so
   // per-keystroke work is scoring only (<50ms on huge sessions).
   let cachedCommands = null;
@@ -57,7 +56,7 @@
   let frecMap = null;
   // Section order for grouped rendering (Go first, Search last — matches
   // the old unshift/push navFallback contract).
-  const SECTION_ORDER = ["Go", "Tabs", "Commands", "Workspaces", "Bookmarks", "History", "Stash", "Help", "Search"];
+  const SECTION_ORDER = ["Go", "Tabs", "Commands", "Workspaces", "Bookmarks", "History", "Help", "Search"];
   const SECTION_CAP = 15;
   const TOTAL_CAP = 100;
   // Kind -> icon glyph (text, no external assets in chrome context).
@@ -69,7 +68,6 @@
     workspace: "⬢",
     bookmark: "★",
     history: "◷",
-    stash: "▣",
     help: "?",
     search: "⌕",
     action: "⚡",
@@ -81,7 +79,6 @@
     workspaces: "Type a workspace, route, or bind…  (# workspaces only)",
     bookmarks: "Search bookmarks…  (b: prefix)",
     history: "Search history…  (h: prefix)",
-    stash: "Search stashed tabs…  (s: prefix)",
     help: "Pick a mode to learn…",
   };
 

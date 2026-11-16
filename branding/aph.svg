@@ -10,9 +10,8 @@
        branding/fonts/), so hinting keeps the counter open at 16px and
        all masters render the same construction — the cut is paint over
        the live letter, never outline surgery.
-       CANONICAL SOURCE: branding/aph.png, branding/aph-small.png and
-       docs/aph.png are Pillow renders of this file with the same font
-       (scripts/render_logo.py — keep GEOMETRY in sync; tests enforce it).
+       CANONICAL SOURCE: branding/aph.png and docs/aph.png
+       are committed raster masters.
        NOTE: chrome SVGs don't get page @font-face, so in-browser the
        text falls back to system bold where Inter is absent — a system
        bold A centers the same via text-anchor, so the fallback is safe. -->

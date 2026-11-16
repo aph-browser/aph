@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Launch Firefox with Aph overrides - Python replacement for dev.sh.
 
-Prefs model: config/user.js holds Aph's *default* prefs. It is seeded into a
-profile once (first launch) and never overwritten afterwards, so user changes
-made via about:config / Settings persist across restarts. Enterprise policies
-(config/policies.json) remain the only force-applied mechanism. To re-apply
-defaults over a profile on purpose, run: just sync-prefs
+Prefs & chrome model: bundled defaults and stylesheets live directly inside
+browser/omni.ja. User changes made via about:config / Settings persist natively
+in prefs.js without profile seeding or user.js write-through. Enterprise policies
+(config/policies.json) remain the force-applied mechanism.
 """
 
 import contextlib
@@ -15,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import ModuleType
 
@@ -44,6 +44,7 @@ def ensure_rebranded(root: Path) -> bool:
         watch_files = (
             list((root / "branding").rglob("*.js"))
             + list((root / "branding").rglob("*.css"))
+            + list((root / "branding").rglob("*.html"))
             + list((root / "branding").rglob("*.ftl"))
             # Logos feed icon slicing + omni injection (icons.py, assets.py):
             # a swapped aph.png must count as stale, not launch silently old.
@@ -51,7 +52,11 @@ def ensure_rebranded(root: Path) -> bool:
             + list((root / "branding").rglob("*.svg"))
             + list((root / "branding").rglob("*.ico"))
             + list((root / "scripts" / "aph_rebrand").rglob("*.py"))
-            + [root / "scripts" / "rebrand.py", root / "scripts" / "build_assets.py"]
+            + [
+                root / "scripts" / "rebrand.py",
+                root / "scripts" / "build_assets.py",
+                root / "config" / "default-prefs.js",
+            ]
         )
         newest_source = max(f.stat().st_mtime for f in watch_files if f.is_file())
         # Both browser and root omni.ja get patched — a missing backup or a
@@ -84,208 +89,319 @@ def _rebrand_cache_module(root: Path) -> ModuleType | None:
 
 
 def merge_policies(root: Path) -> None:
-    """Write config/policies.json into Firefox's distribution dir.
-
-    Fresh upstream tarballs ship no distribution/ dir at all; in that case
-    there is no pristine base to back up, so merge over an empty policy set.
-    """
+    """Copy config/policies.json into Firefox's distribution dir."""
     custom_policies_file = root / "config" / "policies.json"
     dist_dir = root / "build" / "firefox" / "distribution"
+    dist_dir.mkdir(parents=True, exist_ok=True)
     target_policies_file = dist_dir / "policies.json"
-    backup_policies_file = dist_dir / "policies.json.bak"
+    if custom_policies_file.is_file():
+        shutil.copy2(custom_policies_file, target_policies_file)
 
-    if target_policies_file.is_file() or backup_policies_file.is_file():
-        # Create pristine backup on first run (never modified)
-        if not backup_policies_file.exists():
-            shutil.copy2(target_policies_file, backup_policies_file)
-            print(f"Created pristine policies backup: {backup_policies_file}")
 
-        # ALWAYS read from the pristine backup as the base
-        try:
-            base_data = json.loads(backup_policies_file.read_text(encoding="utf-8"))
-        except Exception as e:
-            print(f"Warning: Failed to read policies backup: {e}", file=sys.stderr)
-            base_data = {"policies": {}}
-    else:
-        # No upstream policies to preserve; start from an empty set.
-        dist_dir.mkdir(parents=True, exist_ok=True)
-        base_data = {"policies": {}}
+def _profile_lock_module():
+    """Load the dependency-free shared lock helper.
 
-    # If no custom policies exist, restore the pristine backup and exit
-    if not custom_policies_file.is_file():
-        if backup_policies_file.is_file():
-            shutil.copy2(backup_policies_file, target_policies_file)
-        return
+    dev.py runs as a script (``scripts/`` on sys.path), so put the repo
+    root first the same way the rebrand/session imports do.
+    """
+    root = Path(__file__).resolve().parent.parent
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    from scripts.profile_lock import clear_stale_lock
+    from scripts.profile_lock import profile_locked as locked
 
-    # Load custom Aph policies
-    try:
-        custom_data = json.loads(custom_policies_file.read_text(encoding="utf-8"))
-    except Exception as e:
-        print(f"ERROR parsing config/policies.json: {e}", file=sys.stderr)
-        return
-
-    def deep_merge(base: dict, update: dict) -> dict:
-        for k, v in update.items():
-            if isinstance(v, dict) and k in base and isinstance(base[k], dict):
-                deep_merge(base[k], v)
-            else:
-                base[k] = v
-        return base
-
-    # Generic removal: deep_merge only adds/overwrites, so a top-level
-    # policy key deleted from config would resurrect from the base on
-    # every launch (seen live: DisableFirefoxAccounts survived its own
-    # removal because policies.json.bak had snapshotted old Aph output
-    # as "pristine"). The snapshot records the last applied Aph policy
-    # set; keys in the snapshot but absent from the current config are
-    # pruned from the base before merging, making config authoritative
-    # for removals — the generic form of the ExtensionSettings replace
-    # below. NOTE: keys removed before this snapshot existed are NOT
-    # pruned (nothing recorded them); a polluted .bak predating the
-    # snapshot must be deleted once by hand (it only ever contains old
-    # Aph output — upstream tarballs ship no distribution dir).
-    applied_file = dist_dir / ".aph-policies-applied.json"
-    try:
-        applied = json.loads(applied_file.read_text(encoding="utf-8"))
-    except Exception:
-        applied = {}
-    if isinstance(applied, dict):
-        try:
-            current_keys = custom_data.get("policies", {})
-        except AttributeError:
-            current_keys = {}
-        for key in applied.get("policies", {}):
-            if key not in current_keys:
-                with contextlib.suppress(AttributeError):
-                    base_data.get("policies", {}).pop(key, None)
-
-    merged_data = deep_merge(base_data, custom_data)
-    # ExtensionSettings is REPLACE, not merge: deep_merge only adds, so a
-    # removed extension would resurrect from a stale base on every launch
-    # (seen live: SponsorBlock/containers reinstalled after their config
-    # entries were deleted, because policies.json.bak had snapshotted an
-    # old Aph policy as "pristine"). Config is authoritative here —
-    # removing an entry must actually remove it from the live policy.
-    try:
-        custom_ext = custom_data.get("policies", {}).get("ExtensionSettings")
-    except AttributeError:
-        custom_ext = None
-    if isinstance(custom_ext, dict):
-        merged_data.setdefault("policies", {})["ExtensionSettings"] = custom_ext
-    target_policies_file.write_text(json.dumps(merged_data, indent=2) + "\n", encoding="utf-8")
-    try:
-        applied_file.write_text(
-            json.dumps({"policies": custom_data.get("policies", {})}, indent=2) + "\n",
-            encoding="utf-8",
-        )
-    except Exception as e:
-        print(f"Warning: Failed to write policies snapshot: {e}", file=sys.stderr)
+    return locked, clear_stale_lock
 
 
 def profile_locked(profile: Path) -> bool:
-    """True if a running Firefox holds this profile (mirrors nuke-local check)."""
-    lock = profile / "lock"
+    """True if a running Firefox (not a reused PID) holds this profile."""
+    locked, _ = _profile_lock_module()
+    return locked(profile)
+
+
+def clear_stale_profile_lock(profile: Path) -> bool:
+    """Drop a lock whose PID is dead or belongs to an unrelated process."""
+    _, clear = _profile_lock_module()
+    return clear(profile)
+
+
+SESSION_BACKUP_DIR = "aph-session-backups"
+SESSION_BACKUP_KEEP = 20
+SESSION_RESTORE_MARKER = ".aph-session-restore-pending"
+SESSION_RESTORE_MAX_ATTEMPTS = 3
+# A marker older than this means Aph ran for a long time without confirming
+# the restore. Do not roll back a day of later browsing to recover it.
+SESSION_RESTORE_MAX_AGE = 24 * 60 * 60
+
+
+def snapshot_session_state(profile: Path, keep: int = SESSION_BACKUP_KEEP) -> Path | None:
+    """Keep a cold copy of the restore set before a launch can rotate it.
+
+    Firefox moves sessionstore.jsonlz4 to sessionstore-backups/previous.jsonlz4
+    on the next clean write, and the first write of the following launch
+    replaces previous. A quick launch that quits before session restore
+    completes can therefore leave only the degraded state. These timestamped
+    copies live outside Firefox's loadOrder, so that state cannot erase the
+    session the user actually had. prepare_session_state() restores one
+    automatically when the browser could not confirm a healthy restore; it
+    can also be copied back over the profile by hand while Aph is closed.
+
+    Best effort: a launch must proceed even if the profile is unreadable or
+    the disk is full. Callers skip this while Firefox holds the profile.
+    """
+    sources: list[Path] = []
+    clean = profile / "sessionstore.jsonlz4"
+    if clean.is_file():
+        sources.append(clean)
+    backups = profile / "sessionstore-backups"
+    if backups.is_dir():
+        with contextlib.suppress(OSError):
+            sources.extend(sorted(p for p in backups.iterdir() if p.is_file()))
+    if not sources:
+        return None
+
+    root = profile / SESSION_BACKUP_DIR
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    dest = root / stamp
+    suffix = 1
+    while dest.exists():
+        dest = root / f"{stamp}-{suffix}"
+        suffix += 1
     try:
-        if not lock.is_symlink():
-            return False
-        target = os.readlink(lock)  # e.g. "127.0.0.1:+12345"
-        pid = target.rsplit(":", 1)[-1].lstrip("+")
-        if not pid.isdigit():
-            return False
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError):
+        dest.mkdir(parents=True)
+        for src in sources:
+            out = dest / src.relative_to(profile)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, out)
+    except OSError as e:
+        shutil.rmtree(dest, ignore_errors=True)
+        print(f"Warning: could not back up session state: {e}", file=sys.stderr)
+        return None
+
+    # Prune only our own timestamped directories, never user files.
+    try:
+        snaps = [
+            d
+            for d in root.iterdir()
+            if d.is_dir() and re.fullmatch(r"\d{8}-\d{6}(?:-\d+)?", d.name)
+        ]
+        snaps.sort(key=lambda d: d.stat().st_mtime)
+        if keep > 0:
+            for old in snaps[:-keep]:
+                shutil.rmtree(old, ignore_errors=True)
+    except OSError:
+        pass
+    return dest
+
+
+def _read_restore_marker(profile: Path) -> dict:
+    """Read the launcher/browser restore-health handshake (best effort)."""
+    try:
+        data = json.loads((profile / SESSION_RESTORE_MARKER).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_restore_marker(profile: Path, snapshot: Path, attempts: int) -> None:
+    """Record which pre-launch snapshot to fall back to if this launch fails.
+
+    Written atomically: a crash while updating it must not leave a half
+    marker that points at the wrong snapshot.
+    """
+    marker = profile / SESSION_RESTORE_MARKER
+    payload = {
+        "snapshot": snapshot.name,
+        "attempts": attempts,
+        "started": int(time.time()),
+    }
+    try:
+        tmp = marker.with_name(marker.name + ".tmp")
+        tmp.write_text(json.dumps(payload), encoding="utf-8")
+        tmp.replace(marker)
+    except OSError as e:
+        print(f"Warning: could not write session restore marker: {e}", file=sys.stderr)
+
+
+def _usable_session_file(path: Path) -> bool:
+    """A session file must exist and contain bytes to be worth restoring."""
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
         return False
 
 
-def _seed_file(src: Path, dst: Path) -> str:
-    """Copy src -> dst once; never overwrite user edits."""
-    if not src.is_file():
-        return "missing-source"
-    if dst.exists():
-        return "kept"
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dst)
-    return "seeded"
+def _snapshot_path(profile: Path, name: object) -> Path | None:
+    """Resolve a marker's snapshot name, rejecting paths outside our root."""
+    if not isinstance(name, str) or not re.fullmatch(r"\d{8}-\d{6}(?:-\d+)?", name):
+        return None
+    candidate = profile / SESSION_BACKUP_DIR / name
+    return candidate if candidate.is_dir() else None
 
 
-def seed_user_js(root: Path, profile: Path) -> str:
-    """Seed config/user.js into the profile once; never overwrite user edits.
-
-    Returns "seeded" (fresh copy), "kept" (profile already had one — user
-    changes preserved), or "missing-source" (nothing to seed from).
-    """
-    return _seed_file(root / "config" / "user.js", profile / "user.js")
-
-
-_CHROME_SEED_VERSION_RE = re.compile(r"aph-seed-version:\s*(\d+)")
-
-
-def _chrome_seed_version(path: Path) -> int:
-    """Seed stamp carried on the css first line (0 when absent).
-
-    Unversioned files predate the scheme and compare equal, so existing
-    seed-once behavior is unchanged until the bundled copy bumps.
-    """
+def _latest_snapshot(profile: Path) -> Path | None:
+    """Newest timestamped cold snapshot, used when a marker is unreadable."""
+    root = profile / SESSION_BACKUP_DIR
     try:
-        # Profile CSS is user-editable: read with surrogateescape so a
-        # non-UTF8 byte (latin-1 editor, etc.) can't crash the launch.
-        # The stamp itself is ASCII, so it still matches.
-        text = path.read_text(encoding="utf-8", errors="surrogateescape")
-    except (OSError, UnicodeError):
-        return 0
-    m = _CHROME_SEED_VERSION_RE.search(text)
-    return int(m.group(1)) if m else 0
+        snapshots = [
+            d
+            for d in root.iterdir()
+            if d.is_dir() and re.fullmatch(r"\d{8}-\d{6}(?:-\d+)?", d.name)
+        ]
+        snapshots.sort(key=lambda d: d.stat().st_mtime)
+    except OSError:
+        return None
+    return snapshots[-1] if snapshots else None
 
 
-def _seed_chrome_file(src: Path, dst: Path, profile: Path) -> str:
-    """Seed one chrome CSS file with version migration.
+def _copy_snapshot(profile: Path, snapshot: Path) -> bool:
+    """Copy one cold snapshot's restore set back over the profile."""
+    root = (profile / SESSION_BACKUP_DIR).resolve()
+    try:
+        snapshot.resolve().relative_to(root)
+    except (OSError, ValueError):
+        return False
 
-    Fresh profiles copy once ("seeded"). When the bundled seed version is
-    newer than the profile copy, the profile copy is backed up to *.bak
-    and overwritten ("migrated") — this is how chrome fixes reach
-    existing profiles without stranding them on stale CSS. Same version
-    (or newer profile) is never overwritten: user edits persist ("kept").
-    Migration refuses while Firefox holds the profile lock ("locked" —
-    retried on the next fresh launch).
+    copied = False
+    try:
+        clean = snapshot / "sessionstore.jsonlz4"
+        if _usable_session_file(clean):
+            shutil.copy2(clean, profile / "sessionstore.jsonlz4")
+            copied = True
+        backups = snapshot / "sessionstore-backups"
+        if backups.is_dir():
+            dest = profile / "sessionstore-backups"
+            dest.mkdir(parents=True, exist_ok=True)
+            for src in backups.iterdir():
+                if _usable_session_file(src):
+                    shutil.copy2(src, dest / src.name)
+                    copied = True
+    except OSError as e:
+        print(f"Warning: could not restore session snapshot: {e}", file=sys.stderr)
+    # The snapshot may have been taken while the clean slot was already
+    # missing. Firefox loads "clean" before its backups, so promote the
+    # newest restored backup rather than leaving a degraded file there.
+    if not _usable_session_file(snapshot / "sessionstore.jsonlz4") and (
+        _restore_latest_backup(profile) is not None
+    ):
+        copied = True
+    return copied
+
+
+def _restore_latest_backup(profile: Path) -> Path | None:
+    """Promote the newest Firefox backup into the clean slot.
+
+    Size is a trap: after a crash the old ``previous.jsonlz4`` can be
+    larger than the newer ``recovery.jsonlz4`` that holds the last state.
+    Picking by size rolled the daily profile back hours (seen live:
+    13.7 MB previous from 11:43 beat the 5.4 MB recovery from 19:53).
     """
-    if not src.is_file():
-        return "missing-source"
-    if not dst.exists():
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
-        return "seeded"
-    if _chrome_seed_version(src) > _chrome_seed_version(dst):
-        if profile_locked(profile):
-            return "locked"
-        shutil.copy2(dst, dst.parent / (dst.name + ".bak"))
-        shutil.copy2(src, dst)
-        return "migrated"
-    return "kept"
+    backups = profile / "sessionstore-backups"
+    candidates: list[Path] = []
+    if backups.is_dir():
+        with contextlib.suppress(OSError):
+            candidates.extend(p for p in backups.iterdir() if _usable_session_file(p))
+    if not candidates:
+        return None
+    try:
+        source = max(candidates, key=lambda p: (p.stat().st_mtime, p.stat().st_size))
+    except OSError:
+        return None
+    try:
+        shutil.copy2(source, profile / "sessionstore.jsonlz4")
+    except OSError as e:
+        print(f"Warning: could not promote session backup: {e}", file=sys.stderr)
+        return None
+    return source
 
 
-def seed_chrome_css(root: Path, profile: Path) -> str:
-    """Seed profile/chrome/ once, migrating on seed-version bumps:
-    userChrome.css (menu accents) plus userContent.css (new-tab backdrop,
-    so the page is never flat when the wallpaper feed is unreachable).
+def prepare_session_state(profile: Path) -> Path | None:
+    """Snapshot the restore set, or recover it after an unconfirmed restore.
 
-    Returns "seeded" (either file fresh), "migrated" (either file moved
-    to a newer bundled version, previous saved as *.bak), "locked" (a
-    migration was due but Firefox holds the profile — retried next
-    launch), "kept", or "missing-source".
+    The browser removes ``SESSION_RESTORE_MARKER`` only after it has seen a
+    healthy restore. If the marker survives a launch (quick quit, crash, or
+    blank tabs), the next launch copies the pre-launch snapshot back before
+    Firefox can rotate it away. A few consecutive failures stop the automatic
+    loop so a permanently malformed snapshot cannot trap every launch.
+
+    Returns the snapshot taken for this launch, or None when there is no
+    session state to protect. Callers must skip this while the profile is held.
     """
-    results = {
-        _seed_chrome_file(
-            root / "branding" / "userChrome.css", profile / "chrome" / "userChrome.css", profile
-        ),
-        _seed_chrome_file(
-            root / "branding" / "userContent.css", profile / "chrome" / "userContent.css", profile
-        ),
-    }
-    for status in ("seeded", "migrated", "locked", "kept"):
-        if status in results:
-            return status
-    return "missing-source"
+    if profile_locked(profile):
+        return None
+
+    # Firefox prefers the clean slot over every backup. If it disappeared
+    # or was truncated (crash before write, or the 2026-10-20 loss), promote
+    # the newest backup now instead of letting the next restore blank it.
+    if not _usable_session_file(profile / "sessionstore.jsonlz4"):
+        source = _restore_latest_backup(profile)
+        if source is not None:
+            print(
+                f"Restored session from crash backup {source.name} "
+                "(previous shutdown left no clean session)."
+            )
+
+    marker = profile / SESSION_RESTORE_MARKER
+    had_marker = marker.exists()
+    data = _read_restore_marker(profile) if had_marker else {}
+    attempts = data.get("attempts", 0)
+    if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 0:
+        attempts = 0
+    started = data.get("started")
+    stale = (
+        isinstance(started, (int, float))
+        and not isinstance(started, bool)
+        and time.time() - started > SESSION_RESTORE_MAX_AGE
+    )
+    recovered = False
+
+    if had_marker and stale:
+        print(
+            "Warning: the previous session restore was never confirmed, but "
+            "the marker is over a day old; keeping the current session. "
+            f"Snapshots remain in {profile / SESSION_BACKUP_DIR}.",
+            file=sys.stderr,
+        )
+    elif had_marker and attempts < SESSION_RESTORE_MAX_ATTEMPTS:
+        snapshot = _snapshot_path(profile, data.get("snapshot"))
+        if snapshot is None:
+            snapshot = _latest_snapshot(profile)
+        # Preserve anything the failed launch wrote (including tabs opened
+        # during it) before replacing its restore set with the good snapshot.
+        snapshot_session_state(profile)
+        if snapshot is not None and _copy_snapshot(profile, snapshot):
+            print(f"Recovered session state from snapshot {snapshot.name}.")
+            recovered = True
+        else:
+            source = _restore_latest_backup(profile)
+            if source is not None:
+                print(f"Recovered session state from backup {source.name}.")
+                recovered = True
+        attempts += 1
+    elif had_marker:
+        print(
+            f"Warning: session restore failed {attempts} times; not retrying "
+            f"automatically. Snapshots remain in {profile / SESSION_BACKUP_DIR}.",
+            file=sys.stderr,
+        )
+
+    dest = snapshot_session_state(profile)
+    if dest is None:
+        with contextlib.suppress(OSError):
+            marker.unlink()
+        return None
+
+    # Attempts exhausted or the marker is stale: leave the snapshot for
+    # manual recovery, but stop restoring it on every launch.
+    if had_marker and (stale or (attempts >= SESSION_RESTORE_MAX_ATTEMPTS and not recovered)):
+        with contextlib.suppress(OSError):
+            marker.unlink()
+        return dest
+
+    # First launch records its snapshot as attempt 1. A recovered launch
+    # carries the incremented count forward so repeated failures are bounded.
+    _write_restore_marker(profile, dest, attempts + (0 if had_marker else 1))
+    return dest
 
 
 # Caches that can outlive the defaults they were built from. cache2 holds
@@ -293,7 +409,7 @@ def seed_chrome_css(root: Path, profile: Path) -> str:
 # about-content process; its version check keys on appinfo.appBuildID only,
 # so a document baked with an old body inline style (e.g. an Activity Stream
 # `--newtab-wallpaper: url(...)`) survives a pref change. startupCache holds
-# chrome/resource mappings, stale after a rebrand. Wiping both after a sync
+# chrome/resource mappings, stale after a rebrand. Wiping both after a migration
 # is what makes a changed default actually take effect on next launch.
 STALE_CACHE_DIRS = ("cache2", "startupCache")
 
@@ -302,7 +418,7 @@ def wipe_caches(profile: Path) -> list[str]:
     """Delete STALE_CACHE_DIRS under profile. Returns the names removed.
 
     Callers must have already established the profile is unlocked
-    (_sync_file refuses while Firefox holds the lock).
+    (migrate_legacy_profile refuses while Firefox holds the lock).
     """
     removed = []
     for name in STALE_CACHE_DIRS:
@@ -316,179 +432,7 @@ def wipe_caches(profile: Path) -> list[str]:
     return removed
 
 
-def _sync_file(
-    src: Path, dst: Path, profile: Path, backup_name: str, missing_hint: str = ""
-) -> None:
-    """Force re-apply src over dst (explicit opt-in).
-
-    Backs up dst to backup_name first, refuses while Firefox holds the
-    profile lock, then wipes the stale caches so the new defaults are not
-    shadowed by a cached document. All user-facing messages match the
-    historical wording.
-    """
-    if not src.is_file():
-        print(f"ERROR: {src} not found.{missing_hint}", file=sys.stderr)
-        sys.exit(1)
-    if profile_locked(profile):
-        print(f"ERROR: Firefox is running on {profile} - quit it first.", file=sys.stderr)
-        sys.exit(1)
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if dst.exists():
-        shutil.copy2(dst, dst.parent / backup_name)
-    shutil.copy2(src, dst)
-    print(f"Synced {src} -> {dst} (previous saved as {backup_name})")
-    removed = wipe_caches(profile)
-    if removed:
-        print(f"Wiped stale cache: {', '.join(removed)} (cached newtab/chrome data)")
-
-
-def sync_user_js(root: Path, profile: Path) -> None:
-    """Force re-apply config/user.js over the profile (explicit opt-in).
-
-    Backs up the existing profile/user.js to user.js.bak first. Refuses while
-    Firefox holds the profile lock. Wipes cache2/startupCache so a pref that
-    changed is not shadowed by a cached about:newtab document. Next launch,
-    Firefox applies the synced file over prefs.js — user edits to listed
-    prefs are overwritten.
-    """
-    _sync_file(
-        root / "config" / "user.js",
-        profile / "user.js",
-        profile,
-        "user.js.bak",
-        " Run: just update-prefs",
-    )
-
-
-def sync_chrome_css(root: Path, profile: Path) -> None:
-    """Force re-apply profile/chrome/ over the profile (explicit opt-in):
-    userChrome.css plus userContent.css (new-tab backdrop).
-
-    Same contract as sync_user_js: backs up to *.bak first, refuses
-    while Firefox holds the profile lock, and wipes the stale caches —
-    userContent.css is the new-tab backdrop, so a cached about:newtab
-    document would otherwise keep painting the old one.
-    """
-    _sync_file(
-        root / "branding" / "userChrome.css",
-        profile / "chrome" / "userChrome.css",
-        profile,
-        "userChrome.css.bak",
-    )
-    # userContent leg is skip-tolerant (minimal test roots and older
-    # checkouts may lack the file); the userChrome leg above keeps its
-    # fatal missing-source contract.
-    if (root / "branding" / "userContent.css").is_file():
-        _sync_file(
-            root / "branding" / "userContent.css",
-            profile / "chrome" / "userContent.css",
-            profile,
-            "userContent.css.bak",
-        )
-    else:
-        print("WARNING: branding/userContent.css not found, skipping.", file=sys.stderr)
-
-
 DAILY_FLAGS = ("--daily", "--local")
-
-
-# One-time migration: Aph used to ship defaults it no longer does, and
-# profiles seeded earlier still carry them — the line in profile/user.js
-# (re-applied every launch) and the value in prefs.js. Each (pref, stale
-# value) pair below is a value that can only have come from the old
-# default, so scrubbing it never destroys user intent; anything else
-# implies deliberate action (or stock) and is left alone.
-# Runs only while Firefox is NOT holding the profile; otherwise it safely
-# no-ops until the next cold launch.
-RETIRED_PREFS = (
-    # Betterfox-inherited strict pin; the EnableTrackingProtection policy
-    # already enforces standard and locks the category.
-    ("browser.contentblocking.category", '"strict"'),
-    # Addon first-run silencer, removed: only uBlock Origin is
-    # force-installed now and it needs none. The dead pref is scrubbed
-    # from profile/user.js + prefs.js on next cold launch.
-    ("aph.addons.silenceFirstRun", "true"),
-    # Disk cache is back at stock (enabled).
-    ("browser.cache.disk.enable", "false"),
-    # Pre-rendered New Tab cache is back at stock (enabled).
-    ("browser.startup.homepage.abouthome_cache.enabled", "false"),
-    # Remote debugger stays off for regular users.
-    ("devtools.debugger.remote-enabled", "true"),
-)
-
-
-def _is_retired_stale(line: str) -> bool:
-    """True if line sets a retired pref to its old shipped value."""
-    text = line.strip()
-    if not text.startswith('user_pref("') or not text.endswith(");"):
-        return False
-    name, sep, value = text[len('user_pref("') : -len(");")].partition('",')
-    if not sep:
-        return False
-    return (name, value.strip()) in RETIRED_PREFS
-
-
-def _scrub_lines(path: Path) -> bool:
-    """Remove retired-default lines from path. Returns True if changed."""
-    try:
-        # prefs.js is Firefox-managed and can contain non-UTF8 bytes
-        # (e.g. latin-1 tab titles like "Send Active Tab to Workspace # ·
-        # Banking"). surrogateescape round-trips those bytes exactly, so
-        # scrubbing retired (pure-ASCII) lines never corrupts the rest —
-        # and, critically, never crashes the launch (system launchers
-        # show no traceback, the click just silently does nothing).
-        text = path.read_text(encoding="utf-8", errors="surrogateescape")
-    except (OSError, UnicodeError):
-        return False
-    lines = text.splitlines()
-    kept = [line for line in lines if not _is_retired_stale(line)]
-    if len(kept) == len(lines):
-        return False
-    out = "\n".join(kept)
-    if text.endswith("\n"):
-        out += "\n"
-    try:
-        path.write_text(out, encoding="utf-8", errors="surrogateescape")
-    except (OSError, UnicodeError) as e:
-        print(f"Warning: could not scrub {path}: {e}", file=sys.stderr)
-        return False
-    return True
-
-
-def scrub_retired_prefs(profile: Path) -> list[str]:
-    """Drop Aph's retired defaults from profile/user.js + prefs.js.
-
-    Returns the names of files changed. Backs up user.js to user.js.bak
-    first (only if no backup exists yet) — prefs.js needs none, it is
-    Firefox-managed and rewritten every session.
-    """
-    if profile_locked(profile):
-        return []
-    changed: list[str] = []
-    user_js = profile / "user.js"
-    if user_js.is_file():
-        try:
-            has_stale = any(
-                _is_retired_stale(line)
-                for line in user_js.read_text(
-                    encoding="utf-8", errors="surrogateescape"
-                ).splitlines()
-            )
-        except (OSError, UnicodeError):
-            has_stale = False
-        if has_stale:
-            bak = profile / "user.js.bak"
-            if not bak.exists():
-                try:
-                    shutil.copy2(user_js, bak)
-                except OSError as e:
-                    print(f"Warning: could not back up {user_js}: {e}", file=sys.stderr)
-                    has_stale = False
-            if has_stale and _scrub_lines(user_js):
-                changed.append("user.js")
-    if _scrub_lines(profile / "prefs.js"):
-        changed.append("prefs.js")
-    return changed
 
 
 def resolve_launch(argv: list[str], root: Path) -> tuple[Path, list[str]]:
@@ -506,29 +450,33 @@ def resolve_launch(argv: list[str], root: Path) -> tuple[Path, list[str]]:
     return profile, extra
 
 
+def skip_existing_launch(profile: Path, extra_args: list[str]) -> bool:
+    """True when a launch would only open a blank duplicate window.
+
+    Firefox opens a fresh window when invoked with no URL while an instance
+    already holds the profile. That is how a daily icon click can look like
+    "all my tabs are gone": the new window has one blank tab, while the real
+    window (with every restored tab) is still behind it. Only skip the bare
+    form; URLs and explicit ``--new-window`` still forward normally.
+    """
+    return not extra_args and profile_locked(profile)
+
+
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
     profile, extra_args = resolve_launch(sys.argv[1:], root)
     binary = root / "build" / "firefox" / ("firefox.exe" if sys.platform == "win32" else "firefox")
 
     profile.mkdir(parents=True, exist_ok=True)
+    if clear_stale_profile_lock(profile):
+        print(f"Cleared stale profile lock: {profile / 'lock'}")
 
-    # Seed-once defaults: never overwrite an existing profile/user.js, so
-    # user changes via about:config / Settings survive restarts.
-    if seed_user_js(root, profile) == "seeded":
-        print(f"Seeded first-run prefs: {profile / 'user.js'}")
-    # Seed-once menu accents (same contract: never overwrite user edits).
-    chrome_status = seed_chrome_css(root, profile)
-    if chrome_status == "seeded":
-        print(f"Seeded menu accents: {profile / 'chrome' / 'userChrome.css'}")
-    elif chrome_status == "migrated":
-        print("Migrated menu accents to the bundled seed (previous saved as *.bak)")
-
-    # One-time migration: drop Aph's retired defaults from profiles
-    # seeded before their removal. Skips while Firefox holds the profile.
-    scrubbed = scrub_retired_prefs(profile)
-    if scrubbed:
-        print(f"Removed retired defaults from: {', '.join(scrubbed)}")
+    # Cold safety copy before anything can rotate or overwrite the session.
+    # If the previous launch never confirmed a healthy restore, this also
+    # rolls the profile back to that launch's pre-restore snapshot. A held
+    # profile is live; its next cold launch captures the settled files.
+    if not profile_locked(profile):
+        prepare_session_state(profile)
 
     # Auto-merge enterprise policies & extensions
     merge_policies(root)
@@ -566,6 +514,12 @@ def main() -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+    if skip_existing_launch(profile, extra_args):
+        print(
+            f"Aph is already running on {profile}. Use the existing window "
+            "(or pass --new-window to force another one)."
+        )
+        return
     if not purgecache_marker.exists():
         purgecache_marker.touch()
         # Purge pending (rebrand/clear landed while a launch was held):
@@ -580,8 +534,6 @@ def main() -> None:
     # Replace current process (like exec in bash)
     try:
         # Use exec on POSIX for exact bash parity
-        import os
-
         os.execv(cmd[0], cmd)
     except (AttributeError, OSError):
         # Fallback for non-POSIX, or if exec fails (e.g. bad binary)

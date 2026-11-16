@@ -25,6 +25,7 @@ def synthetic_ja(tmp_path):
         z.writestr("chrome/locale/brand.properties", "old")
         z.writestr("chrome/locale/brand.dtd", "old")
         z.writestr("chrome/browser/content/branding/about-logo.svg", "old")
+        z.writestr("defaults/preferences/firefox.js", "pref('initial', 1);\n")
         z.writestr(WORKSPACES_XHTML_PATH, XHTML)
     return ja
 
@@ -38,9 +39,7 @@ def test_patch_replaces_brand_and_appends_features(synthetic_ja) -> None:
     assert counts.wsjs == 1
     assert counts.css == 1
     assert counts.tokens == 1
-    assert counts.textpick == 4  # controller + shared/child/parent
-    assert (counts.stashjs, counts.stashshared) == (1, 1)
-    assert counts.stashpage == 3  # html/css/page
+    assert counts.contentcss == 1
     assert counts.tabrenamejs == 1
     assert counts.fonts == 4  # inter 400/500/600/700 latin woff2
 
@@ -51,28 +50,17 @@ def test_patch_replaces_brand_and_appends_features(synthetic_ja) -> None:
         assert "chrome/browser/content/browser/workspaces.js" in names
         assert "chrome/browser/content/browser/aph-theme.css" in names
         assert "chrome/browser/content/browser/aph-tokens.css" in names
+        assert "chrome/browser/content/browser/aph-content.css" in names
         assert "chrome/browser/content/browser/tabrename.js" in names
         for w in (400, 500, 600, 700):
             assert f"chrome/browser/content/browser/aph-fonts/inter-{w}-latin.woff2" in names
-        # Regression guard: every xhtml <script> tag must have its payload
-        # entry appended, otherwise the browser logs "Missing chrome or
-        # resource URL" at startup (textpick/stash bug).
-        for entry in (
-            "chrome/browser/content/browser/textpick.js",
-            "actors/aph-textpick-shared.js",
-            "actors/AphTextPickChild.sys.mjs",
-            "actors/AphTextPickParent.sys.mjs",
-            "chrome/browser/content/browser/stash-shared.js",
-            "chrome/browser/content/browser/stash.js",
-            "chrome/browser/content/browser/aph-stash.html",
-            "chrome/browser/content/browser/aph-stash.css",
-            "chrome/browser/content/browser/aph-stash-page.js",
-        ):
-            assert entry in names, entry
         assert b"Aph" in z.read("localization/en-US/brand.ftl")
         xhtml = z.read(WORKSPACES_XHTML_PATH)
         assert b"workspaces.js" in xhtml
         assert b"tabrename.js" in xhtml
+        prefs_data = z.read("defaults/preferences/firefox.js")
+        assert b"pref('initial', 1);" in prefs_data
+        assert b"Aph bundled default preferences" in prefs_data
 
 
 def test_patch_is_idempotent_from_pristine_backup(synthetic_ja) -> None:

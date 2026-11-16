@@ -92,9 +92,8 @@ function makeEnv(querySlot = true) {
 }
 
 describe("chrome v2 controller", () => {
-  it("stamps unconditionally and moves reload+stop to the urlbar", () => {
+  it("moves reload+stop to the urlbar", () => {
     const env = makeEnv();
-    assert.equal(env.rootAttrs["data-aph-chrome-v2"], "1");
     const slot = env.sb.document.querySelector(".urlbar-input-container");
     assert.equal(env.reload.parentNode, slot);
     assert.equal(env.stop.parentNode, slot);
@@ -103,7 +102,6 @@ describe("chrome v2 controller", () => {
   it("fails open with missing anchors", () => {
     // No urlbar slot: load must not throw and the buttons stay home.
     const env = makeEnv(false);
-    assert.equal(env.rootAttrs["data-aph-chrome-v2"], "1");
     assert.equal(env.reload.parentNode, env.bar);
     assert.equal(env.stop.parentNode, env.bar);
   });
