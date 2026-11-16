@@ -400,7 +400,6 @@ describe("workspace dock", () => {
       "Close Workspace (1 tab)",
       null,
       "Customize Sidebar…",
-      "Aph Settings…",
       "Firefox Settings…",
       "Firefox Menu…",
       "About Aph",

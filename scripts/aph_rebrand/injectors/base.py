@@ -30,7 +30,6 @@ class PatchCounts:
     tokens: int = 0
     paljs: int = 0
     palcss: int = 0
-    settingspage: int = 0
     tabrenamejs: int = 0
     fonts: int = 0
     contentcss: int = 0
@@ -49,7 +48,6 @@ class PatchCounts:
             self.tokens,
             self.paljs,
             self.palcss,
-            self.settingspage,
             self.tabrenamejs,
             self.fonts,
             self.contentcss,

@@ -46,7 +46,6 @@ build-assets:
 check-assets:
     uv run python scripts/build_assets.py --check
 
-# Derived version strings must match pyproject.toml (the source of truth)
 # Python lint + format check
 lint:
     uv tool run ruff check scripts/ tests_py/
@@ -78,8 +77,7 @@ test:
 #   only when doing web work (pack docs/ ad hoc for that).
 # - tests/**, tests_py/**: harnesses/mocks dominate; pack ad hoc
 #   (bunx repomix tests tests_py) for test-authoring sessions.
-# - packaging/winget/**, packaging/Output/**: generator output
-#   (scripts/winget_manifest.py) and local installer builds.
+# - packaging/Output/**: local installer builds.
 # NOTE: config/default-prefs.js is intentionally KEPT: it embeds the upstream Betterfox
 # block (~220 lines) that lives nowhere else in the repo; excluding it would
 # drop that context. The ~67-line Aph tail duplicates config/user-overrides.js
@@ -89,7 +87,7 @@ repomix:
     # comma-separated list matching the groups documented above. Asset globs
     # need **/ (bare *.svg only matches repo root — repomixignore quirk that
     # once leaked the 134KB aph.svg into the pack).
-    bunx repomix --ignore "branding/workspaces.js,branding/command-palette.js,uv.lock,**/*.png,**/*.svg,**/*.ico,docs/**,tests/**,tests_py/**,packaging/winget/**,packaging/Output/**"
+    bunx repomix --ignore "branding/workspaces.js,branding/command-palette.js,uv.lock,**/*.png,**/*.svg,**/*.ico,docs/**,tests/**,tests_py/**,packaging/Output/**"
 
 # Show profile and build status
 status:

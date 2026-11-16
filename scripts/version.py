@@ -1,9 +1,6 @@
 """Single source of truth for the Aph version: pyproject.toml [project].version.
 
-Every other versioned artifact (AUR PKGBUILD, .SRCINFO, flatpak metainfo,
-release notes heading, winget manifests) is derived from this one value —
-see scripts/sync_version.py. Bump by editing pyproject.toml, then run
-``just sync-version``; ``just check`` fails if the derived files drift.
+Git tags and release CI derive their version from this value.
 """
 
 from __future__ import annotations

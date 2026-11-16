@@ -20,7 +20,6 @@ from .injectors.features import (
     ContentCssInjector,
     FontInjector,
     PaletteInjector,
-    SettingsInjector,
     TabrenameInjector,
     ThemeInjector,
     TokensInjector,
@@ -31,26 +30,6 @@ from .injectors.prefs import PrefsDefaultsInjector
 from .injectors.toolbar import ToolbarDefaultsInjector
 from .injectors.xhtml import XhtmlInjector
 from .omni import atomic_ja_temp, normalize_omni_ja
-
-LEGACY_LOG_FIELDS = (
-    "brand.ftl",
-    "brandings.ftl",
-    "sync-brand.ftl",
-    "brand.properties",
-    "brand.dtd",
-    "logos",
-    "browser.xhtml",
-    "workspaces.js",
-    "theme.css",
-    "tokens.css",
-    "palette.js",
-    "palette.css",
-    "settings page files (html/css/page)",
-    "welcome page files (html/css/page)",
-    "tabrename.js",
-    "chrome fonts (inter woff2)",
-    "content.css",
-)
 
 
 class BrandPatcher:
@@ -71,7 +50,6 @@ class BrandPatcher:
             TokensInjector(payloads.tokens_css),
             ContentCssInjector(payloads.content_css),
             PaletteInjector(payloads.palette_js, payloads.palette_css),
-            SettingsInjector(payloads.settings_page_files),
             TabrenameInjector(payloads.tabrename_js),
             FontInjector(payloads.font_files),
         ]
@@ -186,8 +164,6 @@ class BrandPatcher:
             display = str(ja_path.relative_to(ROOT))
         except ValueError:
             display = str(ja_path)
-        values = counts.as_tuple()
-        assert len(values) == len(LEGACY_LOG_FIELDS)
         # Keep the historical human-readable shape (tests/CI grep for it).
         return (
             f"Rebranded {display}: "
@@ -199,7 +175,6 @@ class BrandPatcher:
             f"{counts.css} theme.css, "
             f"{counts.tokens} tokens.css, "
             f"{counts.paljs} palette.js, {counts.palcss} palette.css, "
-            f"{counts.settingspage} settings page files (html/css/page), "
             f"{counts.tabrenamejs} tabrename.js, "
             f"{counts.fonts} chrome fonts (inter woff2), "
             f"{counts.contentcss} content.css"

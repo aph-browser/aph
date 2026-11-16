@@ -12,9 +12,6 @@ from ..constants import (
     CONTENT_CSS_JA_PATH,
     PALETTE_CSS_JA_PATH,
     PALETTE_JA_PATH,
-    SETTINGS_CSS_JA_PATH,
-    SETTINGS_HTML_JA_PATH,
-    SETTINGS_PAGE_JA_PATH,
     TABRENAME_JA_PATH,
     THEME_JA_PATH,
     TOKENS_CSS_JA_PATH,
@@ -89,35 +86,6 @@ class PaletteInjector:
         if self._css is not None and PALETTE_CSS_JA_PATH not in existing:
             counts.palcss += 1
             out.append((PALETTE_CSS_JA_PATH, self._css))
-        return out
-
-
-class SettingsInjector:
-    """Tag-less settings page files (HTML/CSS/page script).
-
-    Mirrors StashInjector's page group: loads by chrome:// URL in its
-    own tab, never via browser.xhtml, so no tag work is needed.
-    """
-
-    name = "settings"
-
-    def __init__(self, page_files: dict[str, bytes]) -> None:
-        self._page_files = page_files
-
-    def replace_existing(self, filename: str, data: bytes, counts: PatchCounts) -> bytes:
-        return data
-
-    def new_entries(self, existing: set[str], counts: PatchCounts) -> list[tuple[str, bytes]]:
-        out: list[tuple[str, bytes]] = []
-        for key in (
-            SETTINGS_HTML_JA_PATH,
-            SETTINGS_CSS_JA_PATH,
-            SETTINGS_PAGE_JA_PATH,
-        ):
-            data = self._page_files.get(key)
-            if data is not None and key not in existing:
-                counts.settingspage += 1
-                out.append((key, data))
         return out
 
 

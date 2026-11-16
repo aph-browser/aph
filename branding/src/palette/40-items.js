@@ -1189,34 +1189,6 @@
         },
       },
       {
-        title: "Open Aph Settings",
-        hint: "",
-        sub: "Toggles for workspaces, tabs and sidebar",
-        run: () => {
-          try {
-            const url = "chrome://browser/content/aph-settings.html";
-            for (const t of Array.from((gBrowser && gBrowser.tabs) || [])) {
-              try {
-                const spec =
-                  t && t.linkedBrowser && t.linkedBrowser.currentURI && t.linkedBrowser.currentURI.spec;
-                if (!t.closing && spec === url) {
-                  gBrowser.selectedTab = t;
-                  return;
-                }
-              } catch (_e) {}
-            }
-          } catch (e) {}
-          try {
-            const t = gBrowser.addTrustedTab(
-              "chrome://browser/content/aph-settings.html"
-            );
-            try {
-              gBrowser.selectedTab = t;
-            } catch (_e) {}
-          } catch (e) {}
-        },
-      },
-      {
         title: "Copy Workspace Tabs as Markdown",
         hint: "",
         sub: workspaceMarkdownSub(api),

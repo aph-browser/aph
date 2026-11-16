@@ -1682,9 +1682,6 @@ menulist#ContentSelectDropdown > menupopup > :is(menuitem, menucaption):not([_mo
 #aph-aph-menu > #aph-aph-customize {
   --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M2.5 4h11M2.5 8h11M2.5 12h11'/><circle cx='10.5' cy='4' r='1.7' fill='%23e8e8ec' stroke='none'/><circle cx='5.5' cy='8' r='1.7' fill='%23e8e8ec' stroke='none'/><circle cx='11' cy='12' r='1.7' fill='%23e8e8ec' stroke='none'/></g></svg>") !important;
 }
-#aph-aph-menu > #aph-aph-settings {
-  --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8' r='2.6'/><path d='M8 1.8v2.4M8 11.8v2.4M1.8 8h2.4M11.8 8h2.4M3.6 3.6l1.7 1.7M10.7 10.7l1.7 1.7M12.4 3.6l-1.7 1.7M5.3 10.7l-1.7 1.7'/></g></svg>") !important;
-}
 #aph-aph-menu > #aph-aph-firefox-settings {
   --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%23e8e8ec' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M9.8 4.2a1 1 0 0 0 0 1.4l1 1a1 1 0 0 0 1.4 0l2.5-2.5a4 4 0 0 1-5.3 5.3l-4.6 4.6a1.4 1.4 0 0 1-2-2l4.6-4.6a4 4 0 0 1 5.3-5.3l-2.3 2.1z'/></g></svg>") !important;
 }
@@ -1715,9 +1712,6 @@ menulist#ContentSelectDropdown > menupopup > :is(menuitem, menucaption):not([_mo
   }
   #aph-aph-menu > #aph-aph-customize {
     --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%2323252f' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M2.5 4h11M2.5 8h11M2.5 12h11'/><circle cx='10.5' cy='4' r='1.7' fill='%2323252f' stroke='none'/><circle cx='5.5' cy='8' r='1.7' fill='%2323252f' stroke='none'/><circle cx='11' cy='12' r='1.7' fill='%2323252f' stroke='none'/></g></svg>") !important;
-  }
-  #aph-aph-menu > #aph-aph-settings {
-    --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%2323252f' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8' r='2.6'/><path d='M8 1.8v2.4M8 11.8v2.4M1.8 8h2.4M11.8 8h2.4M3.6 3.6l1.7 1.7M10.7 10.7l1.7 1.7M12.4 3.6l-1.7 1.7M5.3 10.7l-1.7 1.7'/></g></svg>") !important;
   }
   #aph-aph-menu > #aph-aph-firefox-settings {
     --menuitem-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><g fill='none' stroke='%2323252f' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M9.8 4.2a1 1 0 0 0 0 1.4l1 1a1 1 0 0 0 1.4 0l2.5-2.5a4 4 0 0 1-5.3 5.3l-4.6 4.6a1.4 1.4 0 0 1-2-2l4.6-4.6a4 4 0 0 1 5.3-5.3l-2.3 2.1z'/></g></svg>") !important;

@@ -2,6 +2,9 @@
 // Bundled defaults: loaded natively via defaults/preferences/firefox.js in omni.ja,
 // so user changes via about:config / Settings persist in prefs.js automatically.
 
+// 1. Nova UI baseline
+user_pref("browser.nova.enabled", true);
+
 // 2. DRM Playback (Netflix / Spotify)
 user_pref("media.eme.enabled", true);
 user_pref("media.gmp-widevinecdm.enabled", true);

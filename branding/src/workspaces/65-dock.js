@@ -1020,25 +1020,6 @@
     } catch (e) {}
   }
 
-  // Reuse one settings tab per window instead of stacking duplicates.
-  function aphOpenSettings() {
-    try {
-      const url = "chrome://browser/content/aph-settings.html";
-      for (const t of Array.from((typeof gBrowser !== "undefined" && gBrowser.tabs) || [])) {
-        try {
-          const spec = t && t.linkedBrowser && t.linkedBrowser.currentURI && t.linkedBrowser.currentURI.spec;
-          if (!t.closing && spec === url) {
-            gBrowser.selectedTab = t;
-            return;
-          }
-        } catch (e) {}
-      }
-    } catch (e) {}
-    try {
-      aphOpenTab("chrome://browser/content/aph-settings.html");
-    } catch (e) {}
-  }
-
   // Native Firefox Settings (about:preferences — themes live here, so
   // this is the room-switch path). Stock openPreferences first (native
   // pane/tab behavior); plain trusted tab fallback — never the bound
@@ -1282,16 +1263,6 @@
       if (cust) {
         try {
           menu.appendChild(cust);
-        } catch (err) {}
-      }
-      const prefs = makeDockMenuItem("aph-aph-settings", "Aph Settings…", () => {
-        try {
-          aphOpenSettings();
-        } catch (err) {}
-      }, false, "settings");
-      if (prefs) {
-        try {
-          menu.appendChild(prefs);
         } catch (err) {}
       }
       const fxPrefs = makeDockMenuItem("aph-aph-firefox-settings", "Firefox Settings…", () => {

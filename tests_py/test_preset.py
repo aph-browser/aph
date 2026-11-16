@@ -13,7 +13,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TOKENS = ROOT / "branding" / "tokens.css"
-PAGE_JS = ROOT / "branding" / "settings-page.js"
 
 PRESETS = ("midnight", "paper", "nord", "mocha", "espresso")
 LADDER = (
@@ -113,23 +112,13 @@ def test_preset_rooms_clear_gates() -> None:
 
 
 def test_preset_allowlists_agree() -> None:
-    """One set, three spellings: the stamper allowlist, the settings
-    options, and the tokens blocks must name the same presets. The
-    mocha stamp bug was exactly this drift (settings offered it, the
-    stamper rejected it, the attribute read null)."""
+    """The stamper allowlist and the tokens blocks must name the same presets."""
     module = (ROOT / "branding" / "src" / "workspaces" / "74-theme-preset.js").read_text(
         encoding="utf-8"
     )
     m = re.search(r"const THEME_PRESETS = \[([^\]]*)\]", module)
     assert m, "stamper allowlist missing"
     stamper = re.findall(r'"([a-z]+)"', m.group(1))
-    js = PAGE_JS.read_text(encoding="utf-8")
-    m2 = re.search(r"const THEME_PRESET_OPTIONS = \[([^\]]*)\]", js)
-    assert m2, "settings options missing"
-    settings_opts = re.findall(r'"([a-z]+)"', m2.group(1))
-    assert [o for o in settings_opts if o != "auto"] == stamper, (
-        f"settings {settings_opts} vs stamper {stamper}"
-    )
     assert set(stamper) == set(_preset_blocks()), "stamper vs tokens blocks drifted"
 
 
@@ -150,26 +139,3 @@ def test_preset_module_ships_in_bundle() -> None:
         "cleanupThemePreset",
     ):
         assert needle in bundle, f"bundle missing preset piece: {needle}"
-
-
-def test_preset_settings_section_present() -> None:
-    """Theme preset radios reuse the Appearance row dialect (no new CSS):
-    five options in order, scheme pairing, sync-checked from the pref."""
-    js = PAGE_JS.read_text(encoding="utf-8")
-    for token in (
-        "THEME_PRESET_PREF",
-        "THEME_PRESET_OPTIONS",
-        "THEME_PRESET_SCHEME",
-        "readThemePreset",
-        "writeThemePreset",
-        "makePresetSection",
-        '"aph-preset"',
-        '"Theme preset"',
-    ):
-        assert token in js, f"preset settings wiring missing: {token}"
-    assert '"aph.theme.preset"' in js
-    for preset in PRESETS:
-        assert f'"{preset}"' in js, f"preset option missing: {preset}"
-    # Scheme pairing keeps art agreeing with the room.
-    assert '"paper"' in js and '"light"' in js
-    assert "writeAppearance" in js

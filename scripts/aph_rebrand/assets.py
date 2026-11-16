@@ -19,12 +19,6 @@ from .constants import (
     FONT_SRC_PAIRS,
     PALETTE_CSS_SRC,
     PALETTE_JS_SRC,
-    SETTINGS_CSS_JA_PATH,
-    SETTINGS_CSS_SRC,
-    SETTINGS_HTML_JA_PATH,
-    SETTINGS_HTML_SRC,
-    SETTINGS_PAGE_JA_PATH,
-    SETTINGS_PAGE_SRC,
     SYNC_BRAND_FTL_SRC,
     TABRENAME_JS_SRC,
     THEME_CSS_SRC,
@@ -44,7 +38,6 @@ class PatchPayloads:
     tokens_css: bytes | None = None
     palette_js: bytes | None = None
     palette_css: bytes | None = None
-    settings_page_files: dict[str, bytes] = field(default_factory=dict)
     tabrename_js: bytes | None = None
     font_files: dict[str, bytes] = field(default_factory=dict)
     content_css: bytes | None = None
@@ -139,15 +132,6 @@ def load_payloads(icon_buffers: dict[int, bytes]) -> PatchPayloads:
     payloads.tokens_css = _read(TOKENS_CSS_SRC, "tokens injection")
     payloads.palette_js = _read(PALETTE_JS_SRC, "palette injection")
     payloads.palette_css = _read(PALETTE_CSS_SRC, "palette CSS injection")
-
-    payloads.settings_page_files = _load_map(
-        [
-            (SETTINGS_HTML_SRC, SETTINGS_HTML_JA_PATH),
-            (SETTINGS_CSS_SRC, SETTINGS_CSS_JA_PATH),
-            (SETTINGS_PAGE_SRC, SETTINGS_PAGE_JA_PATH),
-        ],
-        "settings page file",
-    )
 
     payloads.tabrename_js = _read(TABRENAME_JS_SRC, "tab rename injection")
     payloads.font_files = _load_map(FONT_SRC_PAIRS, "chrome font")
