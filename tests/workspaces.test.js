@@ -74,6 +74,33 @@ const sb = {
     },
     replaceInSuccession() {},
     setSuccessor() {},
+    moveTabBefore(t, target) {
+      const cur = sb.gBrowser.tabs.indexOf(t);
+      if (cur === -1) return;
+      sb.gBrowser.tabs.splice(cur, 1);
+      const dest = sb.gBrowser.tabs.indexOf(target);
+      if (dest === -1) sb.gBrowser.tabs.push(t);
+      else sb.gBrowser.tabs.splice(dest, 0, t);
+    },
+    moveTabsBefore(elements, target) {
+      for (const el of elements) {
+        this.moveTabBefore(el, target);
+      }
+    },
+    moveTabTo(t, opts) {
+      const idx = typeof opts === "object" && opts ? opts.tabIndex : opts;
+      if (!Number.isInteger(idx)) return;
+      const cur = sb.gBrowser.tabs.indexOf(t);
+      if (cur === -1) return;
+      sb.gBrowser.tabs.splice(cur, 1);
+      sb.gBrowser.tabs.splice(Math.max(0, Math.min(idx, sb.gBrowser.tabs.length)), 0, t);
+    },
+    moveTabToEnd(t) {
+      const cur = sb.gBrowser.tabs.indexOf(t);
+      if (cur === -1) return;
+      sb.gBrowser.tabs.splice(cur, 1);
+      sb.gBrowser.tabs.push(t);
+    },
     _updateMultiselectedTabCloseButtonTooltip() {},
     getTabForBrowser: (b) => (b && b.__tab) || null,
     addTabsProgressListener(l) { listener = l; },
@@ -654,6 +681,57 @@ describe("reconcile selection", () => {
         if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
       }
       sb.gBrowser.selectedTab = prevSel;
+      if (api.getCurrent() !== start) api.switchTo(start);
+    }
+  });
+});
+
+describe("sendTabTo moves tab to top", () => {
+  it("moves sent tab before existing destination tabs", () => {
+    const start = api.getCurrent();
+    if (start !== "1") api.switchTo("1");
+    const t1 = makeTab(tabVals, { label: "w1-1", ws: "1", spec: "https://1.example/" });
+    const t2 = makeTab(tabVals, { label: "w1-2", ws: "1", spec: "https://2.example/" });
+    const w81 = makeTab(tabVals, { label: "w8-1", ws: "8", spec: "https://w8-1.example/" });
+    const w82 = makeTab(tabVals, { label: "w8-2", ws: "8", spec: "https://w8-2.example/" });
+    sb.gBrowser.tabs.push(t1, t2, w81, w82);
+    try {
+      sb.gBrowser.selectedTab = t1;
+      api.sendTabTo("8", [t2]);
+      const w8Idx1 = sb.gBrowser.tabs.indexOf(t2);
+      const w8Idx2 = sb.gBrowser.tabs.indexOf(w81);
+      assert.ok(w8Idx1 !== -1 && w8Idx2 !== -1);
+      assert.equal(w8Idx1, w8Idx2 - 1, "sent tab moved immediately before target top tab");
+      assert.equal(tabVals.get(t2).aphWs, "8");
+    } finally {
+      for (const t of [t1, t2, w81, w82]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+      if (api.getCurrent() !== start) api.switchTo(start);
+    }
+  });
+
+  it("moves sent tab before subsequent workspace when destination is empty", () => {
+    const start = api.getCurrent();
+    if (start !== "1") api.switchTo("1");
+    const t1 = makeTab(tabVals, { label: "w1-1", ws: "1", spec: "https://1.example/" });
+    const t2 = makeTab(tabVals, { label: "w1-2", ws: "1", spec: "https://2.example/" });
+    const w9 = makeTab(tabVals, { label: "w9-1", ws: "9", spec: "https://w9.example/" });
+    sb.gBrowser.tabs.push(t1, t2, w9);
+    try {
+      sb.gBrowser.selectedTab = t1;
+      api.sendTabTo("8", [t2]);
+      const t2Idx = sb.gBrowser.tabs.indexOf(t2);
+      const w9Idx = sb.gBrowser.tabs.indexOf(w9);
+      assert.ok(t2Idx !== -1 && w9Idx !== -1);
+      assert.equal(t2Idx, w9Idx - 1, "sent tab placed before next workspace");
+      assert.equal(tabVals.get(t2).aphWs, "8");
+    } finally {
+      for (const t of [t1, t2, w9]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
       if (api.getCurrent() !== start) api.switchTo(start);
     }
   });

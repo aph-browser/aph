@@ -1342,11 +1342,84 @@
         }
       } catch (e) {}
     }
+    // Top insertion anchor for destination workspace before retagging
+    let neighbor = null;
+    try {
+      if (typeof getTopWorkingIndex === "function" && typeof gBrowser !== "undefined") {
+        const targetIdx = getTopWorkingIndex(target);
+        const allTabs = Array.from(gBrowser.tabs || []);
+        if (targetIdx >= 0 && targetIdx < allTabs.length) {
+          for (let i = targetIdx; i < allTabs.length; i++) {
+            const candidate = allTabs[i];
+            if (candidate && !moving.has(candidate) && !candidate.closing && !candidate.pinned) {
+              neighbor = candidate;
+              break;
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
     for (const tab of list) {
       try {
         setWs(tab, target);
       } catch (e) {}
     }
+
+    try {
+      const unpinned = list.filter((t) => t && !t.closing && !t.pinned);
+      if (unpinned.length && typeof gBrowser !== "undefined") {
+        let moved = false;
+        if (neighbor && typeof gBrowser.moveTabsBefore === "function") {
+          try {
+            gBrowser.moveTabsBefore(unpinned, neighbor);
+            moved = true;
+          } catch (e) {}
+        }
+        if (!moved) {
+          for (const tab of unpinned) {
+            if (neighbor) {
+              if (typeof gBrowser.moveTabBefore === "function") {
+                try {
+                  gBrowser.moveTabBefore(tab, neighbor);
+                  continue;
+                } catch (e) {}
+              }
+              const tabs = Array.from(gBrowser.tabs || []);
+              const curNeighborIdx = tabs.indexOf(neighbor);
+              const curTabIdx = tabs.indexOf(tab);
+              if (curTabIdx !== -1 && curNeighborIdx !== -1 && curTabIdx !== curNeighborIdx) {
+                const destIdx = curTabIdx < curNeighborIdx ? curNeighborIdx - 1 : curNeighborIdx;
+                try {
+                  gBrowser.moveTabTo?.(tab, { tabIndex: destIdx, forceUngrouped: !tab.group });
+                } catch (e) {
+                  gBrowser.moveTabTo?.(tab, destIdx);
+                }
+              }
+            } else {
+              if (typeof gBrowser.moveTabToEnd === "function") {
+                try {
+                  gBrowser.moveTabToEnd(tab);
+                  continue;
+                } catch (e) {}
+              }
+              const endIdx = (gBrowser.tabs || []).length - 1;
+              try {
+                gBrowser.moveTabTo?.(tab, { tabIndex: endIdx, forceUngrouped: !tab.group });
+              } catch (e) {
+                gBrowser.moveTabTo?.(tab, endIdx);
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
+    try {
+      if (typeof syncStarredBoundaries === "function") {
+        syncStarredBoundaries();
+      }
+    } catch (e) {}
     try {
       if (typeof aphTabsLog === "function") {
         aphTabsLog(`send ws=${target} moved=${list.length}`);
