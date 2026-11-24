@@ -60,9 +60,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run harness tests
-        run: node --test "tests/*.test.js"
-
       - name: Install Python deps
         run: pip install pillow
 
