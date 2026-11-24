@@ -1,4 +1,4 @@
-// Regression guards for tab rename (branding/tabrename.js + the palette
+// Regression guards for tab rename (branding/src/workspaces/68-tabrename.js + the palette
 // command). The real window script runs in node:vm with Firefox globals
 // mocked; the palette command is exercised through the same hook trick as
 // tests/palette.test.js.
@@ -105,7 +105,7 @@ function makeSandbox() {
 }
 
 function loadRename(env) {
-  run("tabrename.js", env.sb);
+  run("src/workspaces/68-tabrename.js", env.sb);
   return env.sb.window.AphTabRename;
 }
 

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>aph.desktop</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MPL-2.0</project_license>
+  <name>Aph</name>
+  <summary>Aph Browser — Firefox-based, workspaces-first</summary>
+  <description>
+    <p>
+      Aph is a lightweight workspace and privacy layer injected into stock Firefox,
+      with no browser fork or recompilation. It features fast workspace switching,
+      container bindings, per-tab renaming, and an integrated command palette.
+    </p>
+  </description>
+  <launchable type="desktop-id">aph.desktop</launchable>
+  <url type="homepage">https://github.com/aph-browser/aph</url>
+  <url type="bugtracker">https://github.com/aph-browser/aph/issues</url>
+  <provides>
+    <binary>firefox</binary>
+  </provides>
+  <categories>
+    <category>Network</category>
+    <category>WebBrowser</category>
+  </categories>
+</component>

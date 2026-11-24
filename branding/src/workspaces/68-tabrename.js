@@ -9,7 +9,7 @@
  *
  * Entry points: command palette ("Rename Tab…"), tab context menu, and
  * double-clicking the tab's label text. All paths route through AphPalette.prompt.
- * Injected into browser.xhtml via rebrand.py.
+ * Injected into browser.xhtml via workspaces.js.
  */
 (function () {
   if (window.__aphTabRenameLoaded) {
@@ -276,7 +276,7 @@
     menuItem = null;
   }
 
-  function init() {
+  function initTabRename() {
     try {
       window.AphTabRename = { renameTab, getName, applyName, promptRename };
     } catch (e) {}
@@ -297,8 +297,8 @@
   }
 
   if (document.readyState === "complete") {
-    init();
+    initTabRename();
   } else {
-    window.addEventListener("load", init, { once: true });
+    window.addEventListener("load", initTabRename, { once: true });
   }
 })();

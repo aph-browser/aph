@@ -11,7 +11,6 @@ from ..constants import (
     CONTENT_CSS_JA_PATH,
     PALETTE_CSS_JA_PATH,
     PALETTE_JA_PATH,
-    TABRENAME_JA_PATH,
     THEME_JA_PATH,
     TOKENS_CSS_JA_PATH,
     WORKSPACES_JA_PATH,
@@ -60,11 +59,6 @@ class ContentCssInjector(StaticEntriesInjector):
 class TokensInjector(StaticEntriesInjector):
     def __init__(self, css: bytes | None) -> None:
         super().__init__([(TOKENS_CSS_JA_PATH, css, "tokens")], name="tokens")
-
-
-class TabrenameInjector(StaticEntriesInjector):
-    def __init__(self, js: bytes | None) -> None:
-        super().__init__([(TABRENAME_JA_PATH, js, "tabrenamejs")], name="tabrename")
 
 
 class PaletteInjector:

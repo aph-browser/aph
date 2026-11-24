@@ -88,11 +88,6 @@ PALETTE_CSS_SRC = BRANDING_DIR / "command-palette.css"
 PALETTE_CSS_JA_PATH = "chrome/browser/content/browser/aph-palette.css"
 PALETTE_LINK_TAG = '<link rel="stylesheet" href="chrome://browser/content/aph-palette.css" />'
 
-# Tab rename: per-tab custom labels, window controller via xhtml script tag.
-TABRENAME_JS_SRC = BRANDING_DIR / "tabrename.js"
-TABRENAME_JA_PATH = "chrome/browser/content/browser/tabrename.js"
-TABRENAME_SCRIPT_TAG = '<script src="chrome://browser/content/tabrename.js"></script>'
-
 BRAND_PROPERTIES_TEMPLATE = """brandShorterName=Aph
 brandShortName=Aph
 brandFullName=Aph Browser

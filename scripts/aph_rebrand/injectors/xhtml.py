@@ -11,7 +11,6 @@ from __future__ import annotations
 from ..constants import (
     PALETTE_LINK_TAG,
     PALETTE_SCRIPT_TAG,
-    TABRENAME_SCRIPT_TAG,
     THEME_LINK_TAG,
     WORKSPACES_SCRIPT_TAG,
 )
@@ -25,7 +24,6 @@ CANONICAL_TAG_ORDER = (
     PALETTE_LINK_TAG,
     WORKSPACES_SCRIPT_TAG,
     PALETTE_SCRIPT_TAG,
-    TABRENAME_SCRIPT_TAG,
 )
 
 

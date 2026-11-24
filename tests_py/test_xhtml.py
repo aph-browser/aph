@@ -42,13 +42,12 @@ def test_non_utf8_passthrough() -> None:
     assert data == raw
 
 
-def test_canonical_order_has_all_five_tags() -> None:
+def test_canonical_order_has_all_four_tags() -> None:
     joined = "\n".join(CANONICAL_TAG_ORDER)
     for needle in (
         "aph-theme.css",
         "aph-palette.css",
         "workspaces.js",
         "command-palette.js",
-        "tabrename.js",
     ):
         assert needle in joined, needle

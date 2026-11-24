@@ -248,7 +248,7 @@
   }
 
   // Tab rename entry point: prompts for the selected tab via the tab-rename
-  // controller (branding/tabrename.js). No-ops when it is absent (tests).
+  // controller (branding/src/workspaces/68-tabrename.js). No-ops when it is absent (tests).
   function renameCurrentTab() {
     let api = null;
     try {

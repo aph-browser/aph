@@ -20,7 +20,6 @@ from .injectors.features import (
     ContentCssInjector,
     FontInjector,
     PaletteInjector,
-    TabrenameInjector,
     ThemeInjector,
     TokensInjector,
     WorkspacesInjector,
@@ -50,7 +49,6 @@ class BrandPatcher:
             TokensInjector(payloads.tokens_css),
             ContentCssInjector(payloads.content_css),
             PaletteInjector(payloads.palette_js, payloads.palette_css),
-            TabrenameInjector(payloads.tabrename_js),
             FontInjector(payloads.font_files),
         ]
         self._replace_injectors: list[Injector] = [
@@ -175,7 +173,6 @@ class BrandPatcher:
             f"{counts.css} theme.css, "
             f"{counts.tokens} tokens.css, "
             f"{counts.paljs} palette.js, {counts.palcss} palette.css, "
-            f"{counts.tabrenamejs} tabrename.js, "
             f"{counts.fonts} chrome fonts (inter woff2), "
             f"{counts.contentcss} content.css"
         )

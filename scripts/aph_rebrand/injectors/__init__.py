@@ -4,7 +4,6 @@ from .base import Injector, PatchCounts
 from .brand import BrandStringsInjector
 from .features import (
     PaletteInjector,
-    TabrenameInjector,
     ThemeInjector,
     WorkspacesInjector,
 )
@@ -19,7 +18,6 @@ __all__ = [
     "LogoInjector",
     "PaletteInjector",
     "PatchCounts",
-    "TabrenameInjector",
     "ThemeInjector",
     "ToolbarDefaultsInjector",
     "WorkspacesInjector",

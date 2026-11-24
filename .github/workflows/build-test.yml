@@ -74,12 +74,14 @@ jobs:
 
       - name: Assemble AppDir
         run: |
-          mkdir -p build/AppDir/usr/bin build/AppDir/usr/share/icons/hicolor/128x128/apps
+          mkdir -p build/AppDir/usr/bin build/AppDir/usr/share/icons/hicolor/128x128/apps build/AppDir/usr/share/metainfo
           cp -r build/firefox/. build/AppDir/usr/bin/
+          find build/AppDir/usr/bin -name "*.bak" -delete
           cp branding/aph.png build/AppDir/aph.png
           cp branding/aph.png build/AppDir/usr/share/icons/hicolor/128x128/apps/aph.png
           python -c "from PIL import Image; im=Image.open('branding/aph.png').convert('RGBA'); import os; [(os.makedirs(f'build/AppDir/usr/share/icons/hicolor/{s}x{s}/apps', exist_ok=True), im.resize((s,s), Image.LANCZOS).save(f'build/AppDir/usr/share/icons/hicolor/{s}x{s}/apps/aph.png')) for s in (16,32,48,64,256)]"
           cp packaging/aph.desktop build/AppDir/aph.desktop
+          cp packaging/aph.appdata.xml build/AppDir/usr/share/metainfo/aph.appdata.xml
           cp packaging/AppRun build/AppDir/AppRun
           chmod +x build/AppDir/AppRun
 

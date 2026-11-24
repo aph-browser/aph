@@ -40,7 +40,6 @@ def test_patch_replaces_brand_and_appends_features(synthetic_ja) -> None:
     assert counts.css == 1
     assert counts.tokens == 1
     assert counts.contentcss == 1
-    assert counts.tabrenamejs == 1
     assert counts.fonts == 4  # inter 400/500/600/700 latin woff2
 
     with zipfile.ZipFile(synthetic_ja) as z:
@@ -51,13 +50,11 @@ def test_patch_replaces_brand_and_appends_features(synthetic_ja) -> None:
         assert "chrome/browser/content/browser/aph-theme.css" in names
         assert "chrome/browser/content/browser/aph-tokens.css" in names
         assert "chrome/browser/content/browser/aph-content.css" in names
-        assert "chrome/browser/content/browser/tabrename.js" in names
         for w in (400, 500, 600, 700):
             assert f"chrome/browser/content/browser/aph-fonts/inter-{w}-latin.woff2" in names
         assert b"Aph" in z.read("localization/en-US/brand.ftl")
         xhtml = z.read(WORKSPACES_XHTML_PATH)
         assert b"workspaces.js" in xhtml
-        assert b"tabrename.js" in xhtml
         prefs_data = z.read("defaults/preferences/firefox.js")
         assert b"pref('initial', 1);" in prefs_data
         assert b"Aph bundled default preferences" in prefs_data
