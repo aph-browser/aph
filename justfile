@@ -68,26 +68,12 @@ test:
     node --test "tests/*.test.js"
 
 # Pack the repo for LLM context (repomix-output.xml, gitignored).
-# Excluded groups (each byte-derivable or zero-signal — source noted):
-# - Generated bundles (branding/workspaces.js, branding/command-palette.js):
-#   rebuilt from branding/src/ via scripts/build_assets.py.
-# - uv.lock: dependency pins, no design signal.
-# - Binaries (*.png, *.svg, *.ico): regenerate from branding/ sources.
-# - docs/**: built site output + logo copy; site intent lives in docs/index.html
-#   only when doing web work (pack docs/ ad hoc for that).
-# - tests/**, tests_py/**: harnesses/mocks dominate; pack ad hoc
-#   (bunx repomix tests tests_py) for test-authoring sessions.
-# - packaging/Output/**: local installer builds.
-# NOTE: config/default-prefs.js is intentionally KEPT: it embeds the upstream Betterfox
-# block (~220 lines) that lives nowhere else in the repo; excluding it would
-# drop that context. The ~67-line Aph tail duplicates config/user-overrides.js
-# by design (last-line-wins merge, see scripts/update_prefs.py).
+# Exclusions are defined declaratively in .repomixignore:
+# - Generated bundles (branding/workspaces.js, branding/command-palette.js)
+# - uv.lock, binary assets (*.png, *.svg, *.ico)
+# - docs/**, tests/**, tests_py/**, packaging/Output/**
 repomix:
-    # NOTE: repomix takes ONE --ignore (repeats overwrite); keep this a single
-    # comma-separated list matching the groups documented above. Asset globs
-    # need **/ (bare *.svg only matches repo root — repomixignore quirk that
-    # once leaked the 134KB aph.svg into the pack).
-    bunx repomix --ignore "branding/workspaces.js,branding/command-palette.js,uv.lock,**/*.png,**/*.svg,**/*.ico,docs/**,tests/**,tests_py/**,packaging/Output/**"
+    bunx repomix
 
 # Show profile and build status
 status:

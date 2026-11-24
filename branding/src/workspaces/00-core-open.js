@@ -28,7 +28,7 @@
  * gets `data-aph-bound-match="1"` (theme.css hides the native
  * `.tab-context-line`); mismatches and unbound workspaces keep the line.
  * Global pinned tabs match the viewed workspace, not their dormant tag.
- * All per-tab markers sync through syncTabChrome (bound match + star);
+ * All per-tab markers sync through syncTabChrome (bound match);
  * every lifecycle entry (birth, retag, restore, pin, switch, startup)
  * funnels through it or the bulk syncAllTabChrome.
  * Domain routes: a host may be bound to a workspace ("github.com" -> "2",
@@ -43,7 +43,7 @@
   * sweeps behind aph.unload.autoEnabled with
   * aph.unload.staleMin, default 30 min, and a low-memory hook behind
   * aph.unload.onLowMemory, default on). Manual scopes unload every
-  * eligible tab; automatic sweeps spare recently-viewed and starred tabs.
+  * eligible tab; automatic sweeps spare recently-viewed tabs.
   * Never unloads selected/pinned/audible/sharing/pending/about:/offline tabs.
  * Injected into browser.xhtml via rebrand.py (chrome://browser/content/workspaces.js).
  */
@@ -52,11 +52,6 @@
   const WIN_KEY = "aphWsCurrent";
   let current = "1";
   const lastSelected = Object.create(null); // workspaceId -> last tab
-  let lastUsed = null; // compat alias: mru[1] (kept for getLastWorkspace/tests)
-  // MRU visit order for Ctrl+` walk: mru[0] === current always, mru[1] is
-  // last-used. Explicit switches push front; walk switches rotate so
-  // repeated presses walk deeper instead of toggling. In-memory per window.
-  let mru = ["1"];
   // Tabs that arrived via cross-window drag (TabOpen detail.adoptedTab).
   // They join the destination's visible workspace; anchorGroup lets them
   // drag the whole group instead of being healed back to the source tag.

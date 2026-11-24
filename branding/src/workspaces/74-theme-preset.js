@@ -98,7 +98,7 @@
     try {
       window.addEventListener("unload", cleanupThemePreset, { once: true });
     } catch (e) {}
-    // Own namespace (AphStar precedent): this module initializes before
+    // Own namespace (AphPinReset precedent): this module initializes before
     // 110-chrome-init builds window.AphWorkspaces, so there is nothing
     // to attach to yet.
     try {

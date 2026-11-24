@@ -24,6 +24,7 @@
   let routeObserver = null;
   let nameObserver = null;
   let wsIconObserver = null;
+  let wsAccentObserver = null;
   let startupRestoreObserver = null;
   // Original window.BrowserOpenTab, captured before initBoundNewTab wraps
   // it so + button / menu births land in the bound container. Restored on
@@ -124,7 +125,7 @@
         } catch (e) {}
       }
     } catch (e) {}
-    if (!eligible) {
+    if (!eligible || eligible.length > 40) {
       return;
     }
     // Strip first, reflow, then add: the reflow between removal and
@@ -350,11 +351,11 @@
   // too; this entry exists for callers that already claimed (startup
   // restore) and for console use. Returns "local"/"noop" so console
   // callers can confirm what ran (no UI effect).
-  function switchLocal(target, walkDir) {
+  function switchLocal(target) {
     if (!isValidId(target) || target === current) {
       return "noop";
     }
-    beginWorkspaceSwitch(target, walkDir || 0);
+    beginWorkspaceSwitch(target);
     finishWorkspaceSwitch(target);
     return "local";
   }
@@ -390,11 +391,10 @@
   // Commit this window's claim first: current + WIN_KEY + indicator. The
   // adopted-tab handler stamps arrivals to `current`, so the claim must
   // precede any pull — otherwise pulled tabs land in the old workspace.
-  function beginWorkspaceSwitch(target, walkDir) {
+  function beginWorkspaceSwitch(target) {
     if (!isValidId(target) || target === current) {
       return;
     }
-    const walk = walkDir === 1 || walkDir === -1 ? walkDir : 0;
     // Splits are session-scoped: dissolve first so a tab hidden by the
     // switch below can never keep painting inside the content card.
     // Both tabs stay open, each tagged to its own workspace.
@@ -408,17 +408,7 @@
       tabs = Array.from(gBrowser.tabs);
     } catch (e) {}
     rememberCurrent(tabs);
-    try {
-      if (walk !== 0) {
-        recordWalkMru(target, walk);
-      } else {
-        recordExplicitMru(target);
-      }
-    } catch (e) {
-      try {
-        lastUsed = current;
-      } catch (_e) {}
-    }
+
     // Glide direction for finishWorkspaceSwitch: ascending rises from
     // below, descending sinks from above. Captured before the flip —
     // every entry path (switchTo, switchLocal, cycle, dock, palette,
@@ -472,8 +462,10 @@
     // every switch re-syncs markers; unpinned matches are tag-stable and
     // the pass is a cheap no-op for them.
     try {
-      if (typeof syncAllTabChrome === "function") {
-        syncAllTabChrome();
+      for (const t of tabs) {
+        if (t && t.pinned && typeof syncTabChrome === "function") {
+          syncTabChrome(t);
+        }
       }
     } catch (e) {}
     // Deferred settle sweep so the switch stays snappy: each switch
@@ -492,22 +484,21 @@
   // consulted, pulled from, or focused. A workspace with no local tabs
   // opens a fresh tab via reconcile; same-id workspaces elsewhere are
   // independent tab sets. Returns "switched"/"local"/"noop" for console
-  // diagnosis (callers ignore it). walkDir 1/-1 marks a Ctrl+` MRU walk
-  // (rotate) vs an explicit switch (push front).
-  function switchTo(target, walkDir) {
+  // diagnosis (callers ignore it).
+  function switchTo(target) {
     if (!isValidId(target) || target === current) {
       return "noop";
     }
     try {
       if (typeof beginWorkspaceSwitch === "function") {
-        beginWorkspaceSwitch(target, walkDir || 0);
+        beginWorkspaceSwitch(target);
       }
     } catch (e) {}
     try {
       if (typeof finishWorkspaceSwitch === "function") {
         finishWorkspaceSwitch(target);
       } else {
-        switchLocal(target, walkDir || 0);
+        switchLocal(target);
       }
     } catch (e) {}
     return "switched";
@@ -661,215 +652,11 @@
     }
   }
 
-  // MRU visit order for Ctrl+` walk (mru[0] === current, mru[1] = last-used).
-  // Explicit switches push front; walk switches rotate so repeated presses
-  // walk deeper instead of toggling. Filtered to active + current so walks
-  // never strand on empty workspaces; missing active IDs append by tab
-  // recency (max aphLastViewed per WS) so restored workspaces stay
-  // reachable in MRU-feeling order instead of numeric. Fail-silent.
-  function getMruOrder() {
-    try {
-      let active = [];
-      try {
-        active = typeof getActiveIds === "function" ? getActiveIds() : [];
-      } catch (e) {
-        active = [];
-      }
-      const out = [];
-      const seen = new Set();
-      const push = (id) => {
-        try {
-          if (isValidId(id) && !seen.has(id)) {
-            seen.add(id);
-            out.push(id);
-          }
-        } catch (e) {}
-      };
-      try {
-        if (isValidId(current)) {
-          push(current);
-        }
-      } catch (e) {}
-      try {
-        for (const id of mru || []) {
-          if (id === current) {
-            continue;
-          }
-          push(id);
-        }
-      } catch (e) {}
-      let filtered = [];
-      try {
-        const activeSet = new Set(active || []);
-        for (const id of out) {
-          try {
-            if (id === current) {
-              filtered.push(id);
-              continue;
-            }
-            if (activeSet.has(id)) {
-              filtered.push(id);
-            }
-          } catch (e) {}
-        }
-        try {
-          const missing = [];
-          try {
-            for (const id of active || []) {
-              if (!filtered.includes(id)) {
-                missing.push(id);
-              }
-            }
-          } catch (e) {}
-          // Most-recently-viewed workspace first (max aphLastViewed across
-          // its tabs); unviewed/unknown ties fall back to numeric order.
-          // Keeps the first-ever walk feeling like MRU instead of "next".
-          try {
-            const best = Object.create(null);
-            try {
-              for (const t of Array.from((typeof gBrowser !== "undefined" && gBrowser.tabs) || [])) {
-                let w = null;
-                try {
-                  w = typeof rawWs === "function" ? rawWs(t) : null;
-                } catch (e) {}
-                if (!isValidId(w) || !missing.includes(w)) {
-                  continue;
-                }
-                let v = 0;
-                try {
-                  v = typeof readUnloadLastViewed === "function" ? readUnloadLastViewed(t) : 0;
-                } catch (e) {
-                  v = 0;
-                }
-                try {
-                  if (Number.isFinite(v) && v > (best[w] || 0)) {
-                    best[w] = v;
-                  }
-                } catch (e) {}
-              }
-            } catch (e) {}
-            missing.sort((a, b) => {
-              const va = best[a] || 0;
-              const vb = best[b] || 0;
-              if (va !== vb) {
-                return vb - va;
-              }
-              return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
-            });
-          } catch (e) {}
-          try {
-            for (const id of missing) {
-              filtered.push(id);
-            }
-          } catch (e) {}
-        } catch (e) {}
-      } catch (e) {
-        filtered = out;
-      }
-      return filtered;
-    } catch (e) {
-      return [];
-    }
-  }
 
-  function syncLastUsed() {
-    try {
-      lastUsed = null;
-      try {
-        if (Array.isArray(mru) && mru.length > 1 && isValidId(mru[1]) && mru[1] !== current) {
-          lastUsed = mru[1];
-        } else if (Array.isArray(mru) && mru.length > 1 && isValidId(mru[1])) {
-          lastUsed = mru[1];
-        }
-      } catch (e) {}
-    } catch (e) {}
-  }
 
-  function recordExplicitMru(target) {
-    try {
-      if (!isValidId(target)) {
-        try {
-          lastUsed = current;
-        } catch (e) {}
-        return;
-      }
-      let order = [];
-      try {
-        order = getMruOrder();
-      } catch (e) {
-        order = [];
-      }
-      const rest = [];
-      try {
-        for (const id of order) {
-          if (id !== target && !rest.includes(id)) {
-            rest.push(id);
-          }
-        }
-      } catch (e) {}
-      let next = [target].concat(rest);
-      try {
-        next = next.filter((id) => isValidId(id)).slice(0, 9);
-      } catch (e) {}
-      try {
-        if (!next.includes(target)) {
-          next.unshift(target);
-        }
-      } catch (e) {}
-      mru = next.length ? next : [target];
-      syncLastUsed();
-    } catch (e) {
-      try {
-        lastUsed = current;
-      } catch (_e) {}
-    }
-  }
-
-  function recordWalkMru(target, dir) {
-    try {
-      if (!isValidId(target)) {
-        return;
-      }
-      let order = [];
-      try {
-        order = getMruOrder();
-      } catch (e) {
-        order = [];
-      }
-      if (!order.includes(target)) {
-        recordExplicitMru(target);
-        return;
-      }
-      let next = order;
-      try {
-        if (dir === -1) {
-          next = order.slice(-1).concat(order.slice(0, -1));
-        } else {
-          next = order.slice(1).concat(order.slice(0, 1));
-        }
-      } catch (e) {
-        next = order;
-      }
-      // Walk target must land front; fallback to explicit push on mismatch
-      // (e.g. current drifted from index 0).
-      try {
-        if (!next.length || next[0] !== target) {
-          recordExplicitMru(target);
-          return;
-        }
-      } catch (e) {}
-      try {
-        mru = next.filter((id) => isValidId(id)).slice(0, 9);
-      } catch (e) {
-        mru = next;
-      }
-      syncLastUsed();
-    } catch (e) {}
-  }
-
-  // Cycling: "active" = has a live unpinned tab (pins are global with a
-  // dormant tag, so they don't count); current always counts so an empty
-  // workspace never strands you. Sorted so next/prev wrap deterministically.
+  // Cycling: "active" = has a live tab in that workspace;
+  // current always counts so an empty workspace never strands you.
+  // Sorted so next/prev wrap deterministically.
   function getActiveIds() {
     const seen = new Set();
     try {
@@ -918,67 +705,7 @@
     switchTo(ids[(i + dir + ids.length) % ids.length]);
   }
 
-  // Workspace MRU walk (API-only; no default binding): each press goes to
-  // the next-most-recent workspace, wrapping. Repeated presses walk
-  // deeper (no toggle trap) via rotation in recordWalkMru. Filtered to
-  // active so walks never create stray newtabs; pulses when fewer than
-  // 2 reachable.
-  function cycleMru(dir) {
-    const step = dir === -1 ? -1 : 1;
-    let order = [];
-    try {
-      order = typeof getMruOrder === "function" ? getMruOrder() : getActiveIds();
-    } catch (e) {
-      order = [];
-    }
-    if (!Array.isArray(order) || order.length < 2) {
-      try {
-        pulseWorkspaceIndicator();
-      } catch (e) {}
-      return;
-    }
-    let idx = -1;
-    try {
-      idx = order.indexOf(isValidId(current) ? current : "1");
-    } catch (e) {
-      idx = -1;
-    }
-    if (idx < 0) {
-      try {
-        switchTo(order[0]);
-      } catch (e) {}
-      return;
-    }
-    let target = null;
-    try {
-      target = order[(idx + step + order.length) % order.length];
-    } catch (e) {
-      target = null;
-    }
-    if (!isValidId(target) || target === current) {
-      return;
-    }
-    switchTo(target, step);
-  }
 
-  // Legacy exact toggle (console/API compat): hops to last-used without
-  // rotating, so it always flips the same pair. The Ctrl+` binding uses
-  // cycleTabMru instead (walks tabs); cycleMru stays API-only.
-  function toggleLastWorkspace() {
-    let dest = null;
-    try {
-      if (Array.isArray(mru) && mru.length > 1 && isValidId(mru[1])) {
-        dest = mru[1];
-      } else {
-        dest = lastUsed;
-      }
-    } catch (e) {
-      dest = lastUsed;
-    }
-    if (isValidId(dest) && dest !== current) {
-      switchTo(dest);
-    }
-  }
 
   // Tab MRU walk for Ctrl+` (Ctrl+Shift+` reverses): each press selects
   // the next-most-recently-viewed tab, wrapping. Workspace-safe: landing
@@ -1416,11 +1143,6 @@
     } catch (e) {}
 
     try {
-      if (typeof syncStarredBoundaries === "function") {
-        syncStarredBoundaries();
-      }
-    } catch (e) {}
-    try {
       if (typeof aphTabsLog === "function") {
         aphTabsLog(`send ws=${target} moved=${list.length}`);
       }
@@ -1479,10 +1201,9 @@
   // multiselection this is just the active tab. The selection moves as-is.
   // Native groups stay joined when the move covers
   // the whole group; partial moves eject as before (groups are single-WS).
-  // Pinned tabs are global so sent pins stay visible; their tags are dormant
-  // state applied on eventual unpin. Sent tabs keep their containers
-  // (containers are immutable per tab), and position; bindings only affect
-  // newly opened tabs.
+  // Pinned tabs belong to workspaces: sent pins hide until that workspace is
+  // viewed. Sent tabs keep their containers (containers are immutable per
+  // tab), and position; bindings only affect newly opened tabs.
   function sendTabTo(target, explicit) {
     if (!isValidId(target) || target === current) {
       return;

@@ -99,9 +99,8 @@
     }
   }
 
-  // Auto-only eligibility: the manual guards plus the starred exemption
-  // and staleness. Starred tabs are user-marked keepers;
-  // manual scopes stay a force tool and skip both filters.
+  // Auto-only eligibility: manual guards plus staleness.
+  // Manual scopes stay a force tool and skip staleness.
   // nowMs/staleMs are parameters so tests can drive time deterministically;
   // callers that pass nothing get live values.
   function isAutoUnloadEligible(tab, nowMs, staleMs) {
@@ -109,11 +108,6 @@
       if (!canUnloadTab(tab).ok) {
         return false;
       }
-      try {
-        if (typeof isStarredForPark === "function" && isStarredForPark(tab)) {
-          return false;
-        }
-      } catch (e) {}
       let now = nowMs;
       if (!Number.isFinite(now)) {
         try {
@@ -155,57 +149,34 @@
       if (!tab) {
         return { ok: false, reason: "no-tab" };
       }
-      try {
-        if (tab.closing) {
-          return { ok: false, reason: "closing" };
-        }
-      } catch (e) {}
+      if (tab.closing) {
+        return { ok: false, reason: "closing" };
+      }
+      if (tab.selected || gBrowser.selectedTab === tab) {
+        return { ok: false, reason: "selected" };
+      }
+      if (tab.pinned) {
+        return { ok: false, reason: "pinned" };
+      }
+      if (tab.soundPlaying || tab.audible) {
+        return { ok: false, reason: "audio" };
+      }
+      if (tab.busy) {
+        return { ok: false, reason: "loading" };
+      }
       // SessionStore owns restoring tabs (tags unsettled): never touch.
-      try {
-        if (typeof isRestoringTab === "function" && isRestoringTab(tab)) {
-          return { ok: false, reason: "restoring" };
-        }
-      } catch (e) {}
-      try {
-        if (tab.selected) {
-          return { ok: false, reason: "selected" };
-        }
-      } catch (e) {}
-      try {
-        if (gBrowser.selectedTab === tab) {
-          return { ok: false, reason: "selected" };
-        }
-      } catch (e) {}
-      try {
-        if (tab.pinned) {
-          return { ok: false, reason: "pinned" };
-        }
-      } catch (e) {}
-      try {
-        if (tab.soundPlaying || tab.audible) {
-          return { ok: false, reason: "audio" };
-        }
-      } catch (e) {}
-      try {
-        if (tab.busy) {
-          return { ok: false, reason: "loading" };
-        }
-      } catch (e) {}
-      try {
-        if (tab.linkedBrowser?._sharingState?.webRTC?.sharing) {
-          return { ok: false, reason: "sharing" };
-        }
-      } catch (e) {}
-      try {
-        if (typeof tab.hasAttribute === "function" && tab.hasAttribute("pending")) {
-          return { ok: false, reason: "pending" };
-        }
-      } catch (e) {}
-      try {
-        if (tab.linkedBrowser?.frameLoader?.tabParent?.hasBeforeUnload) {
-          return { ok: false, reason: "beforeunload" };
-        }
-      } catch (e) {}
+      if (typeof isRestoringTab === "function" && isRestoringTab(tab)) {
+        return { ok: false, reason: "restoring" };
+      }
+      if (typeof tab.hasAttribute === "function" && tab.hasAttribute("pending")) {
+        return { ok: false, reason: "pending" };
+      }
+      if (tab.linkedBrowser?._sharingState?.webRTC?.sharing) {
+        return { ok: false, reason: "sharing" };
+      }
+      if (tab.linkedBrowser?.frameLoader?.tabParent?.hasBeforeUnload) {
+        return { ok: false, reason: "beforeunload" };
+      }
       let spec;
       try {
         spec = tab.linkedBrowser?.currentURI?.spec;
@@ -218,6 +189,18 @@
       if (spec.startsWith("about:") || spec.startsWith("chrome:") || spec.startsWith("resource:")) {
         return { ok: false, reason: "internal" };
       }
+      try {
+        const isStarred =
+          typeof isTabStarred === "function"
+            ? isTabStarred(tab)
+            : tab.group &&
+              (tab.group.label === "Starred" ||
+                tab.group.name === "Starred" ||
+                tab.group.getAttribute?.("label") === "Starred");
+        if (isStarred) {
+          return { ok: false, reason: "starred" };
+        }
+      } catch (e) {}
       try {
         if (isNewTab(tab)) {
           return { ok: false, reason: "newtab" };
@@ -280,12 +263,12 @@
       for (const t of tabs) {
         try {
           if (isAutoUnloadEligible(t, autoNow, autoStale)) {
-            queue.push(t);
+            queue.push({ t, lv: readUnloadLastViewed(t) });
           }
         } catch (e) {}
       }
       try {
-        queue.sort((a, b) => readUnloadLastViewed(a) - readUnloadLastViewed(b));
+        queue.sort((a, b) => a.lv - b.lv);
       } catch (e) {}
     }
     let unloaded = 0;
@@ -297,7 +280,7 @@
         opts && Number.isFinite(opts.cap) && opts.cap >= 0
           ? Math.floor(opts.cap)
           : UNLOAD_SWEEP_CAP;
-      const victims = queue.slice(0, cap);
+      const victims = queue.slice(0, cap).map((entry) => entry.t);
       for (const t of victims) {
         try {
           if (dryRun) {
@@ -389,31 +372,34 @@
       for (const t of tabs) {
         try {
           if (isAutoUnloadEligible(t, now, stale)) {
-            let title = "";
-            let host = "";
-            let ws = "";
-            try {
-              title = String(t.label || "");
-            } catch (e) {}
-            try {
-              host = unloadTabHost(t);
-            } catch (e) {}
-            try {
-              ws = getWs(t);
-            } catch (e) {}
-            q.push({ title, host, ws, lastViewed: readUnloadLastViewed(t) });
+            q.push({ t, lv: readUnloadLastViewed(t) });
           }
         } catch (e) {}
       }
       try {
-        q.sort((a, b) => a.lastViewed - b.lastViewed);
+        q.sort((a, b) => a.lv - b.lv);
       } catch (e) {}
       out.total = q.length;
       const n =
         limit === undefined || limit === null
           ? 10
           : Math.max(0, Math.floor(Number(limit)));
-      out.list = q.slice(0, Number.isFinite(n) ? n : 10);
+      const slice = q.slice(0, Number.isFinite(n) ? n : 10);
+      out.list = slice.map(({ t, lv }) => {
+        let title = "";
+        let host = "";
+        let ws = "";
+        try {
+          title = String(t.label || "");
+        } catch (e) {}
+        try {
+          host = unloadTabHost(t);
+        } catch (e) {}
+        try {
+          ws = getWs(t);
+        } catch (e) {}
+        return { title, host, ws, lastViewed: lv };
+      });
     } catch (e) {}
     return out;
   }
@@ -496,7 +482,41 @@
   // When auto-unload is on the sweep runs scope "auto" (staleness covers
   // hidden and idle-current tabs alike); with it off nothing sweeps.
   const UNLOAD_SETTLE_MS = 15000;
+  const UNLOAD_CHUNK_MS = 2000;
+  const UNLOAD_LOWMEM_CAP = 100;
   let unloadSettleTimer = null;
+
+  function drainAutoUnload(cap) {
+    if (unloadSettleTimer !== null && unloadSettleTimer !== undefined) {
+      try {
+        clearTimeout(unloadSettleTimer);
+      } catch (e) {}
+      unloadSettleTimer = null;
+    }
+    try {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return;
+      }
+    } catch (e) {}
+    const res = unloadEligibleTabs({
+      scope: "auto",
+      ...(cap ? { cap } : {}),
+    });
+    if (
+      res &&
+      res.unloaded > 0 &&
+      res.deferred > 0 &&
+      typeof setTimeout === "function"
+    ) {
+      unloadSettleTimer = setTimeout(() => {
+        unloadSettleTimer = null;
+        const canContinue = cap ? getUnloadOnLowMemory() : getUnloadAutoEnabled();
+        if (canContinue) {
+          drainAutoUnload(cap);
+        }
+      }, UNLOAD_CHUNK_MS);
+    }
+  }
 
   // (Re-)arm the settle timer. True when a sweep is now pending, false
   // when auto-unload is off (or timers are unavailable, as in the
@@ -522,7 +542,7 @@
       unloadSettleTimer = setTimeout(() => {
         unloadSettleTimer = null;
         try {
-          unloadEligibleTabs({ scope: "auto" });
+          drainAutoUnload();
         } catch (e) {}
       }, UNLOAD_SETTLE_MS);
       return unloadSettleTimer !== null && unloadSettleTimer !== undefined;
@@ -555,7 +575,7 @@
           if (!getUnloadAutoEnabled()) {
             return;
           }
-          unloadEligibleTabs({ scope: "auto" });
+          drainAutoUnload();
         } catch (e) {}
       }, UNLOAD_INTERVAL_MS);
       return unloadIntervalId !== null && unloadIntervalId !== undefined;
@@ -600,13 +620,13 @@
       const obs = {
         observe(_subject, topic) {
           try {
-            if (typeof topic === "string" && topic.indexOf("memory-pressure") === -1) {
+            if (typeof topic === "string" && topic !== "memory-pressure") {
               return;
             }
             if (!getUnloadOnLowMemory()) {
               return;
             }
-            unloadEligibleTabs({ scope: "auto" });
+            drainAutoUnload(UNLOAD_LOWMEM_CAP);
           } catch (e) {}
         },
       };
@@ -710,55 +730,10 @@
     return null;
   }
 
-  // Ctrl/Cmd+W on a selected STARRED tab mirrors pins (pref
-  // aph.stars.ctrlWUnloads, default on): starred tabs are normal
-  // per-workspace tabs with a base URL owned by 76-starred.js. A drifted
-  // star first resets to its starred base URL in place (stay selected, no
-  // unload — next press, now at base, parks); a star already at base parks
-  // (unloads) instead of closing; a second press (now pending) falls
-  // through to stock close. Same guards as pins: unsaved work,
-  // already-pending, internal pages, sole-visible-tab windows,
-  // multiselections. Pinned tabs never reach here (pin park runs first).
-  const STAR_PARK_PREF = "aph.stars.ctrlWUnloads";
-
-  function getCtrlWParksStarred() {
-    try {
-      if (Services.prefs && typeof Services.prefs.getBoolPref === "function") {
-        return Services.prefs.getBoolPref(STAR_PARK_PREF);
-      }
-    } catch (e) {}
-    return true;
-  }
-
-  // 76-starred.js loads after this file in the bundle; resolve through
-  // typeof guards so a missing star module fails closed to stock close.
-  function isStarredForPark(tab) {
-    try {
-      if (typeof isStarredTab === "function") {
-        return !!isStarredTab(tab);
-      }
-    } catch (e) {}
-    try {
-      if (SessionStore && typeof SessionStore.getCustomTabValue === "function") {
-        if (SessionStore.getCustomTabValue(tab, "aphStarred") === "1") {
-          return true;
-        }
-      }
-    } catch (e) {}
-    try {
-      if (tab && typeof tab.hasAttribute === "function" && tab.hasAttribute("data-aph-starred")) {
-        return true;
-      }
-    } catch (e) {}
-    return false;
-  }
-
-  // Shared Ctrl+W park for owned-base-URL tabs (pins + stars): guards,
+  // Ctrl+W park for owned-base-URL tabs (pinned tabs): guards,
   // drift-reset-in-place, then neighbor-select + discard. checkOwned(sel)
-  // returns a reason string when the tab isn't eligible, null when it is
-  // (each kind keeps its own check order); getTarget/doReset carry the
-  // kind's base-URL accessors with the usual typeof guards (50 loads
-  // before 75/76).
+  // returns a reason string when the tab isn't eligible, null when it is;
+  // getTarget/doReset carry the base-URL accessors with the usual typeof guards.
   function parkSelectedOwnedTab(prefOn, checkOwned, getTarget, doReset) {
     try {
       if (!prefOn()) {
@@ -873,29 +848,6 @@
     } catch (e) {
       return { ok: false, reason: "error" };
     }
-  }
-
-  function parkSelectedStarredTab() {
-    return parkSelectedOwnedTab(
-      getCtrlWParksStarred,
-      (sel) => {
-        try {
-          if (sel.pinned) {
-            return "pinned";
-          }
-        } catch (e) {}
-        if (!isStarredForPark(sel)) {
-          return "not-starred";
-        }
-        return null;
-      },
-      (sel) => (typeof effectiveStarURL === "function" ? effectiveStarURL(sel) : ""),
-      (sel) => {
-        if (typeof resetStarTab === "function") {
-          resetStarTab(sel);
-        }
-      }
-    );
   }
 
   function parkSelectedPinnedTab() {

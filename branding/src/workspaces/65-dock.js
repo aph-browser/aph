@@ -433,36 +433,36 @@
     return { icon: "", text: id };
   }
 
-  function dockCounts() {
+  function dockStats() {
     const counts = Object.create(null);
+    const seen = new Set();
     try {
       for (const t of Array.from(gBrowser.tabs || [])) {
+        if (!t || t.closing || t.pinned) {
+          continue;
+        }
+        if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
+          continue;
+        }
+        let w = null;
         try {
-          if (!t || t.closing || t.pinned) {
-            continue;
-          }
-          // Restoring or not-yet-tagged tabs belong to no workspace yet
-          // (getWs defaults tagless to "1"): counting them inflates WS1
-          // mid-restore and lies in the pill titles and close labels
-          // that read these counts.
-          if (typeof isRestoringTab === "function" && isRestoringTab(t)) {
-            continue;
-          }
-          let tagged = false;
-          try {
-            tagged = typeof rawWs === "function" && !!rawWs(t);
-          } catch (e) {}
-          if (!tagged) {
-            continue;
-          }
-          const w = getWs(t);
-          if (isValidId(w)) {
-            counts[w] = (counts[w] || 0) + 1;
-          }
+          w = typeof rawWs === "function" ? rawWs(t) : null;
         } catch (e) {}
+        if (!w || !isValidId(w)) {
+          continue;
+        }
+        seen.add(w);
+        counts[w] = (counts[w] || 0) + 1;
       }
     } catch (e) {}
-    return counts;
+    if (isValidId(current)) {
+      seen.add(current);
+    }
+    return { ids: [...seen].sort(), counts };
+  }
+
+  function dockCounts() {
+    return dockStats().counts;
   }
 
   function lowestInactiveId(active) {
@@ -1469,170 +1469,7 @@
   // to both click and command — XUL activates via command, HTML via
   // click. aphDockOpenPalette is idempotent (open, not toggle), so a
   // double event cannot flip it shut.
-  const NAV_SWITCHER_ID = "aph-ws-nav-switcher";
-  let cachedNavSwitcher = null;
-
-  function navSwitcherNode() {
-    try {
-      if (typeof document.getElementById === "function") {
-        const found = document.getElementById(NAV_SWITCHER_ID);
-        if (found) {
-          return found;
-        }
-      }
-    } catch (e) {}
-    try {
-      if (
-        cachedNavSwitcher &&
-        cachedNavSwitcher.isConnected !== false
-      ) {
-        return cachedNavSwitcher;
-      }
-    } catch (e) {}
-    return null;
-  }
-
-  function ensureNavSwitcher() {
-    try {
-      const existing = navSwitcherNode();
-      if (existing) {
-        return existing;
-      }
-      let target = null;
-      try {
-        target =
-          typeof document.getElementById === "function"
-            ? document.getElementById("nav-bar-customization-target") ||
-              document.getElementById("nav-bar")
-            : null;
-      } catch (e) {
-        target = null;
-      }
-      if (!target) {
-        return null;
-      }
-      const canInsert =
-        target &&
-        (typeof target.insertBefore === "function" ||
-          typeof target.appendChild === "function" ||
-          typeof target.prepend === "function");
-      if (!canInsert) {
-        return null;
-      }
-      let sw = null;
-      try {
-        sw =
-          typeof document.createXULElement === "function"
-            ? document.createXULElement("toolbarbutton")
-            : document.createElement("button");
-      } catch (e) {
-        sw = null;
-      }
-      if (!sw) {
-        return null;
-      }
-      try {
-        sw.id = NAV_SWITCHER_ID;
-      } catch (e) {}
-      try {
-        if (sw.classList && typeof sw.classList.add === "function") {
-          sw.classList.add("aph-ws-nav-switcher");
-        }
-      } catch (e) {}
-      const open = (e) => {
-        try {
-          if (e && typeof e.stopPropagation === "function") {
-            e.stopPropagation();
-          }
-        } catch (_e) {}
-        aphDockOpenPalette();
-      };
-      try {
-        if (typeof sw.addEventListener === "function") {
-          sw.addEventListener("click", open);
-          sw.addEventListener("command", open);
-        }
-      } catch (e) {}
-      try {
-        if (typeof target.insertBefore === "function" && target.firstChild !== undefined) {
-          target.insertBefore(sw, target.firstChild || null);
-        } else if (typeof target.prepend === "function") {
-          target.prepend(sw);
-        } else if (typeof target.appendChild === "function") {
-          target.appendChild(sw);
-        } else {
-          return null;
-        }
-      } catch (e) {
-        return null;
-      }
-      try {
-        cachedNavSwitcher = sw;
-      } catch (e) {}
-      return sw;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function renderNavSwitcher() {
-    try {
-      const stripOn = !!dockAnchor();
-      const sw = stripOn ? navSwitcherNode() : ensureNavSwitcher();
-      if (!sw) {
-        return;
-      }
-      const show = !stripOn;
-      try {
-        if (typeof sw.setAttribute === "function") {
-          if (show) {
-            sw.removeAttribute("hidden");
-          } else {
-            sw.setAttribute("hidden", "true");
-          }
-        }
-      } catch (e) {}
-      try {
-        sw.hidden = !show;
-      } catch (e) {}
-      if (!show) {
-        return;
-      }
-      const cur = typeof current !== "undefined" && isValidId(current) ? current : "1";
-      let name = "";
-      try {
-        name = typeof getWsName === "function" ? getWsName(cur) || "" : "";
-      } catch (e) {}
-      let count = 0;
-      try {
-        count = (typeof dockCounts === "function" ? dockCounts()[cur] : 0) || 0;
-      } catch (e) {}
-      const short = name ? `WS ${cur} · ${name}` : `WS ${cur}`;
-      const tip =
-        `${name ? `Workspace ${cur}: ${name}` : `Workspace ${cur}`} · ` +
-        `${count} tab${count === 1 ? "" : "s"} — click for palette · Alt+1..9 to switch`;
-      try {
-        if (typeof sw.setAttribute === "function") {
-          sw.setAttribute("label", short);
-          sw.setAttribute("tooltiptext", tip);
-          sw.setAttribute("aria-label", tip);
-        }
-      } catch (e) {}
-      try {
-        sw.title = tip;
-      } catch (e) {}
-      try {
-        sw.textContent = short;
-      } catch (e) {}
-    } catch (e) {}
-  }
-
   function renderDock() {
-    // The nav-bar fallback paints first: exactly one readout — strip
-    // dock when anchored, nav switcher when horizontal.
-    try {
-      renderNavSwitcher();
-    } catch (e) {}
     try {
       const anchor = dockAnchor();
       let dock = null;
@@ -1665,14 +1502,8 @@
       // Normal mode shows active workspaces only (plus current).
       // Window-scoped: no remote pills — other windows' workspaces are
       // independent tab sets, never shown here.
-      let ids = [];
-      try {
-        ids = getActiveIds();
-      } catch (e) {
-        ids = [];
-      }
+      const { ids, counts } = dockStats();
       const cur = isValidId(current) ? current : "1";
-      const counts = dockCounts();
       if (dockDragActive) {
         try {
           dock.setAttribute("data-aph-dragging", "1");
@@ -1705,7 +1536,7 @@
         }
       }
       try {
-        const plus = makeDockPlus(lowestInactiveId(getActiveIds()));
+        const plus = makeDockPlus(lowestInactiveId(ids));
         if (plus) {
           dock.appendChild(plus);
         }
@@ -2464,19 +2295,7 @@
       dockDragActive = false;
       dockPendingDrop = null;
     } catch (e) {}
-    try {
-      const sw = navSwitcherNode();
-      if (sw) {
-        if (sw.parentNode && typeof sw.parentNode.removeChild === "function") {
-          sw.parentNode.removeChild(sw);
-        } else if (typeof sw.remove === "function") {
-          sw.remove();
-        }
-      }
-    } catch (e) {}
-    try {
-      cachedNavSwitcher = null;
-    } catch (e) {}
+
     try {
       const menu = dockMenu();
       if (menu) {

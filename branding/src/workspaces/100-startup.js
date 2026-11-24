@@ -221,7 +221,7 @@
       if (tabs.length === 1) {
         return unlabeled === 0;
       }
-      return named > 0;
+      return named > 0 || unlabeled === 0;
     } catch (e) {
       return true;
     }
@@ -388,6 +388,16 @@
         clearRestoreMarker();
       }
     }
+    try {
+      if (typeof renderDock === "function") {
+        renderDock();
+      }
+    } catch (e) {}
+    try {
+      if (typeof scheduleStartupArchive === "function") {
+        scheduleStartupArchive();
+      }
+    } catch (e) {}
     // The first quit request is held only until restore settles or the
     // fallback fires; a forced second quit is handled by the launcher marker.
     releaseQuitHold();
@@ -435,8 +445,12 @@
     // the next launch.
     restoreMarkerTimer = setTimeout(() => {
       restoreMarkerTimer = null;
-      if (restoreMarkerOwned && !sessionRestorePending && sessionRestoreLooksHealthy()) {
-        clearRestoreMarker();
+      if (restoreMarkerOwned && !sessionRestorePending) {
+        const tabs = Array.from(gBrowser.tabs || []);
+        const hasValidTabs = tabs.some((t) => String(t?.label || "").trim());
+        if (sessionRestoreLooksHealthy() || hasValidTabs) {
+          clearRestoreMarker();
+        }
       }
     }, 15000);
   }

@@ -44,7 +44,6 @@ function makeEnv(prefs, identityService, opts) {
       if (id === "aph-ws-dock") return anchor.children.find((c) => c.id === "aph-ws-dock") || null;
       if (id === "aph-ws-dock-menu") return popupSet.children.find((c) => c.id === "aph-ws-dock-menu") || null;
       if (id === "aph-aph-menu") return popupSet.children.find((c) => c.id === "aph-aph-menu") || null;
-      if (id === "aph-ws-nav-switcher") return navBar.children.find((c) => c.id === "aph-ws-nav-switcher") || null;
       if (id === "nav-bar-customization-target") return null;
       if (id === "navigator-toolbox") {
         return { querySelector: () => null, setAttribute() {}, removeAttribute() {} };
@@ -150,7 +149,7 @@ function makeEnv(prefs, identityService, opts) {
   const switcher = () => navBar.children.find((c) => c.id === "aph-ws-nav-switcher") || null;
   return {
     sb, tabs, containerHandlers, prompts, prefStore, prefObservers, anchor, popupSet, navBar,
-    dock, menu, pills, plus, switcher,
+    dock, menu, pills, plus,
     api: sb.window.AphWorkspaces,
     select(t) { sb.gBrowser.selectedTab = t; },
   };
@@ -979,45 +978,5 @@ describe("workspace dock", () => {
     delete noLabel.getUserContextLabel;
     const env2 = makeEnv(undefined, noLabel);
     assert.equal(env2.api.describeContainer(1).name, "Personal");
-  });
-
-  it("horizontal mode hides the strip dock and shows the nav switcher", () => {
-    const env = makeEnv(undefined, undefined, { horizontal: true });
-    const a = addTab(env, { label: "a", ws: "1" });
-    addTab(env, { label: "c", ws: "2" });
-    env.select(a);
-    env.api.renderDock();
-    assert.equal(env.dock(), null, "no strip dock without the vertical anchor");
-    const sw = env.switcher();
-    assert.ok(sw, "nav switcher mounted");
-    assert.equal(sw.hidden, false);
-    assert.equal(sw.getAttribute("label"), "WS 1");
-    assert.ok(/1 tab/.test(sw.getAttribute("aria-label")), `count in label: ${sw.getAttribute("aria-label")}`);
-  });
-
-  it("nav switcher names the workspace and opens the palette on click", () => {
-    const env = makeEnv(
-      { "aph.workspaces.names": JSON.stringify({ 1: "Ops" }) },
-      undefined,
-      { horizontal: true }
-    );
-    const a = addTab(env, { label: "a", ws: "1" });
-    env.select(a);
-    let opened = 0;
-    env.sb.window.AphPalette.open = () => { opened++; };
-    env.api.renderDock();
-    const sw = env.switcher();
-    assert.equal(sw.getAttribute("label"), "WS 1 · Ops");
-    sw.fire("click", {});
-    assert.equal(opened, 1, "palette opens");
-  });
-
-  it("nav switcher hides while the strip dock is up", () => {
-    const env = makeEnv();
-    const a = addTab(env, { label: "a", ws: "1" });
-    env.select(a);
-    env.api.renderDock();
-    assert.ok(env.dock(), "strip dock up");
-    assert.equal(env.switcher(), null, "no nav readout alongside the dock");
   });
 });

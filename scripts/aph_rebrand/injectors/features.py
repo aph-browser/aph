@@ -2,8 +2,7 @@
 
 Each injector appends its files only to the browser omni (the caller gates
 on ``browser.xhtml`` presence) and only when the entry does not exist yet,
-so upgrades never duplicate entries. ``stashpage`` covers
-its multi-file group under a single counter, matching historical logs.
+so upgrades never duplicate entries.
 """
 
 from __future__ import annotations

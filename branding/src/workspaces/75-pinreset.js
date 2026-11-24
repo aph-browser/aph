@@ -9,6 +9,154 @@
   // tabs close normally; getting back is what Reset is for.
   const PIN_URL_KEY = "aphPinURL";
 
+  // Reject javascript: URLs; hostful http(s) and about: pages are fine.
+  function isValidBaseURL(url) {
+    try {
+      const u = new URL(String(url || ""));
+      if (u.protocol === "javascript:") {
+        return false;
+      }
+      return !!u.host || u.protocol.indexOf("about:") === 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function getStoredURL(tab, key) {
+    try {
+      if (!tab) {
+        return "";
+      }
+      let v = null;
+      try {
+        v = SessionStore.getCustomTabValue(tab, key);
+      } catch (e) {
+        v = null;
+      }
+      return typeof v === "string" && v ? v : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function setStoredURL(tab, key, url, noteErr) {
+    try {
+      if (!tab || !isValidBaseURL(url)) {
+        return false;
+      }
+      SessionStore.setCustomTabValue(tab, key, String(url));
+      return true;
+    } catch (e) {
+      try {
+        if (typeof noteErr === "function") {
+          noteErr("set-threw");
+        }
+      } catch (err) {}
+      return false;
+    }
+  }
+
+  function systemPrincipal() {
+    try {
+      return Services.scriptSecurityManager.getSystemPrincipal();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function loadBaseURL(browser, url, noteErr) {
+    const principal = systemPrincipal();
+    let noted = false;
+    const note = (code) => {
+      noted = true;
+      try {
+        if (typeof noteErr === "function") {
+          noteErr(code);
+        }
+      } catch (err) {}
+    };
+    try {
+      if (browser && typeof browser.fixupAndLoadURIString === "function") {
+        browser.fixupAndLoadURIString(url, { triggeringPrincipal: principal });
+        return true;
+      }
+    } catch (e) {
+      note("fixup-threw");
+    }
+    try {
+      if (browser && typeof browser.loadURI === "function" && Services && Services.io) {
+        browser.loadURI(Services.io.newURI(url), { triggeringPrincipal: principal });
+        return true;
+      }
+    } catch (e) {
+      note("loadURI-threw");
+    }
+    if (!noted) {
+      note("no-loader");
+    }
+    return false;
+  }
+
+  function contextClickedTab(e) {
+    try {
+      const popup = e && e.target;
+      const node = (popup && popup.triggerNode) || document.popupNode || null;
+      if (node) {
+        const direct =
+          node.tab ||
+          (typeof node.closest === "function" ? node.closest("tab") : null);
+        if (direct) {
+          return direct;
+        }
+      }
+      if (gBrowser && gBrowser.selectedTab) {
+        return gBrowser.selectedTab;
+      }
+    } catch (err) {}
+    return null;
+  }
+
+  function takeDownMenuItems(items) {
+    try {
+      for (const it of items || []) {
+        try {
+          if (it && it.parentNode) {
+            it.parentNode.removeChild(it);
+          } else if (it && typeof it.remove === "function") {
+            it.remove();
+          }
+        } catch (err) {}
+      }
+    } catch (err) {}
+    return [];
+  }
+
+  function promptBaseURL(tab, initial, dialogTitle, promptTitle, setURL) {
+    const commit = (v) => {
+      try {
+        const value = String(v == null ? "" : v).trim();
+        if (value && typeof setURL === "function") {
+          setURL(tab, value);
+        }
+      } catch (err) {}
+    };
+    try {
+      if (window.AphPalette && typeof window.AphPalette.prompt === "function") {
+        window.AphPalette.prompt({
+          title: dialogTitle,
+          initial: initial || "",
+          onCommit: commit,
+        });
+        return;
+      }
+    } catch (err) {}
+    try {
+      if (typeof window.prompt === "function") {
+        commit(window.prompt(promptTitle, initial || ""));
+      }
+    } catch (err) {}
+  }
+
   // Last failure code for Browser-Console diagnosis (AphPinReset.debug()).
   // House style stays silent in prod; this keeps the silence debuggable.
   let pinLastError = "";
@@ -208,6 +356,7 @@
         setPinURL,
         clearPinURL,
         resetPinTab,
+        promptPinURL,
         capturePinDefault: onPinChanged,
         PIN_URL_KEY,
         debug: () => {

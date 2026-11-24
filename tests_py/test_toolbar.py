@@ -92,3 +92,27 @@ def test_toolbar_missing_anchor_fails_loud(tmp_path) -> None:
 def test_toolbar_unit_skips_unrelated_entries() -> None:
     injector = ToolbarDefaultsInjector()
     assert injector.replace_existing("chrome/browser/foo.js", b"data", None) == b"data"
+
+
+def test_toolbar_accepts_firefox_161_additional_placements(tmp_path) -> None:
+    module_161 = (
+        b"let navbarPlacements = [\n"
+        b'  "back-button",\n'
+        b"];\n"
+        b"        defaultPlacements: navbarPlacements,\n"
+        b"        verticalTabsAdditionalPlacements: [\n"
+        b'          "alltabs-button",\n'
+        b"        ],"
+    )
+    ja = tmp_path / "omni.ja"
+    with zipfile.ZipFile(ja, "w", compression=zipfile.ZIP_STORED) as z:
+        _brand_entries(z)
+        z.writestr(
+            "chrome/browser/content/browser/browser.xhtml",
+            "<html><head></head><body></body></html>",
+        )
+        z.writestr(CUSTOMIZABLE_UI_PATH, module_161)
+    BrandPatcher(ja, load_payloads({})).patch()
+    with zipfile.ZipFile(ja) as z:
+        data = z.read(CUSTOMIZABLE_UI_PATH)
+    assert b"verticalTabsAdditionalPlacements" in data

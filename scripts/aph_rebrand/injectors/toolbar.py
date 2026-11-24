@@ -45,6 +45,9 @@ CUSTOMIZABLE_UI_PATH = "moz-src/browser/components/customizableui/CustomizableUI
 _PATTERN = re.compile(
     rb"(defaultPlacements:\s*navbarPlacements,\s*)verticalTabsDefaultPlacements:\s*\[[^\]]*\],"
 )
+_PATTERN_ADDITIONAL = re.compile(
+    rb"(defaultPlacements:\s*navbarPlacements,\s*)verticalTabsAdditionalPlacements:\s*\[[^\]]*\],"
+)
 _REPLACEMENT = (
     rb'\1verticalTabsDefaultPlacements: ["alltabs-button",\n'
     rb'      "smartwindow-group-tabs-button", ...navbarPlacements],'
@@ -58,13 +61,22 @@ class ToolbarDefaultsInjector:
         if not filename.endswith("CustomizableUI.sys.mjs"):
             return data
         matches = len(_PATTERN.findall(data))
-        if matches == 0:
-            raise ValueError(
-                "CustomizableUI.sys.mjs layout changed: "
-                "verticalTabsDefaultPlacements anchor not found"
-            )
+        if matches == 1:
+            return _PATTERN.sub(_REPLACEMENT, data)
         if matches > 1:
             raise ValueError(
                 f"CustomizableUI.sys.mjs anchor ambiguous: expected 1 occurrence, found {matches}"
             )
-        return _PATTERN.sub(_REPLACEMENT, data)
+        # Firefox 161+ introduced verticalTabsAdditionalPlacements, which
+        # natively appends to defaultPlacements instead of replacing it,
+        # solving the upstream vertical-tabs navbar wipe.
+        additional = len(_PATTERN_ADDITIONAL.findall(data))
+        if additional == 1:
+            return data
+        if additional > 1:
+            raise ValueError(
+                f"CustomizableUI.sys.mjs anchor ambiguous: expected 1 occurrence, found {additional}"
+            )
+        raise ValueError(
+            "CustomizableUI.sys.mjs layout changed: verticalTabs placements anchor not found"
+        )

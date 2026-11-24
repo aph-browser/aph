@@ -69,9 +69,9 @@ user_pref("devtools.chrome.enabled", true);
 // 11c. Firefox native low-memory unloading (stock safety net, NOT Aph's):
 // under real memory pressure Firefox itself unloads least-recently-used
 // tabs (LRU + memory weight, about:unloads shows the ranking). It is
-// workspace-blind — it can take starred or fresh tabs too — but everything
+// workspace-blind — it can take fresh tabs too — but everything
 // reloads on click with workspace tags intact. On matches stock; off leaves
-// memory management to Aph's sweeps alone. Togglable live in Aph Settings.
+// memory management to Aph's sweeps alone.
 user_pref("browser.tabs.unloadOnLowMemory", true);
 
 // 12. Workspace tab unloading: manual via palette ("Unload Inactive Tabs"
@@ -80,7 +80,7 @@ user_pref("browser.tabs.unloadOnLowMemory", true);
 
 // 12a. Automatic tab unloading (on by default): discards every stale tab —
 // hidden workspaces and idle current-workspace tabs alike — every 5 min
-// and 15 s after you stop switching. Starred, pinned, audible, loading
+// and 15 s after you stop switching. Pinned, audible, loading
 // and unsaved-form tabs never unload; click an unloaded tab to reload it.
 user_pref("aph.unload.autoEnabled", true);
 
@@ -95,18 +95,17 @@ user_pref("aph.unload.staleMin", 30);
 // safe anywhere.
 user_pref("aph.unload.onLowMemory", true);
 
+// 12d. Native Bookmark Archiver: automatically archive stale unpinned tabs
+// into Places Bookmarks (Other Bookmarks / Aph Archive / Workspace N / YYYY-MM-DD).
+// Default 0 = manual only via Ctrl+K commands; set to e.g. 7 for weekly cleanup.
+user_pref("aph.archive.autoDays", 0);
+
 // 15. Ctrl/Cmd+W on a selected pinned tab keeps it open instead of
 // closing — a drifted pin resets to its pinned base URL in place, a pin
 // already at base parks (unloads); a second press (now pending) closes via
 // stock, as do middle-click and the tab context menu. Set false for stock
 // close-on-first-press.
 user_pref("aph.pins.ctrlWUnloads", true);
-
-// 16. Ctrl/Cmd+W on a selected starred tab mirrors pins — a drifted star
-// resets to its starred base URL in place, a star already at base parks
-// (unloads); a second press (now pending) closes via stock. Set false for
-// stock close-on-first-press.
-user_pref("aph.stars.ctrlWUnloads", true);
 
 // 17. Sidebar footer (settings gear): hidden by default to reclaim the
 // strip. The palette's Show/Hide Sidebar Footer command flips it live;
@@ -115,20 +114,23 @@ user_pref("aph.sidebar.hideFooter", true);
 user_pref("aph.sidebar.autohide", false);
 
 // 18. Accounts & passwords: both OFF by default (privacy-first seed).
-// Toggled live in Aph Settings ("Accounts & Passwords", backed by
-// BOOL_DEFAULTS there — keep the defaults in sync). The Sync toggle
-// needs a restart to fully apply. Neither is policy-locked (see
-// config/policies.json), so user choice sticks.
+// The Sync toggle needs a restart to fully apply. Neither is policy-locked
+// (see config/policies.json), so user choice sticks.
 user_pref("identity.fxaccounts.enabled", false);
 user_pref("signon.rememberSignons", false);
 
 // 19. Theme preset: auto follows the OS room (midnight/paper faces);
 // midnight/paper pin those rooms against the OS, nord cools the room
-// with a steel voice, espresso warms it umber. Picked in Aph Settings
-// (Appearance → Theme preset), which also pairs the matching Firefox
-// built-in theme so scheme art (menu glyphs, palette slab) agrees with
-// the room. Unknown values read as auto.
+// with a steel voice, espresso warms it umber. Unknown values read as auto.
 user_pref("aph.theme.preset", "auto");
+
+// 20. Daily comfort: speculative connections and DNS prefetching
+user_pref("network.http.speculative-parallel-limit", 6);
+user_pref("network.dns.disablePrefetch", false);
+user_pref("network.dns.disablePrefetchFromHTTPS", false);
+user_pref("browser.urlbar.speculativeConnect.enabled", true);
+user_pref("browser.places.speculativeConnect.enabled", true);
+user_pref("network.prefetch-next", false);
 // 13. New Tab look: Aph's own desk, no forced wallpaper.
 // branding/userContent.css paints the designed gradient on html with body
 // forced transparent, so Activity Stream's wallpaper (body
@@ -144,6 +146,11 @@ user_pref("aph.theme.preset", "auto");
 // at runtime, and the cached about:newtab document (see item 4) can carry
 // that baked-in body style past the pref change. A rebrand forces a
 // -purgecaches launch, so a changed default is never shadowed by a stale document.
+
+// 21. Cap SessionStore JSON bloat & BTRFS CoW write churn
+user_pref("browser.sessionstore.interval", 60000);           // 60s (Betterfox baseline, crash safety)
+user_pref("browser.sessionstore.max_serialize_forward", 2);  // stock -1 (unbounded forward history churns megabytes)
+user_pref("browser.sessionstore.max_tabs_undo", 10);         // stock 25
 
 /****************************************************************************
  * END: APH NATIVE OVERRIDES

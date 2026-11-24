@@ -12,12 +12,11 @@ Website: <https://aph-browser.github.io/> · [Releases](https://github.com/aph-b
 
 - **Workspaces 1–9** (`Alt+1..9`, `Alt+Shift+]/[` to cycle, `Ctrl+`` for MRU tabs, `Ctrl+Shift+`` for reverse): window-scoped — every window has its own set, and the same number may show in two windows at once with independent tabs. Windows never move each other's tabs; cross-window moves are explicit (palette / tab right-click → Move Tab to Other Window, arrivals join that window's current workspace). Closing a window is native (SessionStore undo); session restore is per-window native.
 - **Command palette** with workspace actions, tab search, bookmarks, and history.
-- **Native tab groups** inside workspaces, **per-workspace container bindings**, **starred tabs**, and **tab unloading**.
+- **Native tab groups** inside workspaces, **per-workspace container bindings**, **global pinned tabs**, and **tab unloading**.
 - **Split view** (`Ctrl+Alt+\` or palette): native side-by-side panes with the most-recently-viewed same-workspace tab; switching workspaces separates the pair, both tabs stay open.
-- **Focus mode** (`Ctrl+Alt+F` or palette): hides every chrome surface and leaves only the page; session-only and per-window, palette stays reachable.
 - **Workspace accents**: per-workspace hue overrides (16 hues) alongside names, tags, and icons.
-- **Privacy defaults**: telemetry, health reports, Normandy, and activity-stream telemetry off (bundled in `browser/omni.ja`); your edits in `about:config` or Aph Settings persist automatically.
-- **Firefox onboarding** on first run (stock `about:welcome`) plus an **Aph Settings** page (`chrome://browser/content/aph-settings.html`).
+- **Privacy defaults**: telemetry, health reports, Normandy, and activity-stream telemetry off (bundled in `browser/omni.ja`); your edits in `about:config` persist automatically.
+- **Firefox onboarding** on first run (stock `about:welcome`).
 
 ## Install
 

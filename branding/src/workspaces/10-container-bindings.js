@@ -183,6 +183,14 @@
       if (typeof tab.setAttribute !== "function" || typeof tab.removeAttribute !== "function") {
         return;
       }
+      if (!tab.userContextId) {
+        if (typeof tab.hasAttribute === "function" && tab.hasAttribute("data-aph-bound-match")) {
+          try {
+            tab.removeAttribute("data-aph-bound-match");
+          } catch (e) {}
+        }
+        return;
+      }
       if (isTabMatchingBinding(tab)) {
         try {
           tab.setAttribute("data-aph-bound-match", "1");
@@ -317,7 +325,7 @@
     return out;
   }
 
-  // Calculate top of ephemeral working stack in workspace ws (immediately after global pins & starred tabs).
+  // Calculate top of ephemeral working stack in workspace ws (immediately after pinned tabs).
   // Manual new tabs (Ctrl+T, + button) spawn here, acting as an Inbox (LIFO stack).
   function getTopWorkingIndex(wsArg) {
     try {
@@ -338,24 +346,32 @@
           !t.pinned &&
           (typeof getWs === "function" ? getWs(t) : "1") === ws
       );
-      const wsStars = wsTabs.filter(
-        (t) =>
-          !t.group &&
-          (typeof isStarredTab === "function"
-            ? isStarredTab(t)
-            : t.getAttribute && t.getAttribute("data-aph-starred") === "1")
-      );
 
-      // Case 1: If there are starred tabs in this workspace, target immediately following the last star
-      if (wsStars.length > 0) {
-        const lastStar = wsStars[wsStars.length - 1];
-        const lastStarIdx = allTabs.indexOf(lastStar);
-        if (lastStarIdx !== -1) {
-          return lastStarIdx + 1;
+      // Target below any Starred group in this workspace so new tabs don't push Starred down
+      const starredTabs = wsTabs.filter((t) => {
+        try {
+          if (typeof isTabStarred === "function") {
+            return isTabStarred(t);
+          }
+          const g = t && t.group;
+          const lbl =
+            g?.label ||
+            g?.name ||
+            (typeof g?.getAttribute === "function" ? g.getAttribute("label") : "");
+          return lbl === "Starred";
+        } catch (e) {
+          return false;
+        }
+      });
+      if (starredTabs.length > 0) {
+        const lastStar = starredTabs[starredTabs.length - 1];
+        const lastIdx = allTabs.indexOf(lastStar);
+        if (lastIdx !== -1) {
+          return lastIdx + 1;
         }
       }
 
-      // Case 2: No starred tabs in workspace. Target at the top of this workspace's tabs
+      // Target at the top of this workspace's tabs
       if (wsTabs.length > 0) {
         const firstWsTab = wsTabs[0];
         const firstIdx = allTabs.indexOf(firstWsTab);
@@ -387,8 +403,7 @@
   }
 
   // New tab in `ws` using its bound container (plain tab when unbound).
-  // Manual birth (Ctrl+T, + button): always inserted at the TOP of the workspace
-  // working stack (immediately beneath global pins & starred tabs), acting as an Inbox (LIFO).
+  // Manual birth (Ctrl+T, + button): inserted at the top of the workspace.
   function openBoundTab(url = "about:newtab", wsArg) {
     const ws = isValidId(wsArg) ? wsArg : isValidId(current) ? current : "1";
     const bound = getWsContainerId(ws);
@@ -426,11 +441,6 @@
           try { gBrowser.moveTabTo(t, targetIndex); } catch (err) {}
         }
       }
-      try {
-        if (typeof syncStarredBoundaries === "function") {
-          syncStarredBoundaries();
-        }
-      } catch (e) {}
       gBrowser.selectedTab = t;
       focusUrlBar();
       return t;
@@ -453,11 +463,6 @@
         gBrowser.ungroupTab(t);
       } catch (e) {}
       setWs(t, target);
-      try {
-        if (typeof ensureTabBelowStarred === "function") {
-          ensureTabBelowStarred(t);
-        }
-      } catch (e) {}
       return t;
     } catch (e) {
       return null;

@@ -228,6 +228,18 @@ describe("restore health handshake", () => {
     );
   });
 
+  it("clears the marker when multiple restored tabs are New Tab across workspaces", () => {
+    const w = makeWorld();
+    w.sel.label = "New Tab";
+    const other = w.sb.gBrowser.addTrustedTab("https://start.example.com/");
+    other.label = "New Tab";
+
+    w.observe("sessionstore-windows-restored");
+    w.flushTimeouts();
+
+    assert.ok(w.removedMarkers.length > 0);
+  });
+
   it("keeps the marker when the restored tab has no title", () => {
     const w = makeWorld();
     w.sel.label = "";

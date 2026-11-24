@@ -2,9 +2,8 @@
  *
  * Shipped as chrome://browser/content/aph-tokens.css and @imported by
  * theme.css and command-palette.css (separate documents, no shared cascade).
- * Keep values in sync: test_settings_voice_parity pins the sixteen hue
- * stops to the --aph-color-* stops below (nine workspaces + seven accent-only
- * extras).
+ * Sixteen hue stops correspond to the --aph-color-* stops below (nine
+ * workspaces + seven accent-only extras).
  *
  * Canvas faces follow prefers-color-scheme (tracks the theme scheme).
  * Voice = workspace accent once :root[data-aph-ws] stamps, theme voice
@@ -126,8 +125,7 @@
      8-9 where usage is rarest. Consequences of the order:
        - ws-1 is purple, never red: red is the danger semantic
          (--aph-danger = ruby), so a home workspace must not wear it.
-       - amber sits mid-ramp (ws-7), clear of the starred-tab gold
-         (--aph-star shares the hue) at high-traffic slots.
+       - amber sits mid-ramp (ws-7) at high-traffic slots.
        - ws-9 dropped slate: a grey identity reads as "no identity"
          at 28% presence (chroma collapses to ~0.01), so slate moved
          to the accent-only extras below and the ramp closes on crimson;
@@ -165,7 +163,7 @@
   --aph-ws-7: var(--aph-color-amber);
   --aph-ws-8: var(--aph-color-orange);
   --aph-ws-9: var(--aph-color-crimson);
-  /* Accent-only extras (per-workspace overrides in Settings). Ruby
+  /* Accent-only extras (per-workspace accent overrides). Ruby
      stays here by design: the default nine never wear the danger red. */
   --aph-ws-10: var(--aph-color-tomato);
   --aph-ws-11: var(--aph-color-ruby);
@@ -300,7 +298,7 @@
 }
 
 /* Theme presets (aph.theme.preset → :root[data-aph-preset], stamped by
-   74-theme-preset.js, picked in Settings → Appearance). Presets are
+   74-theme-preset.js). Presets are
    frozen data, never paint code: each block redefines ONLY the room
    ladder + grain + color-scheme that every surface already reads, so a
    preset cannot drift from the chrome. Absent/invalid means auto (the
@@ -375,8 +373,7 @@
    Voice carries Mocha's identity accent: same 28% strength as the
    default, Mauve instead of pure blue, so hovers stay as legible as
    midnight's while reading unmistakably Catppuccin. The Mauve hex is
-   baked (not an --aph-ws stop) with this cross-ref, the same idiom as
-   the starred-tab amber. */
+   baked (not an --aph-ws stop) with this cross-ref. */
 :root[data-aph-preset="mocha"] {
   color-scheme: dark;
   --aph-base: #0e0e18;

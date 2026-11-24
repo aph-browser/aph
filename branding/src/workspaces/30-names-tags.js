@@ -136,18 +136,12 @@
   // Central per-tab chrome sync (the choke point): every lifecycle entry
   // that births, retags, restores, pins, or reveals a tab funnels marker
   // state through here, so no marker depends on remembering every path.
-  // Covers the bound-container match (10) and the star marker + close
-  // tooltip (76). Visibility stays bulk (reconcile) and is called
-  // alongside at the same entries.
+  // Covers the bound-container match (10). Visibility stays bulk (reconcile)
+  // and is called alongside at the same entries.
   function syncTabChrome(tab) {
     try {
       if (typeof syncTabBindingMatch === "function") {
         syncTabBindingMatch(tab);
-      }
-    } catch (e) {}
-    try {
-      if (typeof syncStarTabChrome === "function") {
-        syncStarTabChrome(tab);
       }
     } catch (e) {}
   }

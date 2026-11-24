@@ -226,31 +226,27 @@ jobs:
 
            ### What's new in __VER__
 
-           Chrome
-           - v2 shell: floating pill bar, cross-window theme presets,
-             and a reworked dock, indicators, and focus mode.
-           - The dock is a bottom toolbar with an in-place New Tab in its
-             menu; its mark is the real Inter A, one mark with the app icon.
-           - Focus mode's exit pill fades after 4s idle and returns on
-             activity — focus chrome never becomes the furniture it hides.
-           - Vertical tabs pack tighter: zero inter-tab air, 28px rows.
-           - Theme tokens overhauled (scale, five preset rooms, spring
-             motion with reduced-motion mirrors); home wears brand purple
-             as the default first hue.
+           Firefox 161 Base
+           - Upgraded base browser engine to Firefox 161.0.
+           - Upstream verticalTabsAdditionalPlacements compatibility preserving all default navigation tools.
 
-           Logo
-           - Plain Inter Bold A in flat brand purple on a hairline tile,
-             with a subtractive flat-cut apex — still plainly an A at 16px.
+           Native Bookmark Archiver
+           - Native Places archiver: automatically organize stale tabs under Other Bookmarks / Aph Archive.
+           - Zero custom database, instant Ctrl+K palette search, URL deduplication, and atomic bookmark-before-close protection.
 
-           Launch
-           - Rebrand refuses under a running browser (quit-first, same
-             contract as nuke/sync); a running daily driver warns instead
-             of vetoing, and launch refuses stale forwards.
+           Session Restore & Reliability
+           - Fixed session restore health checks to prevent unwanted session rollbacks on multi-newtab launches.
+           - Added 15-second restore settlement fallback ensuring active browsing sessions are always preserved.
 
-           Upstream robustness
-           - Drift detector pins every stock selector/token/pref Aph
-             depends on against the packaged Firefox (fails loud on
-             upstream removal).
+           Chrome & Theme Polish
+           - Fully opaque URL bar dropdown popup for high-contrast legibility across dark, light, and paper modes.
+           - Fixed sidebar layout geometry so Bookmarks, History, and extension panels fit naturally alongside the vertical launcher.
+           - Collapsed 48px rail dock tray wraps pills and buttons into a clean 2-column grid without clipping.
+           - Native tab-group card styling and quiet rail aesthetics.
+
+           Performance & Lean Architecture
+           - Replaced runtime JS pointer proximity tracking with zero-overhead compositor-driven CSS hover for sidebar auto-hide peek.
+           - Removed legacy experimental code (Spaces, Focus Mode, AphStar) in favor of lean native Firefox tab groups and preferences.
 
            ### Install
 

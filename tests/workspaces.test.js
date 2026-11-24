@@ -63,11 +63,31 @@ const sb = {
       discarded.push(t.label);
       t.setAttribute("pending", "");
     },
-    ungroupTab(t) { if (t) t.group = null; },
+    ungroupTab(t) {
+      if (t && t.group) {
+        const g = t.group;
+        t.group = null;
+        if (Array.isArray(g.tabs)) {
+          const idx = g.tabs.indexOf(t);
+          if (idx !== -1) g.tabs.splice(idx, 1);
+        }
+      }
+    },
     addTabGroup(tabs, opts) {
       const live = (tabs || []).filter((t) => t && !t.closing);
-      if (live.length < 2) return null;
-      const ng = { tabs: live.slice(), label: "", color: "", collapsed: false };
+      if (!live.length) return null;
+      const ng = {
+        tabs: live.slice(),
+        label: opts?.label || "",
+        color: opts?.color || "",
+        collapsed: false,
+        addTabs(ts) {
+          for (const t of ts) {
+            if (!this.tabs.includes(t)) this.tabs.push(t);
+            t.group = this;
+          }
+        },
+      };
       for (const t of live) t.group = ng;
       sb.gBrowser.tabGroups.push(ng);
       return ng;
@@ -569,28 +589,14 @@ describe("bound container match", () => {
     assert.equal(mismatch.getAttribute("data-aph-bound-match"), null);
   });
 
-  it("exposes one central chrome sync covering bound match + star", () => {
+  it("exposes one central chrome sync covering bound match", () => {
     assert.equal(typeof api.syncTabChrome, "function");
     assert.equal(typeof api.syncAllTabChrome, "function");
-    // Starred (SessionStore flag) + bound (cid 7 in WS 2): one call marks both.
     const t = makeTab(tabVals, { label: "s", ws: "2", cid: 7, spec: "https://s.example/" });
-    tabVals.get(t).aphStarred = "1";
     sb.gBrowser.tabs.push(t);
     try {
       api.syncTabChrome(t);
       assert.equal(t.getAttribute("data-aph-bound-match"), "1");
-      assert.equal(t.getAttribute("data-aph-starred"), "1");
-      // Never-starred: stays unmarked while the bound half still applies.
-      const u = makeTab(tabVals, { label: "u", ws: "2", cid: 7, spec: "https://u.example/" });
-      sb.gBrowser.tabs.push(u);
-      try {
-        api.syncAllTabChrome();
-        assert.equal(u.getAttribute("data-aph-starred"), null);
-        assert.equal(u.getAttribute("data-aph-bound-match"), "1");
-      } finally {
-        const i = sb.gBrowser.tabs.indexOf(u);
-        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
-      }
     } finally {
       const i = sb.gBrowser.tabs.indexOf(t);
       if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
@@ -648,6 +654,104 @@ describe("global pins", () => {
         const i = sb.gBrowser.tabs.indexOf(t);
         if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
       }
+      api.switchTo("1");
+    }
+  });
+
+  it("filters hidden elements and hidden group labels from dragAndDropElements", () => {
+    const hiddenPinned = { hidden: true, elementIndex: 0 };
+    const visibleTab = { hidden: false, elementIndex: 1 };
+    const hiddenAttrTab = {
+      hidden: false,
+      hasAttribute: (a) => a === "hidden",
+      elementIndex: 2,
+    };
+    const visiblePinned = { hidden: false, elementIndex: 3 };
+    const elements = [hiddenPinned, visibleTab, hiddenAttrTab, visiblePinned];
+
+    const tc = sb.gBrowser.tabContainer;
+    Object.defineProperty(tc, "dragAndDropElements", {
+      configurable: true,
+      enumerable: true,
+      get() { return elements; },
+    });
+
+    assert.equal(api.debugPatchDragElements(), true);
+    const filtered = tc.dragAndDropElements;
+    assert.equal(filtered.length, 2);
+    assert.equal(filtered[0], visibleTab);
+    assert.equal(filtered[0].elementIndex, 0);
+    assert.equal(filtered[1], visiblePinned);
+    assert.equal(filtered[1].elementIndex, 1);
+  });
+});
+
+describe("starred native tab group", () => {
+  it("toggles star on a tab using a native Starred group", () => {
+    api.switchTo("1");
+    const tab1 = makeTab(tabVals, { label: "star-1", ws: "1", spec: "https://star1.example/" });
+    const tab2 = makeTab(tabVals, { label: "star-2", ws: "1", spec: "https://star2.example/" });
+    sb.gBrowser.tabs.push(tab1, tab2);
+    try {
+      assert.equal(api.isTabStarred(tab1), false);
+      // Toggle tab1 -> creates Starred group
+      assert.equal(api.toggleStarTab(tab1), true);
+      assert.equal(api.isTabStarred(tab1), true);
+      assert.equal(tab1.group.label, "Starred");
+
+      // Toggle tab2 -> joins existing Starred group
+      assert.equal(api.toggleStarTab(tab2), true);
+      assert.equal(api.isTabStarred(tab2), true);
+      assert.equal(tab2.group, tab1.group);
+
+      // Toggle tab1 again -> unstars (removes from group)
+      assert.equal(api.toggleStarTab(tab1), false);
+      assert.equal(api.isTabStarred(tab1), false);
+      assert.equal(tab1.group, null);
+      assert.equal(api.isTabStarred(tab2), true);
+    } finally {
+      for (const t of [tab1, tab2]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+      sb.gBrowser.tabGroups.length = 0;
+    }
+  });
+
+  it("anchors getTopWorkingIndex below Starred tabs", () => {
+    api.switchTo("1");
+    const starTab = makeTab(tabVals, { label: "star-top", ws: "1", spec: "https://star.example/" });
+    const normalTab = makeTab(tabVals, { label: "normal-top", ws: "1", spec: "https://normal.example/" });
+    sb.gBrowser.tabs.push(starTab, normalTab);
+    try {
+      api.toggleStarTab(starTab);
+      const starIdx = sb.gBrowser.tabs.indexOf(starTab);
+      const topIdx = api.getTopWorkingIndex("1");
+      assert.equal(topIdx, starIdx + 1, "Ctrl+T spawns right below Starred group member");
+    } finally {
+      for (const t of [starTab, normalTab]) {
+        const i = sb.gBrowser.tabs.indexOf(t);
+        if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      }
+      sb.gBrowser.tabGroups.length = 0;
+    }
+  });
+
+  it("protects Starred group tabs from auto unload", () => {
+    api.switchTo("2");
+    const star = makeTab(tabVals, { label: "u-star", ws: "1", spec: "https://star.example/" });
+    sb.gBrowser.tabs.push(star);
+    try {
+      api.toggleStarTab(star);
+      assert.equal(api.isTabStarred(star), true);
+      const now = Date.now();
+      tabVals.get(star).aphLastViewed = String(now - 90 * 60000);
+      assert.equal(api.isAutoUnloadEligible(star, now, 30 * 60000), false);
+    } finally {
+      const i = sb.gBrowser.tabs.indexOf(star);
+      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
+      sb.gBrowser.tabGroups.length = 0;
+      api.switchTo("1");
     }
   });
 });
@@ -895,28 +999,27 @@ describe("tab unloading", () => {
     }
   });
 
-  it("auto scope exempts starred tabs and untracked tabs count as stale", () => {
+  it("auto scope spares fresh tabs and untracked tabs count as stale", () => {
     if (api.getCurrent() !== "2") api.switchTo("2");
     const now = Date.now();
-    const star = makeTab(tabVals, {
-      label: "u-auto-star", ws: "1", spec: "https://example.com/star",
+    const pin = makeTab(tabVals, {
+      label: "u-auto-pin", ws: "1", pinned: true, spec: "https://example.com/pin",
     });
     const untracked = makeTab(tabVals, {
       label: "u-auto-untrk", ws: "1", spec: "https://example.com/untrk",
     });
-    tabVals.get(star).aphLastViewed = String(now - 90 * 60000);
-    tabVals.get(star).aphStarred = "1";
-    sb.gBrowser.tabs.push(star, untracked);
+    tabVals.get(pin).aphLastViewed = String(now - 90 * 60000);
+    sb.gBrowser.tabs.push(pin, untracked);
     try {
-      assert.equal(api.isAutoUnloadEligible(star, now, 30 * 60000), false);
+      assert.equal(api.isAutoUnloadEligible(pin, now, 30 * 60000), false);
       assert.equal(api.isAutoUnloadEligible(untracked, now, 30 * 60000), true);
       discarded.length = 0;
       const r = api.unloadEligibleTabs({ scope: "auto", nowMs: now, staleMs: 30 * 60000 });
-      assert.ok(!discarded.includes("u-auto-star"), "starred tab spared");
+      assert.ok(!discarded.includes("u-auto-pin"), "pinned tab spared");
       assert.ok(discarded.includes("u-auto-untrk"), "untracked tab counts as stale");
-      assert.equal(star.hasAttribute("pending"), false);
+      assert.equal(pin.hasAttribute("pending"), false);
     } finally {
-      for (const t of [star, untracked]) {
+      for (const t of [pin, untracked]) {
         const i = sb.gBrowser.tabs.indexOf(t);
         if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
       }
@@ -1289,28 +1392,6 @@ describe("workspace cycling", () => {
       if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
     }
   });
-
-  it("toggles back and forth between the last two used workspaces", () => {
-    const extra = makeTab(tabVals, {
-      label: "cy-4c", ws: "4", spec: "https://example.com/cy4c",
-    });
-    sb.gBrowser.tabs.push(extra);
-    try {
-      api.switchTo("1");
-      api.switchTo("4");
-      assert.equal(api.getLastWorkspace(), "1");
-      api.toggleLastWorkspace();
-      assert.equal(api.getCurrent(), "1");
-      api.toggleLastWorkspace();
-      assert.equal(api.getCurrent(), "4");
-      // Same-workspace switch is a no-op: history keeps pointing at "1".
-      api.switchTo("4");
-      assert.equal(api.getLastWorkspace(), "1");
-    } finally {
-      const i = sb.gBrowser.tabs.indexOf(extra);
-      if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
-    }
-  });
 });
 
 describe("new-tab urlbar focus", () => {
@@ -1458,59 +1539,6 @@ describe("restore guards (routing)", () => {
       const i = sb.gBrowser.tabs.indexOf(t);
       if (i !== -1) sb.gBrowser.tabs.splice(i, 1);
     }
-  });
-});
-
-describe("workspace mru walk (API-only)", () => {
-  function ensureWs(id, label) {
-    let t = sb.gBrowser.tabs.find((x) => wsOf(x) === id && !x.closing && !x.pinned);
-    if (t) return t;
-    t = makeTab(tabVals, { label: label || `mru-${id}`, ws: id, spec: `https://example.com/${id}` });
-    sb.gBrowser.tabs.push(t);
-    return t;
-  }
-  it("walks MRU order forward and reverse with rotation", () => {
-    const t2 = ensureWs("2");
-    const t3 = ensureWs("3");
-    const t4 = ensureWs("4");
-    try {
-      api.switchTo("1");
-      api.switchTo("2");
-      api.switchTo("3");
-      api.switchTo("4");
-      assert.equal(api.getCurrent(), "4");
-      const order = api.getMruOrder();
-      assert.equal(JSON.stringify(order.slice(0, 4)), JSON.stringify(["4", "3", "2", "1"]));
-      assert.equal(api.getLastWorkspace(), "3");
-      api.cycleMru(1);
-      assert.equal(api.getCurrent(), "3");
-      api.cycleMru(1);
-      assert.equal(api.getCurrent(), "2");
-      api.cycleMru(1);
-      assert.equal(api.getCurrent(), "1");
-      api.cycleMru(1);
-      assert.equal(api.getCurrent(), "4");
-      api.cycleMru(-1);
-      assert.equal(api.getCurrent(), "1");
-      api.cycleMru(-1);
-      assert.equal(api.getCurrent(), "2");
-    } finally {
-      for (const t of [t2, t3, t4]) {
-        // keep fixture tabs; only reset position
-      }
-      api.switchTo("1");
-    }
-  });
-
-  it("explicit switches push front; legacy toggle still flips pair", () => {
-    ensureWs("2");
-    api.switchTo("1");
-    api.switchTo("2");
-    assert.equal(api.getLastWorkspace(), "1");
-    api.toggleLastWorkspace();
-    assert.equal(api.getCurrent(), "1");
-    api.toggleLastWorkspace();
-    assert.equal(api.getCurrent(), "2");
   });
 });
 

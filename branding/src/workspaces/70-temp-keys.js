@@ -320,13 +320,6 @@
   }
 
   function onKey(e) {
-    // Inline tab-rename editor owns its keystrokes: window capture fires
-    // before the input's own handlers, so it cannot shield itself.
-    try {
-      if (e.target && e.target.id === "aph-tab-rename-input") {
-        return;
-      }
-    } catch (err) {}
     // Windows international keyboards: AltGr arrives as Ctrl+Alt, so bare
     // modifier checks can't tell "AltGr+Q → @" (German) apart from a real
     // Ctrl+Alt hotkey. The OS flags genuine AltGr composition via the
@@ -357,27 +350,17 @@
     if (e.repeat) {
       return;
     }
-    // Ctrl/Cmd+W on a selected pinned or starred tab keeps it open
-    // instead of closing — a drifted pin/star resets to its base URL in
-    // place, one already at base parks (unload); the second press (now
-    // pending), middle-click, and the context menu still close via stock.
-    // Anything the parkers refuse (unpinned/unstarred, unsafe,
-    // unparkable) falls through to stock close untouched.
+    // Ctrl/Cmd+W on a selected pinned tab keeps it open instead of
+    // closing — a drifted pin resets to its base URL in place, one already
+    // at base parks (unload); the second press (now pending), middle-click,
+    // and the context menu still close via stock. Anything the parker
+    // refuses (unpinned, unsafe, unparkable) falls through to stock close.
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyW") {
       let parked = false;
       try {
         parked = parkSelectedPinnedTab().ok === true;
       } catch (err) {
         parked = false;
-      }
-      if (!parked) {
-        try {
-          parked =
-            typeof parkSelectedStarredTab === "function" &&
-            parkSelectedStarredTab().ok === true;
-        } catch (err) {
-          parked = false;
-        }
       }
       if (parked) {
         e.preventDefault();
@@ -435,38 +418,7 @@
       } catch (err) {}
       return;
     }
-    // Ctrl+Alt+F toggles focus mode (hide every chrome surface, page
-    // only). Same bare shape as Ctrl+Alt+T above: no editable-target
-    // skip (it types nothing in inputs), AltGraph guard above covers
-    // real AltGr layouts.
-    if (e.ctrlKey && !e.shiftKey && !e.metaKey && e.code === "KeyF") {
-      e.preventDefault();
-      e.stopPropagation();
-      try {
-        if (typeof toggleFocusMode === "function") {
-          toggleFocusMode();
-        }
-      } catch (err) {}
-      return;
-    }
-    // Ctrl+Alt+S toggles the star on the selected tab (starred tabs keep
-    // a base URL: Ctrl+W resets drifted stars, parks at-base ones).
-    // Skipped in editable text so typing stays safe.
-    if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.code === "KeyS") {
-      if (isEditableTarget(e.target)) {
-        return;
-      }
-      e.preventDefault();
-      e.stopPropagation();
-      try {
-        if (typeof toggleSelectedStar === "function") {
-          toggleSelectedStar();
-        } else if (window.AphStar && typeof window.AphStar.toggleSelectedStar === "function") {
-          window.AphStar.toggleSelectedStar();
-        }
-      } catch (err) {}
-      return;
-    }
+
     // Ctrl+Alt+R quick-renames the current workspace via the palette.
     // Skipped in editable text so AltGr+R (®) keeps working while typing.
     if (e.ctrlKey && !e.shiftKey && e.code === "KeyR") {
@@ -508,6 +460,17 @@
       try {
         if (typeof groupSelectedTabs === "function") {
           groupSelectedTabs();
+        }
+      } catch (err) {}
+      return;
+    }
+    // Ctrl+Alt+S toggles the Starred native group for the active tab:
+    if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.code === "KeyS") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof toggleStarTab === "function") {
+          toggleStarTab();
         }
       } catch (err) {}
       return;

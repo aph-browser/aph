@@ -126,24 +126,6 @@
         return true;
       }
     } catch (e) {}
-    try {
-      const ta = document.createElement("textarea");
-      ta.value = s;
-      (document.body || document.documentElement).appendChild(ta);
-      try {
-        ta.select();
-      } catch (_e) {}
-      let ok = false;
-      try {
-        ok = document.execCommand("copy");
-      } catch (_e) {}
-      try {
-        ta.remove();
-      } catch (_e) {}
-      if (ok) {
-        return true;
-      }
-    } catch (e) {}
     return false;
   }
 
@@ -364,56 +346,112 @@
   // Extra copies beyond the first of each exact URL in the current
   // workspace (strip order keeps the oldest). Read-only; the command
   // below closes the returned tabs.
-  function duplicateTabs(api) {
-    const out = [];
+  function findDuplicateTabs(api) {
+    const dupes = [];
+    const allDupes = [];
     try {
-      if (!api || typeof api.getCurrent !== "function" || typeof api.getWs !== "function") {
-        return out;
+      if (!api) {
+        return { dupes, allDupes };
       }
-      const cur = api.getCurrent();
-      if (!cur) {
-        return out;
-      }
+      const cur = typeof api.getCurrent === "function" ? api.getCurrent() : null;
+      const useWs = cur && typeof api.getWs === "function";
       let tabs = [];
       try {
         tabs = Array.from((gBrowser && gBrowser.tabs) || []);
       } catch (e) {
-        return out;
+        return { dupes, allDupes };
       }
       let selected = null;
       try {
         selected = (gBrowser && gBrowser.selectedTab) || null;
       } catch (e) {}
-      const seen = new Map();
+      const seenWs = new Map();
+      const seenAll = new Map();
       for (const t of tabs) {
         try {
           if (!t || t.closing) {
-            continue;
-          }
-          let w = null;
-          try {
-            w = api.getWs(t);
-          } catch (e) {
-            continue;
-          }
-          if (w !== cur) {
             continue;
           }
           const spec = tabUrlSpec(t);
           if (!spec) {
             continue;
           }
-          if (seen.has(spec)) {
+          if (seenAll.has(spec)) {
             if (isDupeClosable(t, selected)) {
-              out.push(t);
+              allDupes.push(t);
             }
           } else {
-            seen.set(spec, t);
+            seenAll.set(spec, t);
+          }
+          if (useWs) {
+            let w = null;
+            try {
+              w = api.getWs(t);
+            } catch (e) {}
+            if (w === cur) {
+              if (seenWs.has(spec)) {
+                if (isDupeClosable(t, selected)) {
+                  dupes.push(t);
+                }
+              } else {
+                seenWs.set(spec, t);
+              }
+            }
           }
         } catch (e) {}
       }
     } catch (e) {}
-    return out;
+    return { dupes, allDupes };
+  }
+
+  function countWorkspaceTabs(api) {
+    try {
+      if (!api || typeof api.getCurrent !== "function") {
+        return 0;
+      }
+      const cur = api.getCurrent();
+      if (!cur) {
+        return 0;
+      }
+      const useWs = typeof api.getWs === "function";
+      let tabs = [];
+      try {
+        tabs = Array.from((gBrowser && gBrowser.tabs) || []);
+      } catch (e) {
+        return 0;
+      }
+      let count = 0;
+      for (const t of tabs) {
+        try {
+          if (!t || t.closing) {
+            continue;
+          }
+          const spec = tabUrlSpec(t);
+          if (!spec) {
+            continue;
+          }
+          if (useWs) {
+            let w = null;
+            try {
+              w = api.getWs(t);
+            } catch (e) {
+              continue;
+            }
+            let pinned = false;
+            try {
+              pinned = !!t.pinned;
+            } catch (e) {}
+            if (w !== cur && !pinned) {
+              continue;
+            }
+          }
+          count++;
+        } catch (e) {}
+      }
+      return count;
+    } catch (e) {
+      return 0;
+    }
   }
 
   function workspaceMarkdownLines(api) {
@@ -427,7 +465,7 @@
   function workspaceMarkdownSub(api) {
     const base = "One - [title](url) per line, in tab order";
     try {
-      const n = workspaceTabs(api).length;
+      const n = countWorkspaceTabs(api);
       if (n > 0) {
         let label = "";
         try {
@@ -439,53 +477,13 @@
     return base;
   }
 
-  // Extra copies beyond the first of each exact URL across all workspaces.
-  function duplicateTabsAll(api) {
-    const out = [];
-    try {
-      if (!api) {
-        return out;
-      }
-      let tabs = [];
-      try {
-        tabs = Array.from((gBrowser && gBrowser.tabs) || []);
-      } catch (e) {
-        return out;
-      }
-      let selected = null;
-      try {
-        selected = (gBrowser && gBrowser.selectedTab) || null;
-      } catch (e) {}
-      const seen = new Map();
-      for (const t of tabs) {
-        try {
-          if (!t || t.closing) {
-            continue;
-          }
-          const spec = tabUrlSpec(t);
-          if (!spec) {
-            continue;
-          }
-          if (seen.has(spec)) {
-            if (isDupeClosable(t, selected)) {
-              out.push(t);
-            }
-          } else {
-            seen.set(spec, t);
-          }
-        } catch (e) {}
-      }
-    } catch (e) {}
-    return out;
-  }
-
   // Rendered only when duplicates exist (same convention as
   // "Close Other Tabs"): a bulk close that would no-op stays out of
   // the list. Closed tabs remain undoable via Reopen Closed Tab.
   function closeDupesRows(api) {
     try {
       const rows = [];
-      const dupes = duplicateTabs(api);
+      const { dupes, allDupes } = findDuplicateTabs(api);
       if (dupes.length) {
         let label = "";
         try {
@@ -509,7 +507,6 @@
           },
         });
       }
-      const allDupes = duplicateTabsAll(api);
       if (allDupes.length && (!dupes.length || allDupes.length > dupes.length)) {
         rows.push({
           title: `Close Duplicate Tabs Across All Workspaces (${allDupes.length})`,
@@ -618,6 +615,67 @@
     return out;
   }
 
+  function archiveCommands(api) {
+    const out = [];
+    try {
+      const curWs =
+        api && typeof api.getCurrent === "function" ? api.getCurrent() : "1";
+      const countFn =
+        api && typeof api.countArchivableTabs === "function"
+          ? (opts) => api.countArchivableTabs(opts)
+          : null;
+
+      const tiers = [
+        { days: 30, label: ">30 Days" },
+        { days: 14, label: ">14 Days" },
+        { days: 7, label: ">7 Days" },
+        { days: 3, label: ">3 Days" },
+        { days: 1, label: ">24 Hours" },
+      ];
+
+      for (const tier of tiers) {
+        const ms = tier.days * 86400000;
+        const count = countFn ? countFn({ maxAgeMs: ms }) : 0;
+        out.push({
+          title: `Archive Stale Tabs (${tier.label})`,
+          hint: "",
+          sub:
+            count > 0
+              ? `Saves ${count} tab(s) into Bookmarks (Aph Archive) and closes them`
+              : `No tabs older than ${tier.days === 1 ? "24 hours" : `${tier.days} days`} to archive`,
+          run: () => {
+            try {
+              if (api && typeof api.archiveStaleTabs === "function") {
+                api.archiveStaleTabs({ maxAgeMs: ms });
+              }
+            } catch (e) {}
+            invalidatePaletteCache();
+          },
+        });
+      }
+
+      const cWs = countFn ? countFn({ ws: curWs, maxAgeMs: 0 }) : 0;
+      const wsLabel = api ? wsFull(api, curWs) : `Workspace ${curWs}`;
+      out.push({
+        title: "Archive Current Workspace Tabs",
+        hint: "",
+        sub:
+          cWs > 0
+            ? `Saves ${cWs} tab(s) in ${wsLabel} into Bookmarks and closes them`
+            : `No unpinned tabs in ${wsLabel} to archive`,
+        run: () => {
+          try {
+            if (api && typeof api.archiveWorkspaceTabs === "function") {
+              api.archiveWorkspaceTabs(curWs);
+            }
+          } catch (e) {}
+          invalidatePaletteCache();
+        },
+      });
+    } catch (e) {}
+    return out;
+  }
+
   // Extra tab ops for the current tab (surfaced alongside commands).
   // Guarded everywhere: absent gBrowser APIs just hide the row.
   function tabActions() {
@@ -675,6 +733,36 @@
           invalidatePaletteCache();
         },
       });
+      if (!pinned) {
+        let isStarred = false;
+        try {
+          if (typeof isTabStarred === "function") {
+            isStarred = isTabStarred(tab);
+          } else if (window.AphWorkspaces && typeof window.AphWorkspaces.isTabStarred === "function") {
+            isStarred = window.AphWorkspaces.isTabStarred(tab);
+          } else {
+            const g = tab.group;
+            isStarred = !!(g && (g.label === "Starred" || g.name === "Starred"));
+          }
+        } catch (e) {}
+        out.push({
+          title: isStarred ? "Unstar Tab" : "Star Tab",
+          hint: "Ctrl+Alt+S",
+          sub: isStarred
+            ? "Removes the tab from the Starred group"
+            : "Adds the tab to the Starred group at the top of this workspace",
+          run: () => {
+            try {
+              if (typeof toggleStarTab === "function") {
+                toggleStarTab(tab);
+              } else if (window.AphWorkspaces && typeof window.AphWorkspaces.toggleStarTab === "function") {
+                window.AphWorkspaces.toggleStarTab(tab);
+              }
+            } catch (e) {}
+            invalidatePaletteCache();
+          },
+        });
+      }
       let muted = false;
       try {
         muted =
@@ -845,99 +933,6 @@
           run: () => {
             try {
               api.clearWsBinding(cur);
-            } catch (e) {}
-          },
-        });
-      }
-    } catch (e) {}
-    return out;
-  }
-
-  // Starred-tab rows (flat — the palette has no nested menus). Fully
-  // guarded: the star controller may be absent (tests, minimal chrome).
-  function starCtl() {
-    try {
-      return window.AphStar || null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function starSelectedTab() {
-    try {
-      return (gBrowser && gBrowser.selectedTab) || null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function starCommands() {
-    const out = [];
-    try {
-      const ctl = starCtl();
-      if (!ctl) {
-        return out;
-      }
-      const tab = starSelectedTab();
-      if (!tab) {
-        return out;
-      }
-      let starred = false;
-      try {
-        starred = !!(ctl.isStarred && ctl.isStarred(tab));
-      } catch (e) {}
-      let pinned = false;
-      try {
-        pinned = !!tab.pinned;
-      } catch (e) {}
-      if (!pinned) {
-        out.push({
-          title: starred ? "Unstar Current Tab" : "Star Current Tab",
-          hint: "Ctrl+Alt+S",
-          sub: starred
-            ? "Removes the starred base URL · Ctrl+W returns to stock close"
-            : "Keeps a base URL · Ctrl+W resets drifted stars, parks at-base ones",
-          run: () => {
-            try {
-              if (ctl.toggleStarTab) {
-                ctl.toggleStarTab(tab);
-              }
-            } catch (e) {}
-          },
-        });
-      }
-      if (starred && !pinned) {
-        out.push({
-          title: "Reset Starred Tab to Base Page",
-          hint: "",
-          sub: "Navigates the current tab back to its starred URL",
-          run: () => {
-            try {
-              if (ctl.resetStarTab) {
-                ctl.resetStarTab(tab);
-              }
-            } catch (e) {}
-          },
-        });
-        out.push({
-          title: "Set Starred Page…",
-          hint: "",
-          sub: "Edits the starred base URL · empty cancels",
-          keepOpen: true,
-          run: () => {
-            try {
-              let initial = "";
-              try {
-                // Live-first: Enter alone re-stars the current page;
-                // stored is the fallback (e.g. unreachable live URL).
-                initial =
-                  tab.linkedBrowser.currentURI.spec ||
-                  (ctl.getStarURL && ctl.getStarURL(tab)) ||
-                  "";
-              } catch (_e) {}
-              if (ctl.promptStarURL) {
-                ctl.promptStarURL(tab, initial);
-              }
             } catch (e) {}
           },
         });
@@ -1166,6 +1161,7 @@
       },
       ...closeDupesRows(api),
       ...splitViewRows(api),
+      ...archiveCommands(api),
       {
         title: "Unload Inactive Tabs",
         hint: "",
@@ -1210,52 +1206,6 @@
           } catch (e) {}
         },
       },
-      ...starCommands(),
-      {
-        title: "Reload",
-        hint: "Ctrl+R",
-        run: () => {
-          try {
-            gBrowser.reload();
-          } catch (e) {}
-        },
-      },
-      {
-        title: "Go Back",
-        hint: "Alt+Left",
-        run: () => {
-          try {
-            gBrowser.goBack();
-          } catch (e) {}
-        },
-      },
-      {
-        title: "Go Forward",
-        hint: "Alt+Right",
-        run: () => {
-          try {
-            gBrowser.goForward();
-          } catch (e) {}
-        },
-      },
-      {
-        title: "New Window",
-        hint: "Ctrl+N",
-        run: () => {
-          try {
-            window.OpenBrowserWindow();
-          } catch (e) {}
-        },
-      },
-      {
-        title: "Focus Address Bar",
-        hint: "Ctrl+L",
-        run: () => {
-          try {
-            gURLBar.focus();
-          } catch (e) {}
-        },
-      },
       {
         // Toggle state prefix convention (✓/○): state visible without
         // running anything. Applies to every Show/Hide toggle row.
@@ -1285,37 +1235,6 @@
           } catch (e) {}
           // Repaint so the row title flips Show ↔ Hide (otherwise the
           // toggle looks dead: palette stays open with a stale title).
-          try {
-            if (typeof render === "function" && input) {
-              render(input.value);
-            }
-          } catch (e) {}
-        },
-      },
-      {
-        // Same ✓/○ convention as above; state reads live from the
-        // window API (session-only, per-window — no pref behind it).
-        // keepOpen + repaint, like the sibling toggle: the row flips
-        // in place instead of looking dead.
-        title: (() => {
-          try {
-            const w = ws();
-            if (w && typeof w.getFocusMode === "function" && w.getFocusMode()) {
-              return "✓ Focus Mode (On)";
-            }
-          } catch (e) {}
-          return "○ Focus Mode (Off)";
-        })(),
-        hint: "Ctrl+Alt+F",
-        sub: "Hide every chrome surface, page only · session-only, this window",
-        keepOpen: true,
-        run: () => {
-          try {
-            const w = ws();
-            if (w && typeof w.toggleFocusMode === "function") {
-              w.toggleFocusMode();
-            }
-          } catch (e) {}
           try {
             if (typeof render === "function" && input) {
               render(input.value);
@@ -1426,17 +1345,15 @@
       try {
         let starred = false;
         try {
-          if (window.AphStar && typeof window.AphStar.isStarred === "function") {
-            starred = !!window.AphStar.isStarred(t);
+          if (typeof isTabStarred === "function") {
+            starred = isTabStarred(t);
+          } else if (window.AphWorkspaces && typeof window.AphWorkspaces.isTabStarred === "function") {
+            starred = window.AphWorkspaces.isTabStarred(t);
+          } else {
+            const g = t.group;
+            starred = !!(g && (g.label === "Starred" || g.name === "Starred"));
           }
         } catch (_e) {}
-        if (!starred) {
-          try {
-            starred =
-              (typeof t.hasAttribute === "function" && t.hasAttribute("data-aph-starred")) ||
-              (typeof t.getAttribute === "function" && t.getAttribute("data-aph-starred") === "1");
-          } catch (_e) {}
-        }
         if (starred) {
           badge.push("starred");
         }

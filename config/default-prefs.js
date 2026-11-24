@@ -221,6 +221,9 @@ pref("findbar.highlightAll", true);
 // Bundled defaults: loaded natively via defaults/preferences/firefox.js in omni.ja,
 // so user changes via about:config / Settings persist in prefs.js automatically.
 
+// 1. Nova UI baseline
+pref("browser.nova.enabled", true);
+
 // 2. DRM Playback (Netflix / Spotify)
 pref("media.eme.enabled", true);
 pref("media.gmp-widevinecdm.enabled", true);
@@ -268,9 +271,6 @@ pref("devtools.chrome.enabled", true);
 // nothing from the debugger server, so it stays off; developers can flip
 // devtools.debugger.remote-enabled in about:config and it sticks.
 
-// 11. Enable Nova
-pref("browser.nova.enabled", true);
-
 // 11b. No default theme. Aph paints its own canvas, and a lightweight theme
 // leaked through three structural tokens: `tab_line` (drove the orange
 // active-tab outline via --tab-selected-outline-color), `--card-border-color`
@@ -288,9 +288,9 @@ pref("browser.nova.enabled", true);
 // 11c. Firefox native low-memory unloading (stock safety net, NOT Aph's):
 // under real memory pressure Firefox itself unloads least-recently-used
 // tabs (LRU + memory weight, about:unloads shows the ranking). It is
-// workspace-blind — it can take starred or fresh tabs too — but everything
+// workspace-blind — it can take fresh tabs too — but everything
 // reloads on click with workspace tags intact. On matches stock; off leaves
-// memory management to Aph's sweeps alone. Togglable live in Aph Settings.
+// memory management to Aph's sweeps alone.
 pref("browser.tabs.unloadOnLowMemory", true);
 
 // 12. Workspace tab unloading: manual via palette ("Unload Inactive Tabs"
@@ -299,7 +299,7 @@ pref("browser.tabs.unloadOnLowMemory", true);
 
 // 12a. Automatic tab unloading (on by default): discards every stale tab —
 // hidden workspaces and idle current-workspace tabs alike — every 5 min
-// and 15 s after you stop switching. Starred, pinned, audible, loading
+// and 15 s after you stop switching. Pinned, audible, loading
 // and unsaved-form tabs never unload; click an unloaded tab to reload it.
 pref("aph.unload.autoEnabled", true);
 
@@ -314,18 +314,17 @@ pref("aph.unload.staleMin", 30);
 // safe anywhere.
 pref("aph.unload.onLowMemory", true);
 
+// 12d. Native Bookmark Archiver: automatically archive stale unpinned tabs
+// into Places Bookmarks (Other Bookmarks / Aph Archive / Workspace N / YYYY-MM-DD).
+// Default 0 = manual only via Ctrl+K commands; set to e.g. 7 for weekly cleanup.
+pref("aph.archive.autoDays", 0);
+
 // 15. Ctrl/Cmd+W on a selected pinned tab keeps it open instead of
 // closing — a drifted pin resets to its pinned base URL in place, a pin
 // already at base parks (unloads); a second press (now pending) closes via
 // stock, as do middle-click and the tab context menu. Set false for stock
 // close-on-first-press.
 pref("aph.pins.ctrlWUnloads", true);
-
-// 16. Ctrl/Cmd+W on a selected starred tab mirrors pins — a drifted star
-// resets to its starred base URL in place, a star already at base parks
-// (unloads); a second press (now pending) closes via stock. Set false for
-// stock close-on-first-press.
-pref("aph.stars.ctrlWUnloads", true);
 
 // 17. Sidebar footer (settings gear): hidden by default to reclaim the
 // strip. The palette's Show/Hide Sidebar Footer command flips it live;
@@ -334,20 +333,23 @@ pref("aph.sidebar.hideFooter", true);
 pref("aph.sidebar.autohide", false);
 
 // 18. Accounts & passwords: both OFF by default (privacy-first seed).
-// Toggled live in Aph Settings ("Accounts & Passwords", backed by
-// BOOL_DEFAULTS there — keep the defaults in sync). The Sync toggle
-// needs a restart to fully apply. Neither is policy-locked (see
-// config/policies.json), so user choice sticks.
+// The Sync toggle needs a restart to fully apply. Neither is policy-locked
+// (see config/policies.json), so user choice sticks.
 pref("identity.fxaccounts.enabled", false);
 pref("signon.rememberSignons", false);
 
 // 19. Theme preset: auto follows the OS room (midnight/paper faces);
 // midnight/paper pin those rooms against the OS, nord cools the room
-// with a steel voice, espresso warms it umber. Picked in Aph Settings
-// (Appearance → Theme preset), which also pairs the matching Firefox
-// built-in theme so scheme art (menu glyphs, palette slab) agrees with
-// the room. Unknown values read as auto.
+// with a steel voice, espresso warms it umber. Unknown values read as auto.
 pref("aph.theme.preset", "auto");
+
+// 20. Daily comfort: speculative connections and DNS prefetching
+pref("network.http.speculative-parallel-limit", 6);
+pref("network.dns.disablePrefetch", false);
+pref("network.dns.disablePrefetchFromHTTPS", false);
+pref("browser.urlbar.speculativeConnect.enabled", true);
+pref("browser.places.speculativeConnect.enabled", true);
+pref("network.prefetch-next", false);
 // 13. New Tab look: Aph's own desk, no forced wallpaper.
 // branding/userContent.css paints the designed gradient on html with body
 // forced transparent, so Activity Stream's wallpaper (body
@@ -363,6 +365,11 @@ pref("aph.theme.preset", "auto");
 // at runtime, and the cached about:newtab document (see item 4) can carry
 // that baked-in body style past the pref change. A rebrand forces a
 // -purgecaches launch, so a changed default is never shadowed by a stale document.
+
+// 21. Cap SessionStore JSON bloat & BTRFS CoW write churn
+pref("browser.sessionstore.interval", 60000);           // 60s (Betterfox baseline, crash safety)
+pref("browser.sessionstore.max_serialize_forward", 2);  // stock -1 (unbounded forward history churns megabytes)
+pref("browser.sessionstore.max_tabs_undo", 10);         // stock 25
 
 /****************************************************************************
  * END: APH NATIVE OVERRIDES

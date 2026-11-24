@@ -1,8 +1,19 @@
-# Generated bundles
+# Generated bundles (rebuilt from branding/src/ via build_assets.py)
 branding/workspaces.js
 branding/command-palette.js
 
-# Tests — harnesses and mocks dominate these trees. Pack them ad hoc for
-# test-authoring sessions: bunx repomix tests tests_py
+# Tests — harnesses and mocks dominate these trees. Pack ad hoc: bunx repomix tests tests_py
 tests/**
 tests_py/**
+
+# Lockfile and packaging
+uv.lock
+packaging/Output/**
+
+# Binary & vector image assets
+**/*.png
+**/*.svg
+**/*.ico
+
+# Built website docs
+docs/**

@@ -9,7 +9,7 @@
   // Test seam: window.AphPlaces = { searchBookmarks(q, limit),
   // searchHistory(q, limit) } (each returns [{title, url|uri}]).
   var APH_PLACES_MIN_QUERY = 2;
-  var APH_PLACES_BOOKMARK_LIMIT = 8;
+  var APH_PLACES_BOOKMARK_LIMIT = 20;
   var APH_PLACES_HISTORY_LIMIT = 8;
 
   function aphPlacesIsPrivate() {

@@ -133,8 +133,8 @@
   // highlight each field that matched.
   function matchItem(it, q) {
     const tm = fuzzyScoreTypo(q, it.title || "");
-    const sm = it.sub ? fuzzyScoreTypo(q, it.sub) : null;
-    const hm = it.hint ? fuzzyScoreTypo(q, it.hint) : null;
+    const sm = it.sub ? fuzzyScore(q, it.sub) : null;
+    const hm = it.hint ? fuzzyScore(q, it.hint) : null;
     if (!tm && !sm && !hm) {
       return null;
     }

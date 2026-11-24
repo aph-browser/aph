@@ -415,6 +415,27 @@
           }
         }
       } catch (err) {}
+      // Star Tab / Unstar Tab:
+      try {
+        if (clicked && !clicked.pinned && typeof toggleStarTab === "function") {
+          const starred = typeof isTabStarred === "function" ? isTabStarred(clicked) : false;
+          const starItem = makeMoveMenuNode(
+            "menuitem",
+            "aph-star-tab",
+            starred ? "Unstar Tab" : "Star Tab",
+            false
+          );
+          if (starItem) {
+            starItem.addEventListener("command", () => {
+              try {
+                toggleStarTab(clicked);
+              } catch (err) {}
+            });
+            menu.appendChild(starItem);
+            moveMenuItems.push(starItem);
+          }
+        }
+      } catch (err) {}
     } catch (err) {}
   }
 

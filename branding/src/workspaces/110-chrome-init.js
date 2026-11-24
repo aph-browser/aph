@@ -65,6 +65,11 @@
       }
     } catch (e) {}
     try {
+      if (typeof stopArchiveSweeper === "function") {
+        stopArchiveSweeper();
+      }
+    } catch (e) {}
+    try {
       if (typeof cleanupAutohideSidebar === "function") {
         cleanupAutohideSidebar();
       }
@@ -220,15 +225,15 @@
         sendTabTo,
         sendGroupTo,
         cycleWorkspace,
-        cycleMru: typeof cycleMru === "function" ? cycleMru : () => {},
-        getMruOrder: typeof getMruOrder === "function" ? getMruOrder : () => [],
         cycleTabMru: typeof cycleTabMru === "function" ? cycleTabMru : () => {},
         getTabWalkOrder: typeof getTabWalkOrder === "function" ? getTabWalkOrder : () => [],
         groupSelectedTabs:
           typeof groupSelectedTabs === "function" ? groupSelectedTabs : () => false,
-        toggleLastWorkspace,
+        toggleStarTab:
+          typeof toggleStarTab === "function" ? toggleStarTab : () => false,
+        isTabStarred:
+          typeof isTabStarred === "function" ? isTabStarred : () => false,
         getActiveWorkspaces: getActiveIds,
-        getLastWorkspace: () => lastUsed,
         openTempTab,
         openBoundTab,
         getTopWorkingIndex:
@@ -276,6 +281,12 @@
           typeof unloadCandidates === "function"
             ? unloadCandidates
             : () => ({ total: 0, list: [] }),
+        archiveStaleTabs:
+          typeof archiveStaleTabs === "function" ? archiveStaleTabs : () => ({ archived: 0 }),
+        archiveWorkspaceTabs:
+          typeof archiveWorkspaceTabs === "function" ? archiveWorkspaceTabs : () => ({ archived: 0 }),
+        countArchivableTabs:
+          typeof countArchivableTabs === "function" ? countArchivableTabs : () => 0,
         splitToggle:
           typeof splitToggle === "function" ? splitToggle : () => ({ action: "noop" }),
         separateSplit:
@@ -288,12 +299,6 @@
             : () => ({ inSplit: false, canSplit: false, candidateTitle: "", candidateUrl: "" }),
         renderDock,
         closeWorkspaceTabs,
-        getFocusMode:
-          typeof isFocusMode === "function" ? isFocusMode : () => false,
-        setFocusMode:
-          typeof setFocusMode === "function" ? setFocusMode : () => false,
-        toggleFocusMode:
-          typeof toggleFocusMode === "function" ? toggleFocusMode : () => false,
         getAutohideSidebar:
           typeof isAutohideSidebar === "function" ? isAutohideSidebar : () => false,
         setAutohideSidebar:
@@ -364,12 +369,13 @@
         try {
           t.__aphFresh = false;
         } catch (e) {}
-        // Heal legacy per-workspace pins: pins are global, never hidden.
+        // Pins are global, never hidden.
         try {
           if (t.pinned && t.hidden) {
             aphShowTab(t);
           }
         } catch (e) {}
+
       }
       // Restored tabs keep their tags (no setWs above) — sync markers anyway.
       syncAllTabChrome();
@@ -513,6 +519,11 @@
       }
     } catch (e) {}
     try {
+      if (typeof startArchiveSweeper === "function") {
+        startArchiveSweeper();
+      }
+    } catch (e) {}
+    try {
       if (typeof initAutohideSidebar === "function") {
         initAutohideSidebar();
       }
@@ -567,8 +578,6 @@
       }
     } catch (_e) {}
   }
-
-  registerContentStyleSheet();
 
   if (document.readyState === "complete") {
     init();

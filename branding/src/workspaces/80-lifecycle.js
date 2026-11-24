@@ -107,13 +107,6 @@
     try {
       renderDock();
     } catch (err) {}
-    try {
-      if (typeof syncStarredBoundaries === "function") {
-        syncStarredBoundaries();
-      } else if (window.AphStar && typeof window.AphStar.syncStarredBoundaries === "function") {
-        window.AphStar.syncStarredBoundaries();
-      }
-    } catch (err) {}
   }
 
   // Restored tabs arrive after load, past init and TabOpen.
@@ -226,16 +219,11 @@
     if (isValidId(current)) {
       syncGroupHeaders(current);
     }
-    try {
-      renderDock();
-    } catch (err) {}
-    try {
-      if (typeof syncStarredBoundaries === "function") {
-        syncStarredBoundaries();
-      } else if (window.AphStar && typeof window.AphStar.syncStarredBoundaries === "function") {
-        window.AphStar.syncStarredBoundaries();
-      }
-    } catch (err) {}
+    if (typeof sessionRestorePending === "undefined" || !sessionRestorePending) {
+      try {
+        renderDock();
+      } catch (err) {}
+    }
   }
 
   // Selecting counts as viewing for unloader staleness (same stamp
@@ -274,13 +262,6 @@
     } catch (err) {}
     try {
       renderDock();
-    } catch (err) {}
-    try {
-      if (typeof syncStarredBoundaries === "function") {
-        syncStarredBoundaries();
-      } else if (window.AphStar && typeof window.AphStar.syncStarredBoundaries === "function") {
-        window.AphStar.syncStarredBoundaries();
-      }
     } catch (err) {}
   }
 
@@ -334,13 +315,6 @@
     } catch (err) {}
     try {
       renderDock();
-    } catch (err) {}
-    try {
-      if (typeof syncStarredBoundaries === "function") {
-        syncStarredBoundaries();
-      } else if (window.AphStar && typeof window.AphStar.syncStarredBoundaries === "function") {
-        window.AphStar.syncStarredBoundaries();
-      }
     } catch (err) {}
   }
 

@@ -8,6 +8,9 @@
   // pins are contiguous + visible at index 0). Pinned tabs keep their aphWs
   // tag as dormant state for eventual unpin, but visibility ignores it.
   function aphShowTab(tab) {
+    if (!tab || !tab.hidden) {
+      return;
+    }
     try {
       gBrowser.showTab(tab);
     } catch (e) {
@@ -99,7 +102,7 @@
       return out;
     }
     for (const el of elements) {
-      if (isHiddenGroupDragLabel(el)) {
+      if (el.hidden || el.hasAttribute?.("hidden") || isHiddenGroupDragLabel(el)) {
         continue;
       }
       try {
@@ -244,6 +247,109 @@
     return true;
   }
 
+  // Starred group: lightweight native <tab-group> named "Starred".
+  // Starred tabs sit at the top of the workspace working stack.
+  function isTabStarred(tab) {
+    try {
+      if (!tab || tab.pinned || !tab.group) {
+        return false;
+      }
+      const g = tab.group;
+      const lbl =
+        g.label ||
+        g.name ||
+        (typeof g.getAttribute === "function" ? g.getAttribute("label") : "");
+      return lbl === "Starred";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function toggleStarTab(tabArg) {
+    let tab = tabArg;
+    if (!tab) {
+      try {
+        tab = gBrowser.selectedTab;
+      } catch (e) {}
+    }
+    if (!tab || tab.closing || tab.pinned) {
+      try {
+        pulseWorkspaceIndicator();
+      } catch (e) {}
+      return false;
+    }
+    const ws = isValidId(current) ? current : getWs(tab);
+
+    // If already in a Starred group, remove (ungroup) it:
+    if (isTabStarred(tab)) {
+      try {
+        if (typeof gBrowser.ungroupTab === "function") {
+          gBrowser.ungroupTab(tab);
+        } else {
+          tab.group = null;
+        }
+      } catch (e) {}
+      return false;
+    }
+
+    // Look for existing Starred group in this workspace:
+    let existing = null;
+    try {
+      const groups = gBrowser.tabGroups || [];
+      for (const g of groups) {
+        const lbl =
+          g.label ||
+          g.name ||
+          (typeof g.getAttribute === "function" ? g.getAttribute("label") : "");
+        if (lbl === "Starred") {
+          const ms = groupMembers(g);
+          if (ms.some((t) => getWs(t) === ws)) {
+            existing = g;
+            break;
+          }
+        }
+      }
+    } catch (e) {}
+
+    if (existing) {
+      try {
+        if (typeof existing.addTabs === "function") {
+          existing.addTabs([tab]);
+        } else if (typeof gBrowser.moveTabToGroup === "function") {
+          gBrowser.moveTabToGroup(tab, existing);
+        } else if (Array.isArray(existing.tabs)) {
+          existing.tabs.push(tab);
+          tab.group = existing;
+        }
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    // Otherwise create Starred group placed first in this workspace:
+    try {
+      const allTabs = Array.from(gBrowser.tabs || []);
+      const firstWsTab = allTabs.find(
+        (t) => !t.pinned && !t.closing && getWs(t) === ws
+      );
+      if (gBrowser && typeof gBrowser.addTabGroup === "function") {
+        const g = gBrowser.addTabGroup([tab], {
+          label: "Starred",
+          color: "yellow",
+          insertBefore: firstWsTab && firstWsTab !== tab ? firstWsTab : undefined,
+        });
+        if (g) {
+          try { g.label = "Starred"; } catch (e) {}
+          try { g.name = "Starred"; } catch (e) {}
+          try { g.color = "yellow"; } catch (e) {}
+        }
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
   function rememberCurrent(tabs) {
     if (!isValidId(current)) {
       return;
@@ -314,7 +420,9 @@
       for (const m of members) {
         if (adoptedTabs.has(m)) {
           for (const o of members) {
-            setWs(o, current);
+            if (rawWs(o) !== current) {
+              setWs(o, current);
+            }
           }
           // Consume the flag so future anchorGroup calls don't re-drag the
           // group into whatever workspace happens to be active at the time.
@@ -359,7 +467,9 @@
       }
     }
     for (const m of members) {
-      setWs(m, anchor);
+      if (rawWs(m) !== anchor) {
+        setWs(m, anchor);
+      }
     }
   }
 
@@ -471,17 +581,12 @@
       // hiding now sticks (nothing re-shows until tagged), so leave them
       // visible — the settle path (stamp/SSTabRestored) converges them.
       // Tags are never deleted, so tagless always means not-yet-tagged.
-      let tagged = false;
-      try {
-        tagged = !!rawWs(t);
-      } catch (e) {
-        tagged = false;
-      }
-      if (!tagged) {
+      const tag = rawWs(t);
+      if (!tag) {
         continue;
       }
       try {
-        if (t.pinned || getWs(t) === target) {
+        if (t.pinned || tag === target) {
           aphShowTab(t);
         } else {
           aphHideTab(t);
