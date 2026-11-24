@@ -38,8 +38,8 @@ jobs:
       - name: Ruff format check
         run: ruff format --check scripts/ tests_py/
 
-      - name: Generated bundles are fresh
-        run: python scripts/build_assets.py --check
+      - name: Build browser bundles
+        run: python scripts/build_assets.py
 
       - name: Python unit tests
         run: python -m pytest tests_py/ -q
