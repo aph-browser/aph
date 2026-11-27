@@ -60,20 +60,35 @@
 /* Paper face: same geometry, room-following slab + ink. The section
    fade below re-reads the light slab token so headers melt into paper,
    not charcoal. */
+:root[data-aph-preset="paper"] #aph-palette-overlay {
+  color-scheme: light !important;
+}
+:root[data-aph-preset="paper"] #aph-palette {
+  background: var(--aph-palette-bg-light, #f5efe0) !important;
+  color: var(--aph-palette-fg-light, #26262b) !important;
+  border-color: color-mix(in oklab, var(--aph-ink, #26262b) 14%, transparent) !important;
+  color-scheme: light !important;
+}
+:root[data-aph-preset="paper"] .aph-palette-section {
+  background: linear-gradient(to bottom, var(--aph-palette-bg-light, #f5efe0) 70%, transparent) !important;
+}
+:root[data-aph-preset="paper"] #aph-palette-footer {
+  border-top-color: color-mix(in oklab, var(--aph-ink, #26262b) 10%, transparent) !important;
+}
 @media (prefers-color-scheme: light) {
-  #aph-palette-overlay {
+  :root:is(:not([data-aph-preset]), [data-aph-preset="auto"]) #aph-palette-overlay {
     color-scheme: light !important;
   }
-  #aph-palette {
+  :root:is(:not([data-aph-preset]), [data-aph-preset="auto"]) #aph-palette {
     background: var(--aph-palette-bg-light, #f5efe0) !important;
     color: var(--aph-palette-fg-light, #26262b) !important;
     border-color: color-mix(in oklab, var(--aph-ink, #26262b) 14%, transparent) !important;
     color-scheme: light !important;
   }
-  .aph-palette-section {
+  :root:is(:not([data-aph-preset]), [data-aph-preset="auto"]) .aph-palette-section {
     background: linear-gradient(to bottom, var(--aph-palette-bg-light, #f5efe0) 70%, transparent) !important;
   }
-  #aph-palette-footer {
+  :root:is(:not([data-aph-preset]), [data-aph-preset="auto"]) #aph-palette-footer {
     border-top-color: color-mix(in oklab, var(--aph-ink, #26262b) 10%, transparent) !important;
   }
 }
@@ -88,23 +103,6 @@
 @keyframes aph-palette-pop {
   from { opacity: 0; transform: translateY(-10px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
-}
-/* Animated exit: backdrop fades, panel sinks + shrinks, then JS sets
-   hidden (see close() in 60-control.js, ~130ms timer). */
-#aph-palette-overlay.aph-palette-closing {
-  animation: aph-palette-fade-out var(--aph-motion-overlay) forwards !important;
-}
-@keyframes aph-palette-fade-out {
-  from { opacity: 1; }
-  to { opacity: 0; }
-}
-#aph-palette.aph-palette-closing {
-  animation: aph-palette-pop-out var(--aph-motion-overlay) forwards !important;
-  transform-origin: top center !important;
-}
-@keyframes aph-palette-pop-out {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to { opacity: 0; transform: translateY(-10px) scale(0.98); }
 }
 #aph-palette-input {
   width: 100% !important;
@@ -125,6 +123,73 @@
 }
 #aph-palette-input::selection {
   background-color: var(--aph-select, rgba(0, 144, 255, 0.45)) !important;
+}
+#aph-palette-chips {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 6px 16px !important;
+  border-bottom: 1px solid color-mix(in oklab, currentColor 10%, transparent) !important;
+  overflow-x: auto !important;
+}
+#aph-palette-chips[hidden] {
+  display: none !important;
+}
+.aph-palette-chip {
+  appearance: none !important;
+  border: 1px solid color-mix(in oklab, currentColor 14%, transparent) !important;
+  background: transparent !important;
+  color: inherit !important;
+  opacity: 0.72 !important;
+  font: inherit !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  padding: 2px 9px !important;
+  border-radius: 999px !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+}
+.aph-palette-chip:hover {
+  opacity: 1 !important;
+  background: color-mix(in oklab, currentColor 8%, transparent) !important;
+}
+.aph-palette-chip.active {
+  opacity: 1 !important;
+  background: var(--aph-select, rgba(0, 144, 255, 0.32)) !important;
+  border-color: var(--aph-voice, #0090ff) !important;
+}
+.aph-palette-row-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  opacity: 0 !important;
+  transition: opacity 0.1s ease !important;
+}
+.aph-palette-item:hover .aph-palette-row-actions,
+.aph-palette-item.selected .aph-palette-row-actions {
+  opacity: 1 !important;
+}
+.aph-palette-row-actions[hidden] {
+  display: none !important;
+}
+.aph-palette-row-act {
+  appearance: none !important;
+  border: 1px solid color-mix(in oklab, currentColor 18%, transparent) !important;
+  background: color-mix(in oklab, currentColor 6%, transparent) !important;
+  color: inherit !important;
+  font: inherit !important;
+  font-size: 12px !important;
+  line-height: 1 !important;
+  width: 22px !important;
+  height: 22px !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.aph-palette-row-act:hover {
+  background: color-mix(in oklab, currentColor 16%, transparent) !important;
 }
 #aph-palette-list {
   overflow-y: auto !important;
@@ -253,6 +318,28 @@
   text-overflow: ellipsis !important;
   margin-top: 1px !important;
 }
+.aph-palette-ws-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+}
+.aph-palette-ws-badge::before {
+  content: "" !important;
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  background: var(--aph-ws-now, #0090ff) !important;
+  flex: none !important;
+}
+.aph-palette-ws-badge[data-ws="1"]::before { background: var(--aph-ws-1, #0090ff) !important; }
+.aph-palette-ws-badge[data-ws="2"]::before { background: var(--aph-ws-2, #8e4ec6) !important; }
+.aph-palette-ws-badge[data-ws="3"]::before { background: var(--aph-ws-3, #30a46c) !important; }
+.aph-palette-ws-badge[data-ws="4"]::before { background: var(--aph-ws-4, #e5484d) !important; }
+.aph-palette-ws-badge[data-ws="5"]::before { background: var(--aph-ws-5, #f59e0b) !important; }
+.aph-palette-ws-badge[data-ws="6"]::before { background: var(--aph-ws-6, #12a594) !important; }
+.aph-palette-ws-badge[data-ws="7"]::before { background: var(--aph-ws-7, #d6409f) !important; }
+.aph-palette-ws-badge[data-ws="8"]::before { background: var(--aph-ws-8, #6366f1) !important; }
+.aph-palette-ws-badge[data-ws="9"]::before { background: var(--aph-ws-9, #696e77) !important; }
 .aph-palette-key {
   flex: 0 0 auto !important;
   font-size: 11px !important;
@@ -300,8 +387,11 @@
 }
 /* Paper-face mark ink: translucent select over cream needs dark text
    (white would wash out); charcoal keeps near-white. */
+:root[data-aph-preset="paper"] .aph-palette-mark {
+  color: var(--aph-palette-fg-light, #26262b) !important;
+}
 @media (prefers-color-scheme: light) {
-  .aph-palette-mark {
+  :root:is(:not([data-aph-preset]), [data-aph-preset="auto"]) .aph-palette-mark {
     color: var(--aph-palette-fg-light, #26262b) !important;
   }
 }
@@ -334,9 +424,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   #aph-palette-overlay,
-  #aph-palette-overlay.aph-palette-closing,
   #aph-palette.aph-palette-anim,
-  #aph-palette.aph-palette-closing,
   .aph-palette-item {
     animation: none !important;
     transition: none !important;

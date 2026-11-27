@@ -595,10 +595,14 @@ describe("palette archive commands", () => {
       "command-palette.js",
       sb,
       'window.addEventListener("keydown", onKey, true);',
-      "window.__aphTest = { allItems };"
+      "window.__aphTest = { allItems, archiveCommands };"
     );
 
-    const items = sb.window.__aphTest.allItems("archive");
+    const rootItems = sb.window.__aphTest.allItems("archive");
+    const parentCmd = rootItems.find((it) => it.title === "Archive Stale Tabs…");
+    assert.ok(parentCmd, "Archive Stale Tabs… drill-down command should exist");
+
+    const items = sb.window.__aphTest.archiveCommands(sb.window.AphWorkspaces);
     assert.ok(items.length >= 3, `Expected at least 3 archive commands, got ${items.length}`);
 
     const cmd7d = items.find((it) => it.title === "Archive Stale Tabs (>7 Days)");

@@ -54,8 +54,8 @@ describe("fuzzy tiers", () => {
     assert.ok(pre > acr && acr > mid && mid > seq, `${pre} > ${acr} > ${mid} > ${seq}`);
   });
 
-  it("ranks w2 -> Switch and nt -> New Tab first", () => {
-    const w2 = T.allItems("w2");
+  it("ranks #w2 -> Switch and nt -> New Tab first", () => {
+    const w2 = T.allItems("#w2");
     assert.ok(
       w2[0] && w2[0].title.startsWith("Switch to Workspace 2"),
       w2[0] && w2[0].title
@@ -180,22 +180,24 @@ describe("dock-parity bind rows", () => {
     return { api: sb2.window.__aphTest, calls };
   }
 
-  it("lists tab-source + per-container + none on 'bind'", () => {
+  it("lists tab-source + per-container + none on '#bind' and drill-down on 'bind'", () => {
     const { api } = bindSandbox({});
-    const titles = api.allItems("bind").map((r) => r.title);
+    const rootTitles = api.allItems("bind").map((r) => r.title);
+    assert.ok(rootTitles.includes("Bind Workspace to Container…"), rootTitles.join(" | "));
+    const titles = api.allItems("#bind").map((r) => r.title);
     assert.ok(
       titles.some((t) => t.includes("This Tab's Container (Banking)")),
       titles.join(" | ")
     );
-    assert.ok(titles.some((t) => t === "Bind Workspace 2 (Work) · Personal to Personal"));
-    assert.ok(titles.some((t) => t === "Bind Workspace 2 (Work) · Personal to Banking"));
-    assert.ok(titles.some((t) => t === "Bind Workspace 2 (Work) · Personal to None (Unbound)"));
+    assert.ok(titles.some((t) => t === "Bind Work (2) · Personal to Personal"));
+    assert.ok(titles.some((t) => t === "Bind Work (2) · Personal to Banking"));
+    assert.ok(titles.some((t) => t === "Bind Work (2) · Personal to None (Unbound)"));
     assert.ok(titles.every((t) => !t.startsWith("Clear Current Workspace")));
   });
 
   it("dispatches set / clear / tab-source runs", () => {
     const { api, calls } = bindSandbox({});
-    const res = api.allItems("bind");
+    const res = api.allItems("#bind");
     res.find((r) => r.title.endsWith("to Banking")).run();
     res.find((r) => r.title.endsWith("to None (Unbound)")).run();
     res.find((r) => r.title.includes("This Tab's Container")).run();
@@ -204,13 +206,14 @@ describe("dock-parity bind rows", () => {
 
   it("states clear on containerless tabs and hides in private windows", () => {
     const { api } = bindSandbox({ tabCid: 0, bound: 0 });
-    const row = api.allItems("bind").find((r) => r.title.includes("This Tab's Container"));
+    const row = api.allItems("#bind").find((r) => r.title.includes("This Tab's Container"));
     assert.ok(row && row.sub.includes("containerless"), row && row.sub);
     const priv = bindSandbox({ private: true });
     assert.equal(
-      priv.api.allItems("bind").filter((r) => r.title.startsWith("Bind")).length,
+      priv.api.allItems("#bind").filter((r) => r.title.startsWith("Bind")).length,
       0
     );
+    assert.ok(!priv.api.allItems("bind").some((r) => r.title === "Bind Workspace to Container…"));
   });
 });
 
@@ -618,7 +621,10 @@ describe("mode gating (zero leakage)", () => {
     const res = T.allItems(">bind");
     assert.ok(res.length > 0, "bind commands exist");
     for (const r of res) {
-      assert.equal(r.section, "Commands", `${r.title}[${r.section}]`);
+      assert.ok(
+        r.section === "Commands" || r.section === "Workspaces",
+        `${r.title}[${r.section}]`
+      );
     }
   });
 
@@ -724,7 +730,7 @@ describe("return-of-focus", () => {
   });
 });
 
-describe("terminal history + modifier peek", () => {
+describe("terminal history", () => {
   function domSandbox() {
     const created = [];
     const iconCommits = [];
@@ -846,23 +852,6 @@ describe("terminal history + modifier peek", () => {
     assert.equal(input.value, "mail", "second open must not wipe the query");
   });
 
-  it("morphs the footer while Alt is held and restores on release", () => {
-    const { api, created, winHandlers } = domSandbox();
-    api.open();
-    const input = created[2];
-    const footer = created[4];
-    const base = String(footer.textContent || "");
-    assert.ok(base.length > 0, "footer has a mode hint");
-    input._h.keydown(key("Alt"));
-    const peeked = String(footer.textContent || "");
-    assert.ok(peeked !== base, `footer peeked: ${peeked}`);
-    assert.ok(/↵/.test(peeked), `peek shows Enter action: ${peeked}`);
-    for (const fn of winHandlers.keyup || []) {
-      fn(key("Alt"));
-    }
-    assert.equal(String(footer.textContent || ""), base);
-  });
-
 describe("workspace icon picker", () => {
   function itemRows(list) {
     return list.children.filter((c) => String(c.className || "").startsWith("aph-palette-item"));
@@ -872,7 +861,7 @@ describe("workspace icon picker", () => {
     const { api, created } = domSandbox();
     api.open();
     api.startIconPick("2");
-    const list = created[3];
+    const list = created.find((e) => e.id === "aph-palette-list");
     const rows = itemRows(list);
     assert.equal(rows.length, 3, "2 marks + None");
   });
@@ -881,8 +870,8 @@ describe("workspace icon picker", () => {
     const { api, created } = domSandbox();
     api.open();
     api.startIconPick("2");
-    const input = created[2];
-    const list = created[3];
+    const input = created.find((e) => e.id === "aph-palette-input");
+    const list = created.find((e) => e.id === "aph-palette-list");
     input.value = "mail";
     api.render("mail");
     assert.equal(itemRows(list).length, 1);
@@ -1119,5 +1108,420 @@ describe("ctrl+k focus gate", () => {
     assert.equal(T.ctrlKBlockedByFocus(), false);
     delete sb.document.activeElement;
     assert.equal(T.ctrlKBlockedByFocus(), false);
+  });
+});
+
+describe("phase 1: search-over-weak-fuzzy, drill-down stack, and ws dots", () => {
+  it("puts web search first for multi-word / long non-matching queries", () => {
+    const res1 = T.allItems("how to center a div");
+    assert.equal(res1[0].kind, "search", res1[0] && res1[0].title);
+    const res2 = T.allItems("weather");
+    assert.equal(res2[0].kind, "search", res2[0] && res2[0].title);
+  });
+
+  it("drills into Switch Theme…, live-previews on arrow, and reverts on Escape", () => {
+    let curPreset = "midnight";
+    const calls = [];
+    const keyHandlers = [];
+    const input = {
+      value: "",
+      attrs: {},
+      setAttribute(k, v) { this.attrs[k] = v; },
+      focus() {},
+      addEventListener() {},
+    };
+    const sbTheme = {
+      window: {
+        opener: null,
+        AphWorkspaces: {
+          getCurrent: () => "1",
+          getWs: () => "1",
+          getWsName: () => "Work",
+          getWsIcon: () => "",
+        },
+        AphThemePreset: {
+          getThemePreset: () => curPreset,
+          setThemePreset: (p) => { curPreset = p; calls.push(p); },
+        },
+        addEventListener(t, fn) { if (t === "keydown") keyHandlers.push(fn); },
+        removeEventListener() {},
+      },
+      document: {
+        readyState: "complete",
+        activeElement: null,
+        createElement: (tag) => {
+          if (tag === "input") return input;
+          return {
+            tag,
+            className: "",
+            hidden: false,
+            children: [],
+            style: {},
+            attrs: {},
+            setAttribute(k, v) { this.attrs[k] = v; },
+            removeAttribute(k) { delete this.attrs[k]; },
+            appendChild(c) { this.children.push(c); },
+            removeChild() {},
+            addEventListener() {},
+            querySelector: () => null,
+            classList: { add() {}, remove() {} },
+            scrollIntoView() {},
+          };
+        },
+        documentElement: { appendChild() {} },
+      },
+      gBrowser: { tabs: [], selectedTab: null },
+    };
+    run(
+      "command-palette.js",
+      sbTheme,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest = { allItems, getItems: () => items, getStack: () => viewStack };"
+    );
+    const api = sbTheme.window.__aphTest;
+    const themeCmd = api.allItems("switch theme").find((r) => r.title === "Switch Theme…");
+    assert.ok(themeCmd, "Switch Theme… command exists");
+    themeCmd.run();
+    assert.equal(api.getStack().length, 1, "pushed theme view onto stack");
+    assert.ok(api.getItems().some((r) => r.title.includes("Midnight")));
+    const onKey = keyHandlers[0];
+    onKey({ key: "ArrowDown", preventDefault() {}, stopPropagation() {} });
+    assert.ok(calls.length > 0, "live preview updated preset on ArrowDown");
+    onKey({ key: "Escape", preventDefault() {}, stopPropagation() {} });
+    assert.equal(api.getStack().length, 0, "popped theme view on Escape");
+    assert.equal(curPreset, "midnight", "reverted theme preset on Escape");
+  });
+
+  it("caps typed All mode to <=5 tabs while keeping @ mode uncapped", () => {
+    const manyTabs = [];
+    for (let i = 0; i < 12; i++) {
+      manyTabs.push({
+        label: `Project Issue ${i}`,
+        hidden: false,
+        pinned: false,
+        lastAccessed: 1000 - i,
+        linkedBrowser: { currentURI: { spec: `https://example.com/${i}` } },
+      });
+    }
+    const sbCap = {
+      window: {
+        opener: null,
+        addEventListener() {},
+        removeEventListener() {},
+      },
+      document: {
+        readyState: "loading",
+        createElement: () => ({ setAttribute() {}, addEventListener() {}, appendChild() {} }),
+      },
+      gBrowser: { tabs: manyTabs, selectedTab: null },
+    };
+    run(
+      "command-palette.js",
+      sbCap,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest = { allItems };"
+    );
+    const allRes = sbCap.window.__aphTest.allItems("project");
+    const allTabs = allRes.filter((r) => r.kind === "tab");
+    assert.ok(allTabs.length <= 5, `expected <=5 tabs in All mode, got ${allTabs.length}`);
+    const atRes = sbCap.window.__aphTest.allItems("@project");
+    assert.equal(atRes.length, 12, "dedicated @ mode keeps all 12 matching tabs");
+  });
+
+  it("Ctrl+L opens omnibox with current URL and navigates in place on Enter", () => {
+    const navCalls = [];
+    const keyHandlers = [];
+    const input = {
+      value: "",
+      attrs: {},
+      selected: false,
+      setAttribute(k, v) { this.attrs[k] = v; },
+      focus() {},
+      select() { this.selected = true; },
+      addEventListener() {},
+    };
+    const sbEdit = {
+      window: {
+        opener: null,
+        openTrustedLinkIn: (url, where) => navCalls.push([url, where]),
+        addEventListener(t, fn) { if (t === "keydown") keyHandlers.push(fn); },
+        removeEventListener() {},
+      },
+      document: {
+        readyState: "complete",
+        activeElement: null,
+        createElement: (tag) => {
+          if (tag === "input") return input;
+          return {
+            tag,
+            className: "",
+            hidden: false,
+            children: [],
+            style: {},
+            attrs: {},
+            setAttribute(k, v) { this.attrs[k] = v; },
+            removeAttribute(k) { delete this.attrs[k]; },
+            appendChild(c) { this.children.push(c); },
+            removeChild() {},
+            addEventListener() {},
+            querySelector: () => null,
+            classList: { add() {}, remove() {} },
+            scrollIntoView() {},
+          };
+        },
+        documentElement: { appendChild() {} },
+      },
+      gBrowser: {
+        tabs: [],
+        selectedTab: null,
+        selectedBrowser: { currentURI: { spec: "https://example.com/start" } },
+      },
+    };
+    run(
+      "command-palette.js",
+      sbEdit,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest = { allItems, choose };"
+    );
+    const onKey = keyHandlers[0];
+    onKey({ ctrlKey: true, code: "KeyL", preventDefault() {}, stopPropagation() {} });
+    assert.equal(input.value, "https://example.com/start");
+    input.value = "linear.app";
+    const goItem = sbEdit.window.__aphTest.allItems("linear.app")[0];
+    goItem.run();
+    assert.deepEqual(navCalls, [["https://linear.app", "current"]]);
+  });
+
+  it("surfaces Aph Settings… and cycles/toggles key preferences", () => {
+    const prefInts = new Map([
+      ["aph.archive.autoDays", 0],
+      ["aph.unload.staleMin", 30],
+    ]);
+    const prefBools = new Map([
+      ["aph.unload.autoEnabled", false],
+      ["aph.pins.ctrlWUnloads", true],
+      ["aph.sidebar.autohide", false],
+      ["aph.sidebar.hideFooter", true],
+    ]);
+
+    const mockServices = {
+      prefs: {
+        getIntPref: (k) => (prefInts.has(k) ? prefInts.get(k) : 0),
+        setIntPref: (k, v) => prefInts.set(k, Number(v)),
+        getBoolPref: (k, def) => (prefBools.has(k) ? prefBools.get(k) : def),
+        setBoolPref: (k, v) => prefBools.set(k, !!v),
+      },
+    };
+
+    const views = sb.window.__aphViews;
+    assert.ok(views, "__aphViews is exported");
+    assert.ok(typeof views.aphSettingsView === "function", "aphSettingsView exists");
+
+    const settingsCmd = T.allItems(">aph settings").find((r) => r.title === "Aph Settings…");
+    assert.ok(settingsCmd, "Aph Settings… command exists in palette");
+    assert.equal(settingsCmd.hint, "Settings");
+    assert.equal(settingsCmd.keepOpen, true);
+
+    const savedGlobalServices = globalThis.Services;
+    const savedSbServices = sb.Services;
+    globalThis.Services = mockServices;
+    sb.Services = mockServices;
+
+    try {
+      const settingsView = views.aphSettingsView();
+      let items = settingsView.items();
+      assert.equal(items.length, 6, "Settings view has 6 rows");
+
+      // 1. Auto-Archive: 0 -> 3 -> 7 -> 14 -> 30 -> 0
+      const archiveRow = items.find((r) => r.title.includes("Auto-Archive"));
+      assert.ok(archiveRow, "Auto-Archive row exists");
+      assert.equal(archiveRow.title, "○ Auto-Archive: Off");
+      archiveRow.run();
+      assert.equal(prefInts.get("aph.archive.autoDays"), 3);
+      items = settingsView.items();
+      assert.equal(items.find((r) => r.title.includes("Auto-Archive")).title, "✓ Auto-Archive: 3 days");
+      items.find((r) => r.title.includes("Auto-Archive")).run();
+      assert.equal(prefInts.get("aph.archive.autoDays"), 7);
+      items = settingsView.items();
+      items.find((r) => r.title.includes("Auto-Archive")).run();
+      assert.equal(prefInts.get("aph.archive.autoDays"), 14);
+      items = settingsView.items();
+      items.find((r) => r.title.includes("Auto-Archive")).run();
+      assert.equal(prefInts.get("aph.archive.autoDays"), 30);
+      items = settingsView.items();
+      items.find((r) => r.title.includes("Auto-Archive")).run();
+      assert.equal(prefInts.get("aph.archive.autoDays"), 0);
+
+      // 2. Auto-Unload: Off -> 15m -> 30m -> 60m -> Off
+      const unloadRow = items.find((r) => r.title.includes("Auto-Unload"));
+      assert.ok(unloadRow, "Auto-Unload row exists");
+      assert.equal(unloadRow.title, "○ Auto-Unload: Off");
+      unloadRow.run();
+      assert.equal(prefBools.get("aph.unload.autoEnabled"), true);
+      assert.equal(prefInts.get("aph.unload.staleMin"), 15);
+      items = settingsView.items();
+      assert.equal(items.find((r) => r.title.includes("Auto-Unload")).title, "✓ Auto-Unload: 15m");
+      items.find((r) => r.title.includes("Auto-Unload")).run();
+      assert.equal(prefBools.get("aph.unload.autoEnabled"), true);
+      assert.equal(prefInts.get("aph.unload.staleMin"), 30);
+      items = settingsView.items();
+      items.find((r) => r.title.includes("Auto-Unload")).run();
+      assert.equal(prefBools.get("aph.unload.autoEnabled"), true);
+      assert.equal(prefInts.get("aph.unload.staleMin"), 60);
+      items = settingsView.items();
+      items.find((r) => r.title.includes("Auto-Unload")).run();
+      assert.equal(prefBools.get("aph.unload.autoEnabled"), false);
+
+      // 3. Ctrl+W Parks Pins
+      const pinsRow = items.find((r) => r.title.includes("Ctrl+W Parks"));
+      assert.ok(pinsRow, "Pins row exists");
+      assert.equal(pinsRow.title, "✓ Ctrl+W Parks Pinned Tabs");
+      pinsRow.run();
+      assert.equal(prefBools.get("aph.pins.ctrlWUnloads"), false);
+      items = settingsView.items();
+      assert.equal(items.find((r) => r.title.includes("Ctrl+W Parks")).title, "○ Ctrl+W Parks Pinned Tabs");
+      items.find((r) => r.title.includes("Ctrl+W Parks")).run();
+      assert.equal(prefBools.get("aph.pins.ctrlWUnloads"), true);
+
+      // 4. Auto-Hide Sidebar
+      const sidebarRow = items.find((r) => r.title.includes("Auto-Hide Sidebar"));
+      assert.ok(sidebarRow, "Sidebar autohide row exists");
+      assert.equal(sidebarRow.title, "○ Auto-Hide Sidebar: Disabled");
+      sidebarRow.run();
+      assert.equal(prefBools.get("aph.sidebar.autohide"), true);
+      items = settingsView.items();
+      assert.equal(items.find((r) => r.title.includes("Auto-Hide Sidebar")).title, "✓ Auto-Hide Sidebar: Enabled");
+
+      // 5. Sidebar Footer
+      const footerRow = items.find((r) => r.title.includes("Sidebar Settings Footer"));
+      assert.ok(footerRow, "Sidebar footer row exists");
+      assert.equal(footerRow.title, "○ Sidebar Settings Footer: Hidden");
+      footerRow.run();
+      assert.equal(prefBools.get("aph.sidebar.hideFooter"), false);
+      items = settingsView.items();
+      assert.equal(items.find((r) => r.title.includes("Sidebar Settings Footer")).title, "✓ Sidebar Settings Footer: Visible");
+
+      // 6. Theme Preset item exists
+      const themeRow = items.find((r) => r.title.includes("Theme Preset"));
+      assert.ok(themeRow, "Theme Preset row exists");
+      assert.equal(themeRow.keepOpen, true);
+    } finally {
+      globalThis.Services = savedGlobalServices;
+      sb.Services = savedSbServices;
+    }
+  });
+
+  it("surfaces Manage Domain Routes… and manages routes cleanly", () => {
+    const routes = { "github.com": "2" };
+    const mockApi = {
+      getCurrent: () => "1",
+      getRoutes: () => routes,
+      setRoute: (h, n) => { routes[h] = n; return true; },
+      deleteRoute: (h) => { delete routes[h]; return true; },
+      getWsName: (n) => (n === "2" ? "Code" : ""),
+    };
+
+    const routesCmd = T.allItems("manage domain routes").find((r) => r.title === "Manage Domain Routes…");
+    assert.ok(routesCmd, "Manage Domain Routes… command exists");
+    assert.equal(routesCmd.keepOpen, true);
+
+    const views = sb.window.__aphViews;
+    assert.ok(views.manageRoutesView, "manageRoutesView is exported");
+    assert.ok(views.routeDomainWorkspaceView, "routeDomainWorkspaceView is exported");
+
+    const manageView = views.manageRoutesView(mockApi);
+    assert.equal(manageView.rawItems, true, "uses rawItems for direct filtering");
+
+    // Empty query: lists existing rule for github.com
+    let items = manageView.items("");
+    const delRule = items.find((r) => r.title.includes("github.com"));
+    assert.ok(delRule, "lists github.com rule");
+    assert.equal(delRule.hint, "Enter deletes");
+    assert.equal(delRule.keepOpen, true);
+
+    // Enter deletes the rule
+    delRule.run();
+    assert.equal(routes["github.com"], undefined, "github.com rule was removed");
+    items = manageView.items("");
+    assert.ok(!items.some((r) => r.title.includes("Remove: github.com")), "rule no longer in list");
+
+    // Type a domain: "internal.corp"
+    items = manageView.items("internal.corp");
+    const routeAction = items.find((r) => r.title.includes('Route "internal.corp" to Workspace…'));
+    assert.ok(routeAction, "offers to route typed domain to workspace");
+    assert.equal(routeAction.keepOpen, true);
+
+    // Pick workspace 3 via routeDomainWorkspaceView
+    const pickView = views.routeDomainWorkspaceView(mockApi, "internal.corp");
+    const wsItems = pickView.items();
+    assert.equal(wsItems.length, 9, "9 workspaces listed");
+    const ws3 = wsItems.find((r) => r.wsId === "3");
+    assert.ok(ws3, "Workspace 3 exists");
+    ws3.run();
+    assert.equal(routes["internal.corp"], "3", "internal.corp routed to Workspace 3");
+
+    // Test URL sanitization in cleanDomainInput
+    assert.equal(views.cleanDomainInput("https://gitlab.com/repo/issues"), "gitlab.com");
+    assert.equal(views.cleanDomainInput("*.company.com:8443"), "*.company.com");
+    assert.equal(views.cleanDomainInput("LOCALHOST:3000"), "localhost");
+  });
+
+  it("pushes Settings and Routes views via palette command execution", () => {
+    const makeFakeEl = (tag) => ({
+      tag,
+      className: "",
+      hidden: false,
+      children: [],
+      style: {},
+      attrs: {},
+      setAttribute(k, v) { this.attrs[k] = v; },
+      removeAttribute(k) { delete this.attrs[k]; },
+      appendChild(c) { this.children.push(c); },
+      removeChild() {},
+      addEventListener() {},
+      querySelector: () => null,
+      classList: { add() {}, remove() {}, contains: () => false },
+      scrollIntoView() {},
+      focus() {},
+    });
+
+    const sbViews = {
+      window: {
+        addEventListener() {},
+        removeEventListener() {},
+        AphWorkspaces: {
+          getCurrent: () => "1",
+          getRoutes: () => ({}),
+          setRoute: () => {},
+          deleteRoute: () => {},
+          getWsName: () => "",
+        },
+      },
+      document: {
+        readyState: "loading",
+        activeElement: null,
+        createElement: (tag) => makeFakeEl(tag),
+        documentElement: { appendChild() {} },
+      },
+      gBrowser: { tabs: [], selectedTab: null },
+    };
+    run(
+      "command-palette.js",
+      sbViews,
+      'window.addEventListener("keydown", onKey, true);',
+      "window.__aphTest = { allItems, getStack: () => viewStack };"
+    );
+    const testApi = sbViews.window.__aphTest;
+    const settingsCmd = testApi.allItems("aph settings").find((r) => r.title === "Aph Settings…");
+    assert.ok(settingsCmd, "Aph Settings command found");
+    settingsCmd.run();
+    assert.equal(testApi.getStack().length, 1, "pushed Settings view");
+    assert.ok(testApi.getStack()[0].placeholder.includes("Aph Settings"));
+
+    const routesCmd = testApi.allItems("manage domain routes").find((r) => r.title === "Manage Domain Routes…");
+    assert.ok(routesCmd, "Manage Domain Routes command found");
+    routesCmd.run();
+    assert.equal(testApi.getStack().length, 2, "pushed Routes view");
+    assert.ok(testApi.getStack()[1].placeholder.includes("Type domain"));
   });
 });

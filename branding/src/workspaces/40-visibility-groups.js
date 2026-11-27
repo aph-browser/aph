@@ -12,65 +12,36 @@
       return;
     }
     try {
-      gBrowser.showTab(tab);
+      if (typeof gBrowser?.showTab === "function") {
+        gBrowser.showTab(tab);
+      } else {
+        tab.hidden = false;
+        tab.removeAttribute?.("hidden");
+      }
     } catch (e) {
-      try {
-        if (tab && tab.hidden) {
-          tab.removeAttribute("hidden");
-        }
-      } catch (_e) {}
+      tab.hidden = false;
+      tab.removeAttribute?.("hidden");
     }
   }
 
   function aphHideTab(tab) {
+    if (!tab || tab.hidden || tab.closing || tab.pinned || tab.selected || gBrowser?.selectedTab === tab) {
+      return;
+    }
+    if (tab.linkedBrowser?._sharingState?.webRTC?.sharing) {
+      return;
+    }
     try {
-      if (!tab || tab.hidden || tab.closing) {
-        return;
+      if (typeof gBrowser?.hideTab === "function") {
+        gBrowser.hideTab(tab);
+      } else {
+        tab.hidden = true;
+        tab.setAttribute?.("hidden", "true");
       }
-      try {
-        if (tab.pinned) {
-          return;
-        }
-      } catch (e) {}
-      try {
-        if (tab.selected) {
-          return;
-        }
-      } catch (e) {}
-      try {
-        if (gBrowser.selectedTab === tab) {
-          return;
-        }
-      } catch (e) {}
-      try {
-        if (tab.linkedBrowser?._sharingState?.webRTC?.sharing) {
-          return;
-        }
-      } catch (e) {}
-      tab.setAttribute("hidden", "true");
-      try {
-        gBrowser.tabContainer._invalidateCachedVisibleTabs();
-      } catch (e) {}
-      try {
-        gBrowser.tabContainer._updateCloseButtons();
-      } catch (e) {}
-      try {
-        if (tab.multiselected) {
-          gBrowser._updateMultiselectedTabCloseButtonTooltip();
-        }
-      } catch (e) {}
-      try {
-        gBrowser.replaceInSuccession(tab, tab.successor);
-      } catch (e) {}
-      try {
-        gBrowser.setSuccessor(tab, null);
-      } catch (e) {}
-      try {
-        const event = document.createEvent("Events");
-        event.initEvent("TabHide", true, false);
-        tab.dispatchEvent(event);
-      } catch (e) {}
-    } catch (e) {}
+    } catch (e) {
+      tab.hidden = true;
+      tab.setAttribute?.("hidden", "true");
+    }
   }
 
   // Stock's drag/drop list (tabContainer.dragAndDropElements) is assumed to
@@ -197,9 +168,6 @@
       }
     } catch (e) {}
     if (tabs.length < 2) {
-      try {
-        pulseWorkspaceIndicator();
-      } catch (e) {}
       return false;
     }
     try {
@@ -217,9 +185,6 @@
           same = false;
         }
         if (same) {
-          try {
-            pulseWorkspaceIndicator();
-          } catch (e) {}
           return false;
         }
       }
@@ -234,9 +199,6 @@
       grouped = false;
     }
     if (!grouped) {
-      try {
-        pulseWorkspaceIndicator();
-      } catch (e) {}
       return false;
     }
     try {
@@ -273,9 +235,6 @@
       } catch (e) {}
     }
     if (!tab || tab.closing || tab.pinned) {
-      try {
-        pulseWorkspaceIndicator();
-      } catch (e) {}
       return false;
     }
     const ws = isValidId(current) ? current : getWs(tab);

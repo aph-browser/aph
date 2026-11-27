@@ -93,17 +93,7 @@
     try {
       tab.__aphFresh = true;
     } catch (err) {}
-    // Non-BrowserOpenTab births in a bound workspace: arm the container
-    // repair (deferred swap); everything else stamps immediately.
-    if (armContainerRepair(tab)) {
-      return;
-    }
     stampTab(tab);
-    try {
-      if (typeof ensureTabBelowStarred === "function" && tab && !tab.pinned) {
-        ensureTabBelowStarred(tab);
-      }
-    } catch (err) {}
     try {
       renderDock();
     } catch (err) {}

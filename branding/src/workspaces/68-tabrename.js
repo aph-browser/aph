@@ -11,21 +11,15 @@
  * double-clicking the tab's label text. All paths route through AphPalette.prompt.
  * Injected into browser.xhtml via workspaces.js.
  */
-(function () {
-  if (window.__aphTabRenameLoaded) {
-    return;
-  }
-  window.__aphTabRenameLoaded = true;
+  const TAB_NAME_KEY = "aphTabName";
+  const TAB_NAME_HOOK = "data-aph-renamed";
+  const TAB_NAME_MAX = 100;
 
-  const KEY = "aphTabName";
-  const HOOK = "data-aph-renamed";
-  const NAME_MAX = 100;
-
-  let menuItem = null;
+  let tabRenameMenuItem = null;
 
   function rawName(tab) {
     try {
-      const v = SessionStore.getCustomTabValue(tab, KEY);
+      const v = SessionStore.getCustomTabValue(tab, TAB_NAME_KEY);
       return typeof v === "string" && v ? v : null;
     } catch (e) {
       return null;
@@ -75,7 +69,7 @@
     } catch (e) {}
     try {
       if (typeof tab.setAttribute === "function") {
-        tab.setAttribute(HOOK, "1");
+        tab.setAttribute(TAB_NAME_HOOK, "1");
       }
     } catch (e) {}
     nudgeTitlebar(tab);
@@ -93,20 +87,20 @@
     } catch (e) {
       return false;
     }
-    const trimmed = String(name == null ? "" : name).trim().slice(0, NAME_MAX);
+    const trimmed = String(name == null ? "" : name).trim().slice(0, TAB_NAME_MAX);
     try {
       if (trimmed) {
-        SessionStore.setCustomTabValue(tab, KEY, trimmed);
+        SessionStore.setCustomTabValue(tab, TAB_NAME_KEY, trimmed);
         applyName(tab);
       } else {
         try {
-          SessionStore.deleteCustomTabValue(tab, KEY);
+          SessionStore.deleteCustomTabValue(tab, TAB_NAME_KEY);
         } catch (e) {
-          SessionStore.setCustomTabValue(tab, KEY, "");
+          SessionStore.setCustomTabValue(tab, TAB_NAME_KEY, "");
         }
         try {
           if (typeof tab.removeAttribute === "function") {
-            tab.removeAttribute(HOOK);
+            tab.removeAttribute(TAB_NAME_HOOK);
           }
         } catch (e) {}
         try {
@@ -222,24 +216,14 @@
   function onTabMenuShowing(e) {
     try {
       const menu = document.getElementById("tabContextMenu");
-      if (!menu) {
-        return;
+      if (!menu) return;
+      if (tabRenameMenuItem?.parentNode) {
+        tabRenameMenuItem.remove();
+        tabRenameMenuItem = null;
       }
-      if (menuItem && menuItem.parentNode) {
-        menuItem.remove();
-        menuItem = null;
-      }
-      const trigger =
-        (e && e.target && e.target.triggerNode) ||
-        (document && document.popupNode) ||
-        null;
-      if (!trigger || typeof trigger.closest !== "function") {
-        return;
-      }
-      const clicked = trigger.closest("tab");
-      if (!clicked || clicked.closing) {
-        return;
-      }
+      const trigger = (e?.target?.triggerNode) || (document?.popupNode) || null;
+      const clicked = (typeof contextClickedTab === "function" ? contextClickedTab(e) : null) || (trigger?.closest?.("tab")) || (typeof gBrowser !== "undefined" && gBrowser?.selectedTab) || null;
+      if (!clicked || clicked.closing) return;
       const item =
         typeof document.createXULElement === "function"
           ? document.createXULElement("menuitem")
@@ -252,7 +236,7 @@
         } catch (err) {}
       });
       menu.appendChild(item);
-      menuItem = item;
+      tabRenameMenuItem = item;
     } catch (e) {}
   }
 
@@ -269,11 +253,11 @@
       }
     } catch (e) {}
     try {
-      if (menuItem && menuItem.parentNode) {
-        menuItem.remove();
+      if (tabRenameMenuItem && tabRenameMenuItem.parentNode) {
+        tabRenameMenuItem.remove();
       }
     } catch (e) {}
-    menuItem = null;
+    tabRenameMenuItem = null;
   }
 
   function initTabRename() {
@@ -301,4 +285,3 @@
   } else {
     window.addEventListener("load", initTabRename, { once: true });
   }
-})();

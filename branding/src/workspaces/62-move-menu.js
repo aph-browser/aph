@@ -14,61 +14,51 @@
   // originate on our own menupopup (dock-menu pattern).
   let moveMenuItems = [];
 
-  function clearMoveMenu() {
-    try {
-      for (const it of moveMenuItems) {
-        try {
-          if (it && it.parentNode) {
-            it.parentNode.removeChild(it);
-          } else if (it && typeof it.remove === "function") {
-            it.remove();
-          }
-        } catch (err) {}
-      }
-    } catch (err) {}
-    moveMenuItems = [];
+  function clearMenuItems(items) {
+    if (!Array.isArray(items)) return [];
+    for (const it of items) {
+      try {
+        if (it?.parentNode) {
+          it.parentNode.removeChild(it);
+        } else {
+          it?.remove?.();
+        }
+      } catch (err) {}
+    }
+    return [];
   }
 
-  function moveMenuClickedTab(e) {
+  function clearMoveMenu() {
+    moveMenuItems = clearMenuItems(moveMenuItems);
+  }
+
+  function contextClickedTab(e) {
     try {
-      const popup = e && (e.currentTarget || e.target);
       const node =
-        (popup && popup.triggerNode) ||
-        (typeof document !== "undefined" && document.popupNode) ||
+        e?.target?.triggerNode ||
+        e?.currentTarget?.triggerNode ||
+        (typeof document !== "undefined" && document?.popupNode) ||
         null;
       if (node) {
-        try {
-          const direct =
-            node.tab ||
-            (typeof node.closest === "function" ? node.closest("tab") : null);
-          if (direct) {
-            return direct;
+        const direct =
+          node.tab ||
+          (typeof node.closest === "function" ? node.closest("tab") : null);
+        if (direct) {
+          return direct;
+        }
+        const grp =
+          typeof node.closest === "function"
+            ? node.closest("tab-group")
+            : null;
+        if (grp) {
+          const ms =
+            typeof groupMembers === "function"
+              ? groupMembers(grp)
+              : grp.tabs || [];
+          for (const m of ms || []) {
+            if (m && !m.closing) return m;
           }
-        } catch (err) {}
-        // Group-label right-click (or any group chrome): resolve to the
-        // group's first live member so the Group variant still surfaces.
-        try {
-          const grp =
-            typeof node.closest === "function"
-              ? node.closest("tab-group")
-              : null;
-          if (grp) {
-            let ms = [];
-            try {
-              ms =
-                typeof groupMembers === "function"
-                  ? groupMembers(grp)
-                  : grp.tabs || [];
-            } catch (err) {
-              ms = [];
-            }
-            for (const m of ms || []) {
-              if (m && !m.closing) {
-                return m;
-              }
-            }
-          }
-        } catch (err) {}
+        }
       }
       if (gBrowser && gBrowser.selectedTab) {
         return gBrowser.selectedTab;
@@ -76,6 +66,8 @@
     } catch (err) {}
     return null;
   }
+
+  const moveMenuClickedTab = contextClickedTab;
 
   function moveMenuSelectedTabs(clicked) {
     try {

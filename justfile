@@ -90,7 +90,7 @@ status:
 # `just nuke-local --yes`; both plus build/ is `just nuke-everything --yes`.
 nuke *args:
     @if [ "{{args}}" != "--yes" ] && [ "{{args}}" != "-y" ]; then echo "This deletes {{justfile_directory()}}/profile (cookies, logins, history, cache). Re-run with --yes: just nuke --yes"; echo "Daily profile instead: just nuke-local --yes"; exit 1; fi
-    @if lock="{{justfile_directory()}}/profile/lock" && [ -L "$lock" ] && pid="$(readlink "$lock")" && pid="${pid##*:}" && pid="${pid#+}" && kill -0 "$pid" 2>/dev/null; then echo "Aph is running on {{justfile_directory()}}/profile - quit it first."; exit 1; fi
+    @if uv run python scripts/profile_lock.py "{{justfile_directory()}}/profile"; then echo "Aph is running on {{justfile_directory()}}/profile - quit it first."; exit 1; fi
     : "${PWD:?}"
     rm -rf "{{justfile_directory()}}/profile"
     @echo "deleted: {{justfile_directory()}}/profile"
@@ -146,7 +146,7 @@ uninstall-local:
 # history). Requires --yes and refuses while Aph is running on it.
 nuke-local *args:
     @if [ "{{args}}" != "--yes" ] && [ "{{args}}" != "-y" ]; then echo "This deletes ~/.config/aph/profile (cookies, logins, history). Re-run with --yes: just nuke-local --yes"; exit 1; fi
-    @if lock="$HOME/.config/aph/profile/lock" && [ -L "$lock" ] && pid="$(readlink "$lock")" && pid="${pid##*:}" && pid="${pid#+}" && kill -0 "$pid" 2>/dev/null; then echo "Aph is running on the daily profile - quit it first."; exit 1; fi
+    @if uv run python scripts/profile_lock.py "$HOME/.config/aph/profile"; then echo "Aph is running on the daily profile - quit it first."; exit 1; fi
     : "${HOME:?}"
     rm -rf "$HOME/.config/aph/profile"
     @echo "daily profile deleted"
@@ -158,7 +158,7 @@ nuke-local *args:
 # (add `just install-local` if you use the daily driver).
 nuke-everything *args:
     @if [ "{{args}}" != "--yes" ] && [ "{{args}}" != "-y" ]; then echo "This deletes ./profile, build/, ~/.config/aph/profile, and the installed launcher. Re-run with --yes: just nuke-everything --yes"; exit 1; fi
-    @for p in "profile" "$HOME/.config/aph/profile"; do if lock="$p/lock" && [ -L "$lock" ] && pid="$(readlink "$lock")" && pid="${pid##*:}" && pid="${pid#+}" && kill -0 "$pid" 2>/dev/null; then echo "Aph is running on $p - quit it first."; exit 1; fi; done
+    @if uv run python scripts/profile_lock.py "profile" "$HOME/.config/aph/profile"; then echo "Aph is running on a profile - quit it first."; exit 1; fi
     rm -rf profile build
     : "${HOME:?}"
     rm -rf "$HOME/.config/aph/profile"

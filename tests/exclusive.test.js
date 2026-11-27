@@ -525,17 +525,6 @@ describe("window-scoped workspaces", () => {
     assert.deepEqual(w.closedOf(win1), ["userclosed"], "no ghost existed, nothing scrubbed");
   });
 
-  it("debugExclusive reports the local claim", () => {
-    const w = makeLiveWorld();
-    const win1 = w.spawn({
-      ws: "2",
-      tabs: [{ label: "w2", ws: "2", selected: true, spec: "https://w2.example.com/" }],
-    });
-    const dbg = win1.api.debugExclusive();
-    assert.equal(dbg.current, "2");
-    assert.ok(dbg.winId);
-  });
-
   it("debugSession dumps this window with tab tags and flags", () => {
     const w = makeLiveWorld();
     w.spawn({

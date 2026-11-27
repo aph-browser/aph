@@ -134,7 +134,7 @@
   // fall through (containers don't exist there). Coverage is narrow on
   // purpose: births that never call BrowserOpenTab (window.open,
   // extensions, restore) still arrive via TabOpen, where
-  // armContainerRepair remains the fallback.
+  // TabOpen stamps directly.
   function initBoundNewTab() {
     let orig = null;
     try {
@@ -205,15 +205,12 @@
     try {
       window.AphWorkspaces = {
         switchTo,
-        switchLocal: typeof switchLocal === "function" ? switchLocal : switchTo,
+        switchToLastWorkspace:
+          typeof switchToLastWorkspace === "function" ? switchToLastWorkspace : () => "noop",
         listWindows:
           typeof listWindows === "function" ? listWindows : () => [],
         moveTabsToWindow:
           typeof moveTabsToWindow === "function" ? moveTabsToWindow : () => 0,
-        debugExclusive:
-          typeof debugExclusive === "function" ? debugExclusive : () => ({}),
-        debugLastSwitch:
-          typeof debugLastSwitch === "function" ? debugLastSwitch : () => null,
         debugSession:
           typeof debugSession === "function" ? debugSession : () => ([]),
         debugPatchDragElements:
@@ -381,15 +378,11 @@
       syncAllTabChrome();
     } catch (e) {}
     // Session restore may not preserve hidden state; force a full pass.
-    // Purely local (switchLocal): each window reconciles its own strip.
+    // Purely local: each window reconciles its own strip.
     try {
       const saved = isValidId(current) ? current : "1";
       current = saved === "1" ? "__force__" : "1";
-      if (typeof switchLocal === "function") {
-        switchLocal(saved);
-      } else {
-        switchTo(saved);
-      }
+      switchTo(saved);
     } catch (e) {}
     gBrowser.tabContainer.addEventListener("TabOpen", onTabOpen);
     gBrowser.tabContainer.addEventListener("TabSelect", onTabSelect);

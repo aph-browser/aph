@@ -250,35 +250,16 @@ describe("autohide sidebar", () => {
     assert.equal(env.rootAttrs["data-aph-autohide-sidebar"], "1");
   });
 
-  it("arms pointer proximity when enabled and sets peek on left edge hover", () => {
+  it("does not attach global pointermove listeners (pure CSS hover reveal)", () => {
     const env = makeEnv();
     assert.equal(env.pointerHandlers.length, 0, "no pointer handler when disabled");
 
     env.api.setAutohideSidebar(true);
-    assert.equal(env.pointerHandlers.length, 1, "pointer handler armed");
-
-    // Pointer at x=10 (within 14px of left edge) -> peek activates
-    env.firePointer(10);
-    assert.equal(env.rootAttrs["data-aph-sidebar-peek"], "1");
-
-    // Pointer at x=100 (inside 240px sidebar) -> peek stays active
-    env.firePointer(100);
-    assert.equal(env.rootAttrs["data-aph-sidebar-peek"], "1");
-
-    // Pointer leaves beyond 260px into web page -> peek deactivates
-    env.firePointer(270);
-    assert.equal(env.rootAttrs["data-aph-sidebar-peek"], undefined);
-  });
-
-  it("disarms pointer listeners and clears peek attribute when disabled", () => {
-    const env = makeEnv();
-    env.api.setAutohideSidebar(true);
-    env.firePointer(5);
-    assert.equal(env.rootAttrs["data-aph-sidebar-peek"], "1");
+    assert.equal(env.pointerHandlers.length, 0, "no global pointermove listener");
+    assert.equal(env.rootAttrs["data-aph-autohide-sidebar"], "1");
 
     env.api.setAutohideSidebar(false);
-    assert.equal(env.pointerHandlers.length, 0, "pointer handler disarmed");
-    assert.equal(env.rootAttrs["data-aph-sidebar-peek"], undefined);
+    assert.equal(env.pointerHandlers.length, 0);
     assert.equal(env.rootAttrs["data-aph-autohide-sidebar"], undefined);
   });
 });

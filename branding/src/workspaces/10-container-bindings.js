@@ -250,7 +250,6 @@
     saveBindings();
     updateIndicator();
     syncAllTabBindingMatches();
-    pulseWorkspaceIndicator();
     return { ok: true, userContextId: id, name: ident.name };
   }
 
@@ -292,7 +291,6 @@
     saveBindings();
     updateIndicator();
     syncAllTabBindingMatches();
-    pulseWorkspaceIndicator();
     return { ok: true, userContextId: nid, name: ident.name };
   }
 
@@ -484,114 +482,4 @@
     } catch (e) {}
   }
 
-  // Fallback for empty-tab births that bypass the BrowserOpenTab wrapper
-  // (window.open, extensions, restore paths): the container is immutable
-  // after TabOpen, so repair selected, still-empty newtab pages one tick
-  // later by swapping in a correctly-containered tab.
-  // ONLY about:newtab/about:home — never about:blank — so window.open
-  // popups and in-flight link loads (blank at TabOpen) are never touched.
-  function armContainerRepair(tab) {
-    try {
-      if (!tab || rawWs(tab) || !isValidId(current)) {
-        return false;
-      }
-      // Restoring tabs must never be armed: the deferred swap would race
-      // extData (and onTabOpen now returns early for them anyway — this
-      // is belt-and-braces for direct callers).
-      try {
-        if (typeof isRestoringTab === "function" && isRestoringTab(tab)) {
-          return false;
-        }
-      } catch (e) {}
-      const bound = getWsContainerId(current);
-      if (!bound) {
-        return false;
-      }
-      if ((tab.userContextId || 0) !== 0) {
-        return false;
-      }
-      // NOTE: selection is NOT checked here — at TabOpen time the opener
-      // often hasn't selected the tab yet (+ button selects right after).
-      // Selection is verified in the deferred callback instead.
-      tab.__aphRepairArmed = bound;
-      setTimeout(() => {
-        let armed = 0;
-        try {
-          armed = tab.__aphRepairArmed || 0;
-          delete tab.__aphRepairArmed;
-        } catch (e) {}
-        try {
-          if (!armed || tab.closing || !gBrowser.tabs.includes(tab)) {
-            return;
-          }
-          // Session restore in flight for this tab: never swap — and
-          // never stamp either (its tag arrives via extData/SSTabRestored;
-          // stamping now would freeze it to the current workspace).
-          // Hands off entirely; onTabRestored settles it.
-          try {
-            if (
-              (typeof isRestoringTab === "function" && isRestoringTab(tab)) ||
-              (SessionStore &&
-                typeof SessionStore.isTabRestoring === "function" &&
-                SessionStore.isTabRestoring(tab))
-            ) {
-              return;
-            }
-          } catch (e) {}
-          if (gBrowser.selectedTab !== tab) {
-            // Background tab — leave it alone, tag normally.
-            stampTab(tab);
-            return;
-          }
-          if (rawWs(tab) || (tab.userContextId || 0) !== 0) {
-            return;
-          }
-          const uri = tab.linkedBrowser?.currentURI?.spec;
-          if (uri !== "about:newtab" && uri !== "about:home") {
-            // Navigated away meanwhile (link load, popup) — tag normally.
-            stampTab(tab);
-            return;
-          }
-          if (!isValidId(current) || getWsContainerId(current) !== armed) {
-            stampTab(tab);
-            return;
-          }
-          const replacement = gBrowser.addTrustedTab("about:newtab", { userContextId: armed });
-          try {
-            gBrowser.ungroupTab(replacement);
-          } catch (e) {}
-          setWs(replacement, current);
-          aphShowTab(replacement);
-          try {
-            gBrowser.selectedTab = replacement;
-          } catch (e) {}
-          // Stock focused the urlbar for the original tab; the swap moves
-          // selection, so re-focus or typing lands in the page.
-          focusUrlBar();
-          try {
-            if (typeof aphTabsLog === "function") {
-              aphTabsLog(`container-repair closing ${aphTabDesc(tab)}`);
-            }
-          } catch (e) {}
-          try {
-            gBrowser.removeTab(tab, { animate: false });
-          } catch (e) {
-            try {
-              gBrowser.removeTab(tab);
-            } catch (_e) {}
-          }
-          // Scrub the swap ghost: undo must not resurrect the
-          // wrong-container original as a duplicate of the replacement.
-          try {
-            if (typeof scrubAdoptionGhost === "function") {
-              scrubAdoptionGhost(window, tab);
-            }
-          } catch (e) {}
-        } catch (e) {}
-      }, 0);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
 

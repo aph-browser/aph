@@ -20,6 +20,33 @@
     input.addEventListener("input", () => render(input.value));
     input.addEventListener("keydown", onListKey, true);
 
+    chipsBar = document.createElement("div");
+    chipsBar.id = "aph-palette-chips";
+    const chipDefs = [
+      ["all", "", "All"],
+      ["tabs", "@", "Tabs"],
+      ["workspaces", "#", "Workspaces"],
+      ["bookmarks", "b:", "Bookmarks"],
+      ["history", "h:", "History"],
+      ["commands", ">", "Commands"],
+    ];
+    for (const [mKey, prefix, label] of chipDefs) {
+      const chip = document.createElement("button");
+      chip.className = "aph-palette-chip";
+      chip.setAttribute("type", "button");
+      chip.setAttribute("data-mode", mKey);
+      chip.setAttribute("data-prefix", prefix);
+      chip.textContent = label;
+      chip.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof setPaletteMode === "function") {
+          setPaletteMode(prefix);
+        }
+      });
+      chipsBar.appendChild(chip);
+    }
+
     list = document.createElement("div");
     list.id = "aph-palette-list";
     list.setAttribute("role", "listbox");
@@ -29,6 +56,7 @@
     footer.id = "aph-palette-footer";
 
     box.appendChild(input);
+    box.appendChild(chipsBar);
     box.appendChild(list);
     box.appendChild(footer);
     overlay.appendChild(box);
@@ -59,6 +87,28 @@
       ];
       selected = 0;
       paint();
+      return;
+    }
+    if (viewStack.length > 0) {
+      const top = viewStack[viewStack.length - 1];
+      const q = (filter || "").trim();
+      const pool = typeof top.items === "function" ? top.items(q) : [];
+      items = q && !top.rawItems
+        ? scoreAndGroup(pool, q)
+        : pool.map((it) => {
+            it._hl = it._hl || { t: new Set(), s: new Set(), h: new Set() };
+            return it;
+          });
+      selected = 0;
+      paint();
+      try {
+        if (input && top.placeholder) {
+          input.setAttribute("placeholder", top.placeholder);
+        }
+        if (typeof top.onPreview === "function") {
+          top.onPreview(items[selected] || null);
+        }
+      } catch (_e) {}
       return;
     }
     items = allItems(filter);
@@ -185,6 +235,20 @@
     hint.className = "aph-palette-hint";
     const sub = document.createElement("div");
     sub.className = "aph-palette-sub";
+    const actions = document.createElement("span");
+    actions.className = "aph-palette-row-actions";
+    const moveBtn = document.createElement("button");
+    moveBtn.className = "aph-palette-row-act";
+    moveBtn.setAttribute("type", "button");
+    moveBtn.setAttribute("title", "Move to workspace");
+    moveBtn.textContent = "→";
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "aph-palette-row-act";
+    closeBtn.setAttribute("type", "button");
+    closeBtn.setAttribute("title", "Close tab");
+    closeBtn.textContent = "×";
+    actions.appendChild(moveBtn);
+    actions.appendChild(closeBtn);
     const key = document.createElement("span");
     key.className = "aph-palette-key";
     body.appendChild(main);
@@ -193,8 +257,25 @@
     row.appendChild(img);
     row.appendChild(ic);
     row.appendChild(body);
+    row.appendChild(actions);
     row.appendChild(key);
-    row._aph = { img, ic, main, hint, sub, key, index: -1 };
+    row._aph = { img, ic, main, hint, sub, actions, moveBtn, closeBtn, key, index: -1 };
+    moveBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const it = items[row._aph.index];
+      if (it && typeof pushView === "function" && typeof rowActionsView === "function") {
+        pushView(rowActionsView(it));
+      }
+    });
+    closeBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const it = items[row._aph.index];
+      if (it && typeof closeRowTab === "function") {
+        closeRowTab(it);
+      }
+    });
     row.addEventListener("mousedown", (e) => {
       e.preventDefault();
       selected = row._aph.index;
@@ -280,9 +361,17 @@
     try {
       if (it.hint) {
         R.hint.hidden = false;
+        R.hint.className = "aph-palette-hint" + (it.wsId ? " aph-palette-ws-badge" : "");
+        if (it.wsId) {
+          R.hint.setAttribute("data-ws", String(it.wsId));
+        } else {
+          R.hint.removeAttribute("data-ws");
+        }
         paintText(R.hint, it.hint, it._hl && it._hl.h);
       } else {
         R.hint.hidden = true;
+        R.hint.className = "aph-palette-hint";
+        R.hint.removeAttribute("data-ws");
         R.hint.textContent = "";
       }
     } catch (e) {}
@@ -309,6 +398,12 @@
         R.sub.textContent = "";
       }
     } catch (e) {}
+    // Inline tab quick-actions (→ actions, × close) on tab rows.
+    try {
+      if (R.actions) {
+        R.actions.hidden = !(it && it.kind === "tab" && it.tabRef);
+      }
+    } catch (_e) {}
     // Alt+1–9 quick-pick badge on the first nine rows (right anchor).
     try {
       if (i < 9 && items.length > 1) {
@@ -338,10 +433,24 @@
         q = (v || "").trim();
       }
     } catch (e) {}
-    // Per-mode placeholder so ">", "@", "#" teach themselves.
+    // Per-mode placeholder + mode chips bar.
     try {
       if (input && typeof placeholderFor === "function") {
         input.setAttribute("placeholder", placeholderFor(mode));
+      }
+      if (chipsBar) {
+        chipsBar.hidden = !!(iconPick || prompt || viewStack.length);
+        const children = chipsBar.children || [];
+        for (const ch of Array.from(children)) {
+          const active = ch.getAttribute && ch.getAttribute("data-mode") === mode;
+          if (ch.classList) {
+            if (active) ch.classList.add("active");
+            else ch.classList.remove("active");
+          }
+          if (ch.setAttribute) {
+            ch.setAttribute("aria-pressed", active ? "true" : "false");
+          }
+        }
       }
     } catch (e) {}
     // Grow pools (never shrink); excess rows simply aren't re-appended.
@@ -421,27 +530,17 @@
     } catch (e) {}
     try {
       if (footer && typeof footerHintFor === "function") {
-        const base = footerHintFor(mode, items.length);
-        // Live preview of the highlighted row: full destination/action
-        // without truncation surprises before hitting Enter.
         const cur = items[selected];
-        if (cur && (cur.sub || cur.hint)) {
-          const detail = String(cur.sub || cur.hint || "");
-          const shown = detail.length > 90 ? `${detail.slice(0, 90)}…` : detail;
-          footer.textContent = `${base} · ▶ ${cur.title} — ${shown}`;
-          try {
-            footer.setAttribute("title", detail);
-          } catch (_e) {}
-        } else if (cur) {
-          footer.textContent = `${base} · ▶ ${cur.title}`;
-          try {
-            footer.removeAttribute("title");
-          } catch (_e) {}
+        if (viewStack.length > 0) {
+          footer.textContent = "↵ Select · ⌫/Esc Back · ↑↓ Navigate";
+        } else if (cur && cur.kind === "tab" && cur.tabRef) {
+          footer.textContent = "↵ Switch · ⌃W Close · ⌃↵ Actions · Alt+←/→ Mode";
+        } else if (cur && (cur.kind === "go" || cur.kind === "bookmark" || cur.kind === "history")) {
+          footer.textContent = "↵ Open · ⌥↵ Temp Container · ⌃↵ Actions";
+        } else if (cur && cur.keepOpen) {
+          footer.textContent = "↵ Open Picker · ↑↓ Navigate";
         } else {
-          footer.textContent = base;
-          try {
-            footer.removeAttribute("title");
-          } catch (_e) {}
+          footer.textContent = footerHintFor(mode, items.length);
         }
       }
     } catch (e) {}

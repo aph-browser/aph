@@ -111,3 +111,9 @@ def clear_stale_lock(profile: Path) -> bool:
     with contextlib.suppress(OSError):
         parent.unlink(missing_ok=True)
     return True
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(0 if any(profile_locked(Path(arg)) for arg in sys.argv[1:]) else 1)

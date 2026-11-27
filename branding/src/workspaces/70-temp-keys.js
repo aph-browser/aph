@@ -347,6 +347,17 @@
       } catch (err) {}
       return;
     }
+    // Alt+` bounces back to the previous workspace (Alt+Tab for workspaces).
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === "Backquote") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (typeof switchToLastWorkspace === "function") {
+          switchToLastWorkspace();
+        }
+      } catch (err) {}
+      return;
+    }
     if (e.repeat) {
       return;
     }

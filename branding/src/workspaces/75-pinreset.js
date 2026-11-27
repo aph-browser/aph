@@ -39,7 +39,7 @@
     }
   }
 
-  function setStoredURL(tab, key, url, noteErr) {
+  function setStoredURL(tab, key, url) {
     try {
       if (!tab || !isValidBaseURL(url)) {
         return false;
@@ -47,11 +47,6 @@
       SessionStore.setCustomTabValue(tab, key, String(url));
       return true;
     } catch (e) {
-      try {
-        if (typeof noteErr === "function") {
-          noteErr("set-threw");
-        }
-      } catch (err) {}
       return false;
     }
   }
@@ -64,106 +59,36 @@
     }
   }
 
-  function loadBaseURL(browser, url, noteErr) {
+  function loadBaseURL(browser, url) {
     const principal = systemPrincipal();
-    let noted = false;
-    const note = (code) => {
-      noted = true;
-      try {
-        if (typeof noteErr === "function") {
-          noteErr(code);
-        }
-      } catch (err) {}
-    };
     try {
       if (browser && typeof browser.fixupAndLoadURIString === "function") {
         browser.fixupAndLoadURIString(url, { triggeringPrincipal: principal });
         return true;
       }
-    } catch (e) {
-      note("fixup-threw");
-    }
+    } catch (e) {}
     try {
       if (browser && typeof browser.loadURI === "function" && Services && Services.io) {
         browser.loadURI(Services.io.newURI(url), { triggeringPrincipal: principal });
         return true;
       }
-    } catch (e) {
-      note("loadURI-threw");
-    }
-    if (!noted) {
-      note("no-loader");
-    }
+    } catch (e) {}
     return false;
   }
 
-  function contextClickedTab(e) {
-    try {
-      const popup = e && e.target;
-      const node = (popup && popup.triggerNode) || document.popupNode || null;
-      if (node) {
-        const direct =
-          node.tab ||
-          (typeof node.closest === "function" ? node.closest("tab") : null);
-        if (direct) {
-          return direct;
-        }
-      }
-      if (gBrowser && gBrowser.selectedTab) {
-        return gBrowser.selectedTab;
-      }
-    } catch (err) {}
-    return null;
-  }
-
-  function takeDownMenuItems(items) {
-    try {
-      for (const it of items || []) {
-        try {
-          if (it && it.parentNode) {
-            it.parentNode.removeChild(it);
-          } else if (it && typeof it.remove === "function") {
-            it.remove();
-          }
-        } catch (err) {}
-      }
-    } catch (err) {}
-    return [];
-  }
-
   function promptBaseURL(tab, initial, dialogTitle, promptTitle, setURL) {
-    const commit = (v) => {
-      try {
-        const value = String(v == null ? "" : v).trim();
-        if (value && typeof setURL === "function") {
-          setURL(tab, value);
-        }
-      } catch (err) {}
-    };
+    if (!window.AphPalette?.prompt || !tab) return;
     try {
-      if (window.AphPalette && typeof window.AphPalette.prompt === "function") {
-        window.AphPalette.prompt({
-          title: dialogTitle,
-          initial: initial || "",
-          onCommit: commit,
-        });
-        return;
-      }
-    } catch (err) {}
-    try {
-      if (typeof window.prompt === "function") {
-        commit(window.prompt(promptTitle, initial || ""));
-      }
-    } catch (err) {}
-  }
-
-  // Last failure code for Browser-Console diagnosis (AphPinReset.debug()).
-  // House style stays silent in prod; this keeps the silence debuggable.
-  let pinLastError = "";
-
-  function pinNoteErr(code) {
-    try {
-      pinLastError = code;
+      window.AphPalette.prompt({
+        title: dialogTitle,
+        initial: initial || "",
+        onCommit: (v) => {
+          const value = String(v == null ? "" : v).trim();
+          if (value && typeof setURL === "function") {
+            setURL(tab, value);
+          }
+        },
+      });
     } catch (err) {}
   }
 
@@ -174,7 +99,7 @@
   // Returns true when stored. Invalid URLs are rejected (previous value
   // kept) so a typo in the edit dialog can never brick the reset target.
   function setPinURL(tab, url) {
-    return setStoredURL(tab, PIN_URL_KEY, url, pinNoteErr);
+    return setStoredURL(tab, PIN_URL_KEY, url);
   }
 
   function clearPinURL(tab) {
@@ -207,24 +132,12 @@
         return false;
       }
       const url = effectivePinURL(tab);
-      if (!url) {
-        try {
-          pinLastError = "no-url";
-        } catch (err) {}
-        return false;
-      }
       const browser = tab.linkedBrowser;
-      if (!browser) {
-        try {
-          pinLastError = "no-browser";
-        } catch (err) {}
+      if (!url || !browser) {
         return false;
       }
-      return loadBaseURL(browser, url, pinNoteErr);
+      return loadBaseURL(browser, url);
     } catch (e) {
-      try {
-        pinLastError = "reset-threw";
-      } catch (err) {}
       return false;
     }
   }
@@ -257,7 +170,7 @@
   let pinMenuItems = [];
 
   function clearPinMenu() {
-    pinMenuItems = takeDownMenuItems(pinMenuItems);
+    pinMenuItems = typeof clearMenuItems === "function" ? clearMenuItems(pinMenuItems) : [];
   }
 
   function promptPinURL(tab, initial) {
@@ -359,13 +272,6 @@
         promptPinURL,
         capturePinDefault: onPinChanged,
         PIN_URL_KEY,
-        debug: () => {
-          try {
-            return { lastError: pinLastError || null };
-          } catch (err) {
-            return { lastError: "debug-threw" };
-          }
-        },
       };
     } catch (e) {}
   }

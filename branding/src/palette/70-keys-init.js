@@ -65,77 +65,17 @@
     }
     selected = (selected + delta + items.length) % items.length;
     paint();
-  }
-
-  // Live modifier peeking: holding bare Alt/Ctrl morphs the footer in
-  // real time to show what Enter (or Ctrl+W) would do — no commit needed.
-  // Release restores the normal footer via the keyup handler below.
-  function peekBaseAction(it) {
-    try {
-      if (!it) {
-        return "Run";
+    if (viewStack.length > 0) {
+      const top = viewStack[viewStack.length - 1];
+      if (typeof top.onPreview === "function") {
+        try {
+          top.onPreview(items[selected] || null);
+        } catch (_e) {}
       }
-      if (it.kind === "tab") {
-        return "Switch to tab";
-      }
-      if (it.kind === "help") {
-        return "Insert prefix";
-      }
-      if (it.kind === "go" || it.kind === "bookmark" || it.kind === "history") {
-        return "Open";
-      }
-      if (it.kind === "search") {
-        return "Search";
-      }
-      return "Run command";
-    } catch (e) {
-      return "Run";
-    }
-  }
-
-  function peekText(it, alt, ctrlMod) {
-    try {
-      if (ctrlMod && it && (it.kind === "tab" || it.tabRef)) {
-        return "⌃W Close tab — palette stays open · release to cancel";
-      }
-      if (alt && it && it.runInTemp) {
-        return "⌥↵ Open in temp container · release to cancel";
-      }
-      return `↵ ${peekBaseAction(it)} · hold ⌥/⌃ to peek alternatives`;
-    } catch (e) {
-      return "";
-    }
-  }
-
-  // True when e is a bare modifier press handled as a footer peek.
-  function modifierPeek(e) {
-    try {
-      const k = e.key || "";
-      const bareAlt = k === "Alt" && !e.ctrlKey && !e.metaKey && !e.shiftKey;
-      const bareCtrl =
-        (k === "Control" || k === "Meta") && !e.altKey && !e.shiftKey;
-      if (!bareAlt && !bareCtrl) {
-        return false;
-      }
-      // Swallow so bare Alt can't yank focus to the Firefox menu bar.
-      e.preventDefault();
-      e.stopPropagation();
-      if (footer) {
-        const t = peekText(items[selected], bareAlt, bareCtrl);
-        if (t) {
-          footer.textContent = t;
-        }
-      }
-      return true;
-    } catch (e) {
-      return false;
     }
   }
 
   function onListKey(e) {
-    if (modifierPeek(e)) {
-      return;
-    }
     const ctrl = !!(e.ctrlKey || e.metaKey);
     // Ctrl+N/P + Ctrl+J navigation (Ctrl+K stays the toggle — never hijack).
     if (ctrl && !e.altKey && !e.shiftKey && (e.key === "n" || e.key === "N" || e.key === "j" || e.key === "J")) {
@@ -161,6 +101,36 @@
             return;
           }
         } catch (_e) {}
+      }
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      const it = items[selected];
+      if (
+        it &&
+        !viewStack.length &&
+        !prompt &&
+        !iconPick &&
+        (it.kind === "tab" || it.kind === "bookmark" || it.kind === "history" || it.kind === "go") &&
+        typeof pushView === "function" &&
+        typeof rowActionsView === "function"
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        pushView(rowActionsView(it));
+      }
+      return;
+    }
+    if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      if (!viewStack.length && !prompt && !iconPick && typeof setPaletteMode === "function") {
+        e.preventDefault();
+        e.stopPropagation();
+        const prefixes = ["", "@", "#", "b:", "h:", ">"];
+        const modes = ["all", "tabs", "workspaces", "bookmarks", "history", "commands"];
+        const curMode = typeof parseMode === "function" ? parseMode((input && input.value) || "").mode : "all";
+        const idx = Math.max(0, modes.indexOf(curMode));
+        const nextIdx = (idx + (e.key === "ArrowRight" ? 1 : -1) + modes.length) % modes.length;
+        setPaletteMode(prefixes[nextIdx]);
       }
       return;
     }
@@ -232,6 +202,14 @@
           } catch (_e) {}
         } catch (_e2) {}
       }
+    } else if (e.key === "Backspace") {
+      if (viewStack.length > 0 && !(input && input.value)) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof popView === "function") {
+          popView(true);
+        }
+      }
     } else if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
@@ -239,6 +217,10 @@
     } else if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
+      if (viewStack.length > 0 && typeof popView === "function") {
+        popView(true);
+        return;
+      }
       // First Esc with a mode prefix + query clears to the prefix;
       // second Esc closes.
       try {
@@ -266,6 +248,15 @@
       return;
     }
     const mod = e.ctrlKey || e.metaKey;
+    // Ctrl/⌘+L opens the omnibox pre-filled with the current tab's URL.
+    if (mod && !e.altKey && !e.shiftKey && e.code === "KeyL") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof openEditURL === "function") {
+        openEditURL();
+      }
+      return;
+    }
     // Toggle on Ctrl/⌘+K (hijack Firefox's search-focus binding).
     if (mod && !e.altKey && !e.shiftKey && e.code === "KeyK") {
       // Never steal keystrokes from editable text (page editors,
@@ -291,10 +282,7 @@
       e.key === "PageUp" ||
       e.key === "Home" ||
       e.key === "End" ||
-      e.key === "Tab" ||
-      e.key === "Alt" ||
-      e.key === "Control" ||
-      e.key === "Meta"
+      e.key === "Tab"
     ) {
       // Input-level handler covers these when focused; this is the fallback.
       onListKey(e);
@@ -303,31 +291,12 @@
 
   window.addEventListener("keydown", onKey, true);
 
-  // Releasing a peeked modifier restores the normal footer (repaint is
-  // cheap with pooled rows). Swallows bare Alt release so the Firefox
-  // menu bar never steals focus from an open palette.
-  window.addEventListener(
-    "keyup",
-    (e) => {
-      try {
-        if (!isOpen()) {
-          return;
-        }
-        const k = e.key || "";
-        if (k === "Alt" || k === "Control" || k === "Meta") {
-          e.preventDefault();
-          e.stopPropagation();
-          paint();
-        }
-      } catch (_e) {}
-    },
-    true
-  );
-
   // Public API for the workspace badge / shortcuts / tab rename.
   try {
     window.AphPalette = {
       open,
+      openMode,
+      openEditURL,
       toggle,
       renameCurrent,
       setWsIcon: (n) => startIconPick(n),

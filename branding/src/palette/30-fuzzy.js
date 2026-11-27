@@ -18,7 +18,7 @@
       for (let i = 0; i < n; i++) {
         indices.push(i);
       }
-      return { score: 1000 - hay.length, indices };
+      return { score: 1000 - hay.length, indices, weak: false };
     }
     const at = hay.indexOf(needle);
     if (at !== -1) {
@@ -26,7 +26,7 @@
       for (let i = 0; i < n; i++) {
         indices.push(at + i);
       }
-      return { score: (isBoundary(at) ? 800 : 600) - at, indices };
+      return { score: (isBoundary(at) ? 800 : 600) - at, indices, weak: false };
     }
     // Subsequence: best of earliest and word-start-preferring alignments.
     const a = subseqAlign(needle, hay, isBoundary, false);
@@ -94,7 +94,7 @@
     if (bounds === n) {
       score += 300;
     }
-    return { score, indices };
+    return { score, indices, weak: bounds !== n };
   }
 
   // Highlight discipline: only "clean" hits get marks — a contiguous run
@@ -143,8 +143,15 @@
       sm ? sm.score - 50 : -Infinity,
       hm ? hm.score - 100 : -Infinity
     );
+    const bestMatch =
+      tm && tm.score === score
+        ? tm
+        : sm && sm.score - 50 === score
+          ? sm
+          : hm;
     return {
       score,
+      weak: !!(bestMatch && bestMatch.weak),
       ti: tm && isCleanHit(tm.indices, it.title) ? tm.indices : [],
       si: sm && isCleanHit(sm.indices, it.sub) ? sm.indices : [],
       hi: hm && isCleanHit(hm.indices, it.hint) ? hm.indices : [],
@@ -179,7 +186,7 @@
         }
       }
       if (best) {
-        return { score: best.score - 120, indices: best.indices };
+        return { score: best.score - 120, indices: best.indices, weak: true };
       }
     } catch (e) {}
     return null;
@@ -198,6 +205,7 @@
       return matchItem(it, raw);
     }
     let total = 0;
+    let weak = false;
     const ti = [];
     const si = [];
     const hi = [];
@@ -205,6 +213,9 @@
       const m = matchItem(it, tok);
       if (!m) {
         return null;
+      }
+      if (m.weak) {
+        weak = true;
       }
       total += m.score;
       for (const i of m.ti) {
@@ -219,6 +230,6 @@
     }
     // Slight bonus for matching more tokens (exact multi-word intent).
     total += tokens.length * 5;
-    return { score: total, ti, si, hi };
+    return { score: total, weak, ti, si, hi };
   }
 

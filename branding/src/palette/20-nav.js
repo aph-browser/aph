@@ -106,6 +106,33 @@
   // domain route opens directly in the routed workspace, so the router
   // doesn't have to close + reopen it a moment later (no double-hop).
   // Falls back to a plain selected tab when the workspaces API is missing.
+  function navigateCurrentTab(url) {
+    const api = ws();
+    try {
+      const dest = routedWs(api, url);
+      if (dest && api && api.getCurrent && dest !== api.getCurrent()) {
+        openURL(url, false);
+        return;
+      }
+      if (typeof window !== "undefined" && typeof window.openTrustedLinkIn === "function") {
+        window.openTrustedLinkIn(url, "current");
+        return;
+      }
+      if (
+        typeof gBrowser !== "undefined" &&
+        gBrowser?.selectedBrowser &&
+        typeof gBrowser.selectedBrowser.loadURI === "function" &&
+        typeof Services !== "undefined" &&
+        Services?.io?.newURI
+      ) {
+        const principal = Services.scriptSecurityManager?.getSystemPrincipal?.();
+        gBrowser.selectedBrowser.loadURI(Services.io.newURI(url), { triggeringPrincipal: principal });
+        return;
+      }
+    } catch (_e) {}
+    openURL(url, false);
+  }
+
   function openURL(url, temp) {
     const api = ws();
     try {
@@ -114,7 +141,11 @@
         return;
       }
       if (!temp && api && api.openBoundTab) {
-        api.openBoundTab(url, routedWs(api, url));
+        const dest = routedWs(api, url);
+        if (dest && api.switchTo && api.getCurrent && dest !== api.getCurrent()) {
+          api.switchTo(dest);
+        }
+        api.openBoundTab(url, dest);
         return;
       }
     } catch (e) {}
@@ -244,6 +275,7 @@
     if (!q) {
       return null;
     }
+    const inPlace = typeof editCurrentTab !== "undefined" && editCurrentTab;
     const note = `${boundContainerNote()} · Alt+Enter opens temp`;
     if (isLikelyURL(q)) {
       const url = normalizeURL(q);
@@ -252,7 +284,7 @@
         title: `Go to ${url}`,
         sub: `${url}${dest ? ` · auto-routes to WS ${dest}` : note}`,
         hint: "Enter",
-        run: () => openURL(url, false),
+        run: () => (inPlace ? navigateCurrentTab(url) : openURL(url, false)),
         runInTemp: () => openURL(url, true),
       };
     }
@@ -264,7 +296,7 @@
       title: `Search ${name} for: "${shown}"`,
       sub: `${url}${note}`,
       hint: "Enter",
-      run: () => openURL(url, false),
+      run: () => (inPlace ? navigateCurrentTab(url) : openURL(url, false)),
       runInTemp: () => openURL(url, true),
     };
   }

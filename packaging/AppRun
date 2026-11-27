@@ -4,4 +4,30 @@ set -eu
 HERE="$(dirname "$(readlink -f "$0")")"
 APH_PROFILE="${APH_PROFILE:-$HOME/.config/aph/profile}"
 mkdir -p "$APH_PROFILE"
-exec "$HERE/usr/bin/firefox" --profile "$APH_PROFILE" "$@"
+
+# Clear stale profile lock if the PID is dead or no longer Firefox.
+LOCK="$APH_PROFILE/lock"
+if [ -L "$LOCK" ]; then
+  TARGET="$(readlink "$LOCK" 2>/dev/null || true)"
+  PID="${TARGET##*:}"
+  PID="${PID#+}"
+  if [ -n "$PID" ] && ! grep -qa "firefox" "/proc/$PID/cmdline" 2>/dev/null; then
+    rm -f "$LOCK" "$APH_PROFILE/.parentlock"
+  fi
+fi
+
+# Purge startupCache when bundled omni.ja changes (Aph patch releases on same Firefox version).
+OMNI="$HERE/usr/bin/browser/omni.ja"
+STAMP_FILE="$APH_PROFILE/.aph-omni-stamp"
+EXTRA_ARGS=""
+if [ -f "$OMNI" ]; then
+  CUR_STAMP="$(stat -c '%Y-%s' "$OMNI" 2>/dev/null || true)"
+  PREV_STAMP="$(cat "$STAMP_FILE" 2>/dev/null || true)"
+  if [ -n "$CUR_STAMP" ] && [ "$CUR_STAMP" != "$PREV_STAMP" ]; then
+    EXTRA_ARGS="-purgecaches"
+    printf '%s\n' "$CUR_STAMP" > "$STAMP_FILE" 2>/dev/null || true
+  fi
+fi
+
+# shellcheck disable=SC2086
+exec "$HERE/usr/bin/firefox" --profile "$APH_PROFILE" $EXTRA_ARGS "$@"

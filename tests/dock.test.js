@@ -405,20 +405,13 @@ describe("workspace dock", () => {
     ]);
     assert.equal(m.children[0].getAttribute("shortcut"), "Ctrl+K");
     assert.equal(m.children[1].getAttribute("shortcut"), "Ctrl+T");
-    // Icon slots: stock 157 paints .menu-icon from the --menuitem-icon
-    // var (theme.css §20b) — the classic image attribute alone renders
-    // nothing. JS only flips the stock display-trigger classes; art
-    // lives in CSS with context-fill ink. Dynamic rows (bind list, the
-    // close row with its live count) stay text-only by passing no key.
     for (const c of m.children) {
-      if (c.localName === "menuitem" && c.id !== "aph-aph-close") {
-        assert.ok(c.classList.contains("menuitem-iconic"), `${c.getAttribute("label")} iconic`);
+      if (c.localName === "menuitem") {
         assert.equal(c.getAttribute("image"), null, "no dead image attr");
       }
     }
     const bind = m.children.find((c) => c.localName === "menu");
     assert.equal(bind.id, "aph-aph-bind");
-    assert.ok(bind.classList.contains("menu-iconic"), "bind menu icon");
   });
 
   it("New Tab row opens an in-place tab in the current workspace", () => {
@@ -653,15 +646,13 @@ describe("workspace dock", () => {
     assert.equal(env.api.getCurrent(), "2", "burst inside cooldown holds");
   });
 
-  it("cycling a lone workspace pulses instead of dying silent", () => {
+  it("cycling a lone workspace stays on current without throwing", () => {
     const env = makeEnv();
     const a = addTab(env, { label: "a", ws: "1" });
     env.select(a);
     env.api.renderDock();
     fireWheel(env, { deltaY: 120 });
     assert.equal(env.api.getCurrent(), "1", "nowhere to go");
-    const tc = env.sb.gBrowser.tabContainer;
-    assert.equal(tc.getAttribute("data-aph-ws-pulse"), "1", "no-op signals");
   });
 
   it("sidebar horizontal swipe cycles workspaces", () => {
@@ -703,7 +694,8 @@ describe("workspace dock", () => {
     assert.equal(env.anchor.getAttribute("data-aph-swipe"), "1");
   });
 
-  it("plus with all 9 active pulses instead of switching", () => {    const env = makeEnv();
+  it("hides plus when all 9 workspaces are active", () => {
+    const env = makeEnv();
     let first = null;
     for (let i = 1; i <= 9; i++) {
       const t = addTab(env, { label: `w${i}`, ws: String(i) });
@@ -712,7 +704,7 @@ describe("workspace dock", () => {
     env.select(first);
     env.api.renderDock();
     assert.deepEqual(env.pills().map(pillWs).sort(), ["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
-    firePill(env.plus(), "click", {});
+    assert.equal(env.plus(), null, "+ pill hides when all 9 workspaces are active");
     assert.equal(env.api.getCurrent(), "1");
     assert.equal(env.tabs.length, 10, "no tab opened (9 + seed)");
   });

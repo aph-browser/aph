@@ -255,16 +255,6 @@ describe("pinned-tab URLs", () => {
     assert.ok(loads[0].params.triggeringPrincipal);
   });
 
-  it("debug() reports the last failure for the Browser Console", () => {
-    const env = makeEnv();
-    const t = makeTab(tabVals, { label: "broken", ws: "1", spec: "https://example.com/", pinned: true });
-    env.tabs.push(t);
-    assert.equal(env.api.setPinURL(t, "https://example.com/pinned"), true);
-    delete t.linkedBrowser;
-    assert.equal(env.api.resetPinTab(t), false);
-    assert.equal(env.api.debug().lastError, "no-browser");
-  });
-
   it("context menu shows both items for pins, none otherwise", () => {
     const env = makeEnv();
     const pinned = pinTab(env, "https://example.com/a");

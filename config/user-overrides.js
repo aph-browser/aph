@@ -152,6 +152,10 @@ user_pref("browser.sessionstore.interval", 60000);           // 60s (Betterfox b
 user_pref("browser.sessionstore.max_serialize_forward", 2);  // stock -1 (unbounded forward history churns megabytes)
 user_pref("browser.sessionstore.max_tabs_undo", 10);         // stock 25
 
+// 22. Privacy & New Tab defaults (user-overridable in Settings, not policy-locked)
+user_pref("dom.security.https_only_mode", true);
+user_pref("browser.newtabpage.activity-stream.feeds.topsites", false);
+
 /****************************************************************************
  * END: APH NATIVE OVERRIDES
 ****************************************************************************/

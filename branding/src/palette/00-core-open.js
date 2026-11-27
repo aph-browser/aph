@@ -16,6 +16,7 @@
 
   let overlay = null;
   let input = null;
+  let chipsBar = null;
   let list = null;
   let footer = null;
   let items = [];
@@ -26,11 +27,10 @@
   // Icon-pick mode: {ws} — the list becomes the vendored Lucide grid for
   // one workspace; typing filters by key/label, Enter commits, Esc cancels.
   let iconPick = null;
-  // Pending close-animation timer (cancelled when the palette reopens).
-  let closeTimer = null;
-  // Explicit closing flag: timer ids are truthy in browsers but the
-  // node mocks return 0, so reopen detection reads this, not the id.
-  let closing = false;
+  // Drill-down navigation stack: [{title, placeholder, items, onSelect, onPreview, onCancel}]
+  let viewStack = [];
+  // Omnibox edit mode (Ctrl+L): Enter navigates current tab instead of opening a new tab.
+  let editCurrentTab = false;
   // Sacred return-of-focus: element that held focus before open() stole it
   // (page input, editor, video player). Restored on hide so Esc never dumps
   // focus to <body> or the urlbar. Cleared after restore.

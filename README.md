@@ -57,12 +57,11 @@ written outside the install folder except your profile.
 ## Reporting bugs
 
 File issues at [GitHub Issues](https://github.com/aph-browser/aph/issues).
-For workspace bugs, include the output of these two Browser Console
-(`Ctrl+Shift+J`) commands, run before and after the problem:
+For workspace bugs, include the output of this Browser Console
+(`Ctrl+Shift+J`) command, run before and after the problem:
 
 ```js
 Services.wm.getMostRecentWindow("navigator:browser").AphWorkspaces.debugSession()
-Services.wm.getMostRecentWindow("navigator:browser").AphWorkspaces.debugExclusive()
 ```
 
 ## License

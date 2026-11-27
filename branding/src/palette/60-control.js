@@ -1,30 +1,6 @@
-  function cancelCloseTimer() {
-    try {
-      if (closeTimer) {
-        clearTimeout(closeTimer);
-        closeTimer = null;
-      }
-    } catch (e) {
-      closeTimer = null;
-    }
-    closing = false;
-    try {
-      if (overlay && overlay.classList) {
-        overlay.classList.remove("aph-palette-closing");
-      }
-    } catch (e) {}
-    try {
-      const box = overlay && overlay.querySelector && overlay.querySelector("#aph-palette");
-      if (box && box.classList) {
-        box.classList.remove("aph-palette-closing");
-      }
-    } catch (e) {}
-  }
-
   // Sacred return-of-focus: remember who had focus before the palette
   // stole it (page input, editor, video player). Skips our own input and
-  // anything already inside the overlay so reopen-during-close keeps the
-  // original element.
+  // anything already inside the overlay so reopen keeps the original element.
   function captureFocus() {
     try {
       const ae = document.activeElement;
@@ -68,37 +44,23 @@
     }
     // Already open: never replay the pop animation or wipe the typed
     // query (redundant open() calls arrive from dock-menu fallbacks).
-    // Just refocus. Mid-close (timer pending or closing classes on)
-    // still falls through to the full path, which cancels the fade
-    // and restarts cleanly.
     if (isOpen()) {
-      let reopening = false;
-      try {
-        reopening = !!closeTimer || closing === true;
-      } catch (e) {}
-      try {
-        reopening =
-          reopening ||
-          !!(overlay && overlay.classList && overlay.classList.contains("aph-palette-closing"));
-      } catch (e) {}
-      if (!reopening) {
-        setTimeout(() => {
-          try {
-            input.focus();
-          } catch (e) {}
-        }, 0);
-        return;
-      }
+      setTimeout(() => {
+        try {
+          input.focus();
+        } catch (e) {}
+      }, 0);
+      return;
     }
     captureFocus();
     prompt = null;
     iconPick = null;
+    editCurrentTab = false;
     try {
       if (typeof invalidatePaletteCache === "function") {
         invalidatePaletteCache();
       }
     } catch (e) {}
-    cancelCloseTimer();
     overlay.hidden = false;
     // Pop-in animation: re-trigger on every open, skipped under
     // reduced-motion (parity with close() instant-hide).
@@ -145,9 +107,11 @@
     if (!overlay || !input) {
       return;
     }
+    if (overlay.hidden) {
+      captureFocus();
+    }
     prompt = opts;
     iconPick = null;
-    cancelCloseTimer();
     overlay.hidden = false;
     try {
       input.setAttribute("placeholder", opts.title);
@@ -215,9 +179,11 @@
     if (!overlay || !input) {
       return;
     }
+    if (overlay.hidden) {
+      captureFocus();
+    }
     prompt = null;
     iconPick = { ws: id };
-    cancelCloseTimer();
     overlay.hidden = false;
     try {
       input.setAttribute(
@@ -269,70 +235,88 @@
     } catch (e) {}
   }
 
+  function pushView(view) {
+    if (!overlay) {
+      build();
+    }
+    if (overlay && overlay.hidden) {
+      captureFocus();
+      overlay.hidden = false;
+    }
+    viewStack.push({
+      ...view,
+      prevQuery: (input && input.value) || "",
+      prevSelected: selected,
+    });
+    try {
+      if (input) {
+        input.value = "";
+        if (view.placeholder) {
+          input.setAttribute("placeholder", view.placeholder);
+        }
+      }
+    } catch (_e) {}
+    render("");
+    setTimeout(() => {
+      try {
+        input && input.focus();
+      } catch (_e) {}
+    }, 0);
+  }
+
+  function popView(cancel) {
+    if (!viewStack.length) {
+      return false;
+    }
+    const top = viewStack.pop();
+    if (cancel && typeof top.onCancel === "function") {
+      try {
+        top.onCancel();
+      } catch (_e) {}
+    }
+    const prevQ = top.prevQuery || "";
+    try {
+      if (input) {
+        input.value = prevQ;
+      }
+    } catch (_e) {}
+    render(prevQ);
+    if (typeof top.prevSelected === "number" && top.prevSelected < items.length) {
+      selected = top.prevSelected;
+      paint();
+    }
+    try {
+      input && input.focus();
+    } catch (_e) {}
+    return true;
+  }
+
+  function clearViews(cancel) {
+    while (viewStack.length) {
+      const top = viewStack.pop();
+      if (cancel && typeof top.onCancel === "function") {
+        try {
+          top.onCancel();
+        } catch (_e) {}
+      }
+    }
+  }
+
   function close() {
     prompt = null;
     iconPick = null;
+    editCurrentTab = false;
+    clearViews(true);
     try {
       if (typeof invalidatePaletteCache === "function") {
         invalidatePaletteCache();
       }
     } catch (e) {}
     if (!overlay || overlay.hidden) {
-      cancelCloseTimer();
       return;
     }
-    // Already transitioning open→closed past this point, so returning
-    // focus is safe exactly once (early-return above never restores).
     restoreFocus();
-    // Reduced-motion (or no timer support in tests): hide instantly.
-    let reduce = false;
-    try {
-      reduce = !!(
-        window.matchMedia &&
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      );
-    } catch (e) {}
-    if (reduce || typeof setTimeout !== "function") {
-      cancelCloseTimer();
-      overlay.hidden = true;
-      return;
-    }
-    // Animated exit: fade the backdrop, sink + shrink the panel, then
-    // hide. Reopening cancels the timer (see open/cancelCloseTimer).
-    cancelCloseTimer();
-    closing = true;
-    try {
-      overlay.classList.add("aph-palette-closing");
-    } catch (e) {}
-    try {
-      const box = overlay.querySelector && overlay.querySelector("#aph-palette");
-      if (box) {
-        box.classList.remove("aph-palette-anim");
-        box.classList.add("aph-palette-closing");
-      }
-    } catch (e) {}
-    try {
-      closeTimer = setTimeout(() => {
-        closeTimer = null;
-        closing = false;
-        try {
-          if (overlay) {
-            overlay.hidden = true;
-            overlay.classList.remove("aph-palette-closing");
-            const box =
-              overlay.querySelector && overlay.querySelector("#aph-palette");
-            if (box) {
-              box.classList.remove("aph-palette-closing", "aph-palette-anim");
-            }
-          }
-        } catch (e) {}
-      }, 150);
-    } catch (e) {
-      closing = false;
-      try {
-        overlay.hidden = true;
-      } catch (_e) {}
-    }
+    overlay.hidden = true;
   }
 
   // Ctrl+W on a tab row: closes that tab, keeps the palette open.
@@ -374,6 +358,54 @@
     return overlay && !overlay.hidden;
   }
 
+  function setPaletteMode(prefix) {
+    if (!overlay) {
+      build();
+    }
+    const cur = (input && input.value) || "";
+    const parsed = typeof parseMode === "function" ? parseMode(cur) : { q: cur.trim() };
+    const q = parsed.q || "";
+    const next = prefix ? (prefix.endsWith(":") ? `${prefix} ${q}` : `${prefix}${q}`) : q;
+    if (input) {
+      input.value = next;
+    }
+    render(next);
+    try {
+      input && input.focus();
+    } catch (_e) {}
+  }
+
+  function openMode(prefix) {
+    open();
+    setPaletteMode(prefix || "");
+  }
+
+  function openEditURL() {
+    let url = "";
+    try {
+      const spec = gBrowser?.selectedBrowser?.currentURI?.spec || "";
+      if (spec && spec !== "about:newtab" && spec !== "about:blank") {
+        url = spec;
+      }
+    } catch (_e) {}
+    open();
+    editCurrentTab = true;
+    try {
+      if (input) {
+        input.value = url;
+        render(url);
+        setTimeout(() => {
+          try {
+            input.focus();
+            if (url && typeof input.select === "function") {
+              input.select();
+            }
+          } catch (_e) {}
+        }, 0);
+      }
+    } catch (_e) {}
+  }
+
   function toggle() {
     if (isOpen()) {
       close();
@@ -387,6 +419,34 @@
   // In rename-prompt mode Enter commits the input instead. Rows marked
   // keepOpen (e.g. Rename) run without closing first.
   function choose(useTemp) {
+    if (viewStack.length > 0) {
+      const top = viewStack[viewStack.length - 1];
+      const it = items[selected];
+      if (!it) {
+        popView(true);
+        return;
+      }
+      if (!it.keepOpen) {
+        clearViews(false);
+        close();
+      }
+      try {
+        if (typeof top.onSelect === "function") {
+          top.onSelect(it);
+        } else if (typeof it.run === "function") {
+          it.run();
+        }
+      } catch (_e) {}
+      if (it.keepOpen) {
+        try {
+          if (typeof invalidatePaletteCache === "function") {
+            invalidatePaletteCache();
+          }
+          render(input ? input.value : "");
+        } catch (_e) {}
+      }
+      return;
+    }
     if (iconPick) {
       const it = items[selected];
       // Empty filter match: nothing to commit — just leave.

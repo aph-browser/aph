@@ -85,7 +85,7 @@
       return;
     }
     // Window-scoped landing: each window restores its own saved workspace
-    // and reconciles its own strip (switchLocal — purely local). Same-id
+    // and reconciles its own strip (switchTo — purely local). Same-id
     // workspaces elsewhere are independent tab sets; no de-dupe needed.
     // Prefer the restored selected tab when it already lives in target,
     // so we focus the exact tab left open instead of the first in order.
@@ -96,11 +96,7 @@
       }
     } catch (e) {}
     try {
-      if (typeof switchLocal === "function") {
-        switchLocal(target);
-      } else {
-        switchTo(target);
-      }
+      switchTo(target);
     } catch (e) {}
   }
 

@@ -190,13 +190,7 @@
         return { ok: false, reason: "internal" };
       }
       try {
-        const isStarred =
-          typeof isTabStarred === "function"
-            ? isTabStarred(tab)
-            : tab.group &&
-              (tab.group.label === "Starred" ||
-                tab.group.name === "Starred" ||
-                tab.group.getAttribute?.("label") === "Starred");
+        const isStarred = typeof isTabStarred === "function" ? isTabStarred(tab) : false;
         if (isStarred) {
           return { ok: false, reason: "starred" };
         }
@@ -398,7 +392,7 @@
         try {
           ws = getWs(t);
         } catch (e) {}
-        return { title, host, ws, lastViewed: lv };
+        return { tab: t, title, host, ws, lastViewed: lv };
       });
     } catch (e) {}
     return out;

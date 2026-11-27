@@ -26,11 +26,11 @@
     return "";
   }
 
-  // "Workspace 2 (💼 Work) · Work" — number first so fuzzy prefixes and
-  // existing muscle memory keep working; name/suffix only refine it.
+  // "Work (2) · Personal" — name first when set, number second.
   function wsFull(api, n) {
     const name = wsName(api, n);
-    return `Workspace ${n}${name ? ` (${name})` : ""}${wsContainerSuffix(api, n)}`;
+    const suffix = wsContainerSuffix(api, n);
+    return name ? `${name} (${n})${suffix}` : `Workspace ${n}${suffix}`;
   }
 
   // "Send Active Tab to …", or "Send N Tabs to …" when a multiselection is

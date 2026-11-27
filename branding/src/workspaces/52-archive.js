@@ -95,6 +95,9 @@ function canArchiveTab(tab, cutoffMs, nowMs) {
   if (typeof isTabStarred === "function" && isTabStarred(tab)) {
     return { ok: false, reason: "starred" };
   }
+  if (tab.group) {
+    return { ok: false, reason: "grouped" };
+  }
   if (tab.linkedBrowser?._sharingState?.webRTC?.sharing) {
     return { ok: false, reason: "sharing" };
   }
@@ -331,6 +334,15 @@ function archiveWorkspaceTabs(ws) {
   return executeArchive({ ws: targetWs, maxAgeMs: 0 });
 }
 
+function isArchiveLeaderWindow() {
+  try {
+    if (typeof Services !== "undefined" && Services?.wm?.getMostRecentWindow) {
+      return Services.wm.getMostRecentWindow("navigator:browser") === window;
+    }
+  } catch (e) {}
+  return true;
+}
+
 function startArchiveSweeper() {
   if (archiveIntervalId) {
     return;
@@ -342,6 +354,9 @@ function startArchiveSweeper() {
 
   archiveIntervalId = setInterval(() => {
     try {
+      if (!isArchiveLeaderWindow()) {
+        return;
+      }
       const d = getArchiveAutoDays();
       if (d > 0) {
         archiveStaleTabs({ maxAgeMs: d * 86400000 });
@@ -374,6 +389,9 @@ function scheduleStartupArchive() {
   archiveStartupTimer = setTimeout(() => {
     archiveStartupTimer = null;
     try {
+      if (!isArchiveLeaderWindow()) {
+        return;
+      }
       if (typeof sessionRestorePending !== "undefined" && sessionRestorePending) {
         return;
       }

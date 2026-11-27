@@ -3,6 +3,16 @@
   // (same pattern as routeCommands below). Private windows hide all
   // rows (dock parity: containers don't exist there). Fully guarded:
   // the workspaces API may be absent or partial (tests).
+  function checkTabStarred(t) {
+    try {
+      if (typeof window.isTabStarred === "function") return window.isTabStarred(t);
+      if (window.AphWorkspaces?.isTabStarred) return window.AphWorkspaces.isTabStarred(t);
+      return !!(t?.group && (t.group.label === "Starred" || t.group.name === "Starred"));
+    } catch (e) {
+      return false;
+    }
+  }
+
   function isPrivatePaletteWindow() {
     try {
       const pbu = window.PrivateBrowsingUtils;
@@ -42,7 +52,7 @@
 
   function isWorkspaceCommandTitle(title) {
     try {
-      return /^(Switch to |Send (Active|Group|\d+ Tabs)|Route |Bind |Rename |Set Icon )/i.test(
+      return /^(Switch to |Send (Active|Group|\d+ Tabs)|Route |Bind |Rename |Set Icon |Manage Domain Routes)/i.test(
         String(title || "")
       );
     } catch (e) {
@@ -215,7 +225,7 @@
 
   function markdownForTab(title, url) {
     try {
-      const t = String(title || "Untitled").replace(/[\[\]]/g, (c) => `\\${c}`);
+      const t = String(title || "Untitled").replace(/[[\]]/g, (c) => `\\${c}`);
       return `[${t}](${String(url || "")})`;
     } catch (e) {
       return String(url || "");
@@ -303,6 +313,7 @@
     } catch (e) {}
     return out;
   }
+
 
   // A tab that may be closed as a duplicate copy: exact-URL repeats
   // inside the current workspace. Never pinned (global), never the
@@ -404,56 +415,6 @@
     return { dupes, allDupes };
   }
 
-  function countWorkspaceTabs(api) {
-    try {
-      if (!api || typeof api.getCurrent !== "function") {
-        return 0;
-      }
-      const cur = api.getCurrent();
-      if (!cur) {
-        return 0;
-      }
-      const useWs = typeof api.getWs === "function";
-      let tabs = [];
-      try {
-        tabs = Array.from((gBrowser && gBrowser.tabs) || []);
-      } catch (e) {
-        return 0;
-      }
-      let count = 0;
-      for (const t of tabs) {
-        try {
-          if (!t || t.closing) {
-            continue;
-          }
-          const spec = tabUrlSpec(t);
-          if (!spec) {
-            continue;
-          }
-          if (useWs) {
-            let w = null;
-            try {
-              w = api.getWs(t);
-            } catch (e) {
-              continue;
-            }
-            let pinned = false;
-            try {
-              pinned = !!t.pinned;
-            } catch (e) {}
-            if (w !== cur && !pinned) {
-              continue;
-            }
-          }
-          count++;
-        } catch (e) {}
-      }
-      return count;
-    } catch (e) {
-      return 0;
-    }
-  }
-
   function workspaceMarkdownLines(api) {
     try {
       return workspaceTabs(api).map((e) => `- ${markdownForTab(e.title, e.url)}`);
@@ -465,12 +426,9 @@
   function workspaceMarkdownSub(api) {
     const base = "One - [title](url) per line, in tab order";
     try {
-      const n = countWorkspaceTabs(api);
+      const n = (workspaceTabs(api) || []).length;
       if (n > 0) {
-        let label = "";
-        try {
-          label = wsFull(api, api.getCurrent());
-        } catch (e) {}
+        const label = wsFull(api, api?.getCurrent?.()) || "";
         return `${n} tab${n === 1 ? "" : "s"}${label ? ` from ${label}` : ""} · ${base}`;
       }
     } catch (e) {}
@@ -615,6 +573,7 @@
     return out;
   }
 
+
   function archiveCommands(api) {
     const out = [];
     try {
@@ -676,6 +635,7 @@
     return out;
   }
 
+
   // Extra tab ops for the current tab (surfaced alongside commands).
   // Guarded everywhere: absent gBrowser APIs just hide the row.
   function tabActions() {
@@ -734,17 +694,7 @@
         },
       });
       if (!pinned) {
-        let isStarred = false;
-        try {
-          if (typeof isTabStarred === "function") {
-            isStarred = isTabStarred(tab);
-          } else if (window.AphWorkspaces && typeof window.AphWorkspaces.isTabStarred === "function") {
-            isStarred = window.AphWorkspaces.isTabStarred(tab);
-          } else {
-            const g = tab.group;
-            isStarred = !!(g && (g.label === "Starred" || g.name === "Starred"));
-          }
-        } catch (e) {}
+        const isStarred = checkTabStarred(tab);
         out.push({
           title: isStarred ? "Unstar Tab" : "Star Tab",
           hint: "Ctrl+Alt+S",
@@ -753,9 +703,7 @@
             : "Adds the tab to the Starred group at the top of this workspace",
           run: () => {
             try {
-              if (typeof toggleStarTab === "function") {
-                toggleStarTab(tab);
-              } else if (window.AphWorkspaces && typeof window.AphWorkspaces.toggleStarTab === "function") {
+              if (window.AphWorkspaces && typeof window.AphWorkspaces.toggleStarTab === "function") {
                 window.AphWorkspaces.toggleStarTab(tab);
               }
             } catch (e) {}
@@ -941,6 +889,7 @@
     return out;
   }
 
+
   // Sidebar footer (gear) toggle: pref aph.sidebar.hideFooter, hidden
   // by default (an absent pref counts as hidden). The workspaces bundle
   // observes the pref and hides sidebar-main's .buttons-wrapper live, so
@@ -996,85 +945,529 @@
     return base;
   }
 
-  function logUnloadCandidates(api) {
-    try {
-      const c =
-        api && typeof api.unloadCandidates === "function"
-          ? api.unloadCandidates(25)
-          : { total: 0, list: [] };
-      const lines = [`[AphUnload] ${c.total} tab(s) due for auto-unload:`];
-      for (const e of c.list || []) {
-        let age = "?";
-        try {
-          const mins = Math.max(0, Math.round((Date.now() - (e.lastViewed || 0)) / 60000));
-          age = e.lastViewed ? `${mins}m ago` : "never tracked";
-        } catch (_e) {}
-        lines.push(`  ws=${e.ws || "?"} ${e.host || "(no host)"} — ${e.title || "(no title)"} [${age}]`);
-      }
-      if (c.total > (c.list || []).length) {
-        lines.push(`  …and ${c.total - c.list.length} more`);
-      }
-      const msg = lines.join("\n");
-      try {
-        if (typeof Services !== "undefined" && Services && Services.console) {
-          Services.console.logStringMessage(msg);
-          return;
-        }
-      } catch (e) {}
-      try {
-        if (typeof console !== "undefined" && console.log) {
-          console.log(msg);
-        }
-      } catch (e) {}
-    } catch (e) {}
-  }
-
-  function commands() {
-    const api = ws();
-    const cmds = [];
-    // Workspaces (custom name + bound container shown when present)
-    for (let i = 1; i <= 9; i++) {
-      const n = String(i);
-      cmds.push({
-        title: `Switch to ${wsFull(api, n)}`,
-        hint: `Alt+${n}`,
-        run: () => api && api.switchTo(n),
-      });
-    }
-    for (let i = 1; i <= 9; i++) {
-      const n = String(i);
-      cmds.push({
-        title: sendTabTitle(api, n),
-        hint: `Ctrl+Alt+${n}`,
-        sub: "Moves the selection · whole groups stay joined",
-        run: () => api && api.sendTabTo(n),
-      });
-    }
-    // Group moves only surface when the selection owns that
-    // structure (keeps the empty-query list clean; fuzzy queries still
-    // match them like every other command row).
-    try {
-      const gsize = sendGroupSize();
-      if (gsize > 1 && api && (api.sendGroupTo || api.sendTabTo)) {
+  function switchWorkspaceView(api) {
+    return {
+      placeholder: "Switch to workspace…  (Esc goes back)",
+      items: () => {
+        const cur = api && api.getCurrent ? api.getCurrent() : "";
+        const out = [];
         for (let i = 1; i <= 9; i++) {
           const n = String(i);
-          cmds.push({
-            title: sendGroupTitle(api, n, gsize),
-            hint: "",
-            sub: "Moves every tab in the native group together · membership kept",
+          let iconSVG = "";
+          try {
+            iconSVG = api && api.getWsIcon ? api.getWsIcon(n) : "";
+          } catch (_e) {}
+          out.push({
+            section: "Workspaces",
+            kind: "workspace",
+            wsId: n,
+            iconSVG,
+            title: wsFull(api, n),
+            hint: n === cur ? "Current" : `Alt+${n}`,
+            sub: n === cur ? "Currently active workspace" : "Enter switches here",
+            run: () => api && api.switchTo && api.switchTo(n),
+          });
+        }
+        return out;
+      },
+    };
+  }
+
+  function moveTabWorkspaceView(api) {
+    return {
+      placeholder: "Move tab to workspace…  (Esc goes back)",
+      items: () => {
+        const cur = api && api.getCurrent ? api.getCurrent() : "";
+        const gsize = sendGroupSize();
+        const out = [];
+        for (let i = 1; i <= 9; i++) {
+          const n = String(i);
+          if (n === cur) {
+            continue;
+          }
+          let iconSVG = "";
+          try {
+            iconSVG = api && api.getWsIcon ? api.getWsIcon(n) : "";
+          } catch (_e) {}
+          out.push({
+            section: "Workspaces",
+            kind: "workspace",
+            wsId: n,
+            iconSVG,
+            title: gsize > 1 ? sendGroupTitle(api, n, gsize) : sendTabTitle(api, n),
+            hint: gsize > 1 ? "" : `Ctrl+Alt+${n}`,
+            sub: gsize > 1
+              ? "Moves every tab in the native group together"
+              : "Moves the selection · whole groups stay joined",
+            run: () => {
+              if (!api) {
+                return;
+              }
+              if (gsize > 1 && api.sendGroupTo) {
+                api.sendGroupTo(n);
+              } else if (api.sendTabTo) {
+                api.sendTabTo(n);
+              }
+            },
+          });
+        }
+        return out;
+      },
+    };
+  }
+
+  function switchThemeView() {
+    const tp = typeof window !== "undefined" ? window.AphThemePreset : null;
+    const prev = tp && typeof tp.getThemePreset === "function" ? tp.getThemePreset() : "";
+    const presets = [
+      ["", "Auto (Follow OS)", "Follows OS prefers-color-scheme"],
+      ["midnight", "Midnight", "Pinned dark charcoal room"],
+      ["paper", "Paper", "Pinned warm cream room"],
+      ["nord", "Nord", "Cool desaturated arctic dark"],
+      ["mocha", "Mocha", "Catppuccin Mocha dark"],
+      ["espresso", "Espresso", "Warm umber dark"],
+    ];
+    return {
+      placeholder: "Switch theme preset…  (live preview · Esc reverts)",
+      items: () => {
+        const active = tp && typeof tp.getThemePreset === "function" ? tp.getThemePreset() : "";
+        return presets.map(([key, label, desc]) => ({
+          presetKey: key || "auto",
+          title: `${active === key ? "✓ " : "○ "}${label}`,
+          hint: active === key ? "Active" : "",
+          sub: desc,
+          run: () => tp && tp.setThemePreset && tp.setThemePreset(key || "auto"),
+        }));
+      },
+      onPreview: (it) => {
+        if (tp && tp.setThemePreset && it && it.presetKey) {
+          tp.setThemePreset(it.presetKey);
+        }
+      },
+      onSelect: (it) => {
+        if (tp && tp.setThemePreset && it && it.presetKey) {
+          tp.setThemePreset(it.presetKey);
+        }
+      },
+      onCancel: () => {
+        if (tp && tp.setThemePreset) {
+          tp.setThemePreset(prev || "auto");
+        }
+      },
+    };
+  }
+
+  function unloadCandidatesView(api) {
+    return {
+      placeholder: "Browse unload candidates…  (Enter jumps to tab · Esc goes back)",
+      items: () => {
+        const c =
+          api && typeof api.unloadCandidates === "function"
+            ? api.unloadCandidates(25)
+            : { total: 0, list: [] };
+        return (c.list || []).map((e) => {
+          let age = "never tracked";
+          if (e.lastViewed) {
+            const mins = Math.max(0, Math.round((Date.now() - e.lastViewed) / 60000));
+            age = `${mins}m ago`;
+          }
+          return {
+            section: "Tabs",
+            kind: "tab",
+            wsId: e.ws || "",
+            title: e.title || e.host || "(untitled)",
+            hint: e.ws ? `WS ${e.ws}` : "",
+            sub: `${e.host || "(no host)"} · last viewed ${age}`,
+            run: () => {
+              if (e.tab && api && api.switchTo && e.ws) {
+                api.switchTo(e.ws);
+                gBrowser.selectedTab = e.tab;
+              }
+            },
+          };
+        });
+      },
+    };
+  }
+
+  function cleanDomainInput(raw) {
+    try {
+      let s = String(raw || "").trim().toLowerCase();
+      s = s.replace(/^[a-z]+:\/\//, "");
+      s = s.split(/[/?#]/)[0];
+      s = s.replace(/:\d+$/, "").replace(/\.$/, "");
+      if (s && !/\s/.test(s)) {
+        return s;
+      }
+    } catch (e) {}
+    return "";
+  }
+
+  function routeDomainWorkspaceView(api, domain) {
+    const host = cleanDomainInput(domain) || String(domain || "").trim().toLowerCase();
+    let curWs = "";
+    try {
+      curWs = (api && api.getRoutes && api.getRoutes()[host]) || "";
+    } catch (e) {}
+
+    return {
+      placeholder: `Route "${host}" to workspace 1–9…  (Esc cancels)`,
+      items: () => {
+        const list = [];
+        for (let i = 1; i <= 9; i++) {
+          const n = String(i);
+          const isCur = curWs === n;
+          list.push({
+            section: "Workspaces",
+            kind: "workspace",
+            wsId: n,
+            title: wsFull(api, n),
+            hint: isCur ? `Current (Alt+${n})` : `Alt+${n}`,
+            sub: isCur
+              ? `Already routed to Workspace ${n} · Enter rebinds`
+              : `Route future tabs on "${host}" to Workspace ${n}`,
             run: () => {
               try {
-                if (api.sendGroupTo) {
-                  api.sendGroupTo(n);
-                } else {
-                  api.sendTabTo(n);
+                if (api && api.setRoute) {
+                  api.setRoute(host, n);
                 }
               } catch (e) {}
             },
           });
         }
+        return list;
+      },
+    };
+  }
+
+  function manageRoutesView(api) {
+    return {
+      rawItems: true,
+      placeholder: "Type domain (e.g. github.com) or select rule to remove…",
+      items: (q) => {
+        const out = [];
+        const query = (q || "").trim();
+        const targetDomain = cleanDomainInput(query);
+        const routes = (api && api.getRoutes && api.getRoutes()) || {};
+        const hosts = Object.keys(routes).sort();
+
+        if (targetDomain) {
+          const existingWs = routes[targetDomain];
+          out.push({
+            section: "Routes",
+            kind: "workspace",
+            title: `Route "${targetDomain}" to Workspace…`,
+            hint: existingWs ? `WS ${existingWs}` : "Pick 1–9",
+            sub: existingWs
+              ? `Currently routes to ${wsFull(api, existingWs)} · Enter to change destination workspace`
+              : `Set destination workspace 1–9 for future tabs on ${targetDomain}`,
+            keepOpen: true,
+            run: () => typeof pushView === "function" && pushView(routeDomainWorkspaceView(api, targetDomain)),
+          });
+        } else {
+          const currentSite = currentHost();
+          if (currentSite) {
+            const curWs = routes[currentSite];
+            out.push({
+              section: "Routes",
+              kind: "workspace",
+              title: `Route Current Site (${currentSite}) to Workspace…`,
+              hint: curWs ? `WS ${curWs}` : "Current Site",
+              sub: curWs
+                ? `Currently routes to ${wsFull(api, curWs)} · Enter to change destination workspace`
+                : `Set destination workspace 1–9 for future tabs on ${currentSite}`,
+              keepOpen: true,
+              run: () => typeof pushView === "function" && pushView(routeDomainWorkspaceView(api, currentSite)),
+            });
+          }
+        }
+
+        const matchingHosts = query
+          ? hosts.filter((h) => h.includes(targetDomain || query.toLowerCase()))
+          : hosts;
+
+        for (const host of matchingHosts) {
+          const wsId = routes[host];
+          let note = "";
+          try {
+            if (api && api.getWsContainer && api.describeContainer) {
+              const id = api.getWsContainer(wsId);
+              if (id) {
+                const d = api.describeContainer(id);
+                if (d && d.name) note = ` · ${d.name} container`;
+              }
+            }
+          } catch (e) {}
+          out.push({
+            section: "Active Rules",
+            kind: "workspace",
+            title: `Remove: ${host} → ${wsFull(api, wsId)}`,
+            hint: "Enter deletes",
+            sub: `Active domain route${note} · Enter removes rule`,
+            keepOpen: true,
+            run: () => {
+              try {
+                if (api && api.deleteRoute) {
+                  api.deleteRoute(host);
+                }
+              } catch (e) {}
+            },
+          });
+        }
+
+        if (out.length === 0) {
+          out.push({
+            section: "Routes",
+            kind: "action",
+            title: "No active domain routes",
+            hint: "",
+            sub: "Type a domain above (e.g. github.com) to route it to a workspace",
+            keepOpen: true,
+            run: () => {},
+          });
+        }
+
+        return out;
+      },
+    };
+  }
+
+  function aphSettingsView(_api) {
+    const ARCHIVE_OPTIONS = [0, 3, 7, 14, 30];
+    const UNLOAD_OPTIONS = [0, 15, 30, 60];
+
+    return {
+      placeholder: "Aph Settings… (Enter cycles/toggles · Esc back)",
+      items: () => {
+        const out = [];
+
+        // 1. Auto-Archive: Cycle Off / 3d / 7d / 14d / 30d
+        let archiveDays = 0;
+        try {
+          if (typeof Services !== "undefined" && Services?.prefs?.getIntPref) {
+            const d = Services.prefs.getIntPref("aph.archive.autoDays");
+            archiveDays = Number.isFinite(d) ? Math.max(0, d) : 0;
+          }
+        } catch (e) {}
+        const curArchiveIdx = ARCHIVE_OPTIONS.indexOf(archiveDays);
+        const nextArchiveDays = ARCHIVE_OPTIONS[(curArchiveIdx + 1) % ARCHIVE_OPTIONS.length] ?? 0;
+        out.push({
+          section: "Settings",
+          kind: "action",
+          title: archiveDays === 0 ? "○ Auto-Archive: Off" : `✓ Auto-Archive: ${archiveDays} days`,
+          hint: archiveDays === 0 ? "Off" : `${archiveDays}d`,
+          sub: archiveDays === 0
+            ? "Archive idle tabs to Bookmarks · Off (Enter cycles: 3d / 7d / 14d / 30d)"
+            : `Archive idle tabs to Bookmarks after ${archiveDays} days (Enter cycles: Off / 3d / 7d / 14d / 30d)`,
+          keepOpen: true,
+          run: () => {
+            try {
+              if (typeof Services !== "undefined" && Services?.prefs?.setIntPref) {
+                Services.prefs.setIntPref("aph.archive.autoDays", nextArchiveDays);
+              }
+            } catch (e) {}
+          },
+        });
+
+        // 2. Auto-Unload: Cycle Off / 15m / 30m / 60m
+        let unloadEnabled = false;
+        let unloadStaleMin = 30;
+        try {
+          if (typeof Services !== "undefined" && Services?.prefs) {
+            if (Services.prefs.getBoolPref) {
+              unloadEnabled = !!Services.prefs.getBoolPref("aph.unload.autoEnabled");
+            }
+            if (Services.prefs.getIntPref) {
+              unloadStaleMin = Services.prefs.getIntPref("aph.unload.staleMin");
+            }
+          }
+        } catch (e) {}
+        const curUnloadVal = !unloadEnabled ? 0 : ([15, 30, 60].includes(unloadStaleMin) ? unloadStaleMin : 30);
+        const curUnloadIdx = UNLOAD_OPTIONS.indexOf(curUnloadVal);
+        const nextUnloadVal = UNLOAD_OPTIONS[(curUnloadIdx + 1) % UNLOAD_OPTIONS.length] ?? 0;
+        out.push({
+          section: "Settings",
+          kind: "action",
+          title: curUnloadVal === 0 ? "○ Auto-Unload: Off" : `✓ Auto-Unload: ${curUnloadVal}m`,
+          hint: curUnloadVal === 0 ? "Off" : `${curUnloadVal}m`,
+          sub: curUnloadVal === 0
+            ? "Automatically discard idle tabs · Off (Enter cycles: 15m / 30m / 60m)"
+            : `Automatically discard idle tabs after ${curUnloadVal} min (Enter cycles: 15m / 30m / 60m / Off)`,
+          keepOpen: true,
+          run: () => {
+            try {
+              if (typeof Services !== "undefined" && Services?.prefs) {
+                if (nextUnloadVal === 0) {
+                  Services.prefs.setBoolPref?.("aph.unload.autoEnabled", false);
+                } else {
+                  Services.prefs.setBoolPref?.("aph.unload.autoEnabled", true);
+                  Services.prefs.setIntPref?.("aph.unload.staleMin", nextUnloadVal);
+                }
+              }
+            } catch (e) {}
+          },
+        });
+
+        // 3. Ctrl+W Parks Pins
+        let pinsPark = true;
+        try {
+          if (typeof Services !== "undefined" && Services?.prefs?.getBoolPref) {
+            pinsPark = Services.prefs.getBoolPref("aph.pins.ctrlWUnloads", true);
+          }
+        } catch (e) {}
+        out.push({
+          section: "Settings",
+          kind: "action",
+          title: pinsPark ? "✓ Ctrl+W Parks Pinned Tabs" : "○ Ctrl+W Parks Pinned Tabs",
+          hint: pinsPark ? "Enabled" : "Disabled",
+          sub: pinsPark
+            ? "Closing a pinned tab resets and unloads it instead of closing (Enter toggles)"
+            : "Closing a pinned tab closes it normally (Enter toggles)",
+          keepOpen: true,
+          run: () => {
+            try {
+              if (typeof Services !== "undefined" && Services?.prefs?.setBoolPref) {
+                Services.prefs.setBoolPref("aph.pins.ctrlWUnloads", !pinsPark);
+              }
+            } catch (e) {}
+          },
+        });
+
+        // 4. Auto-Hide Sidebar
+        let autohideSidebar = false;
+        try {
+          if (typeof window !== "undefined" && window.AphWorkspaces?.isAutohideSidebar) {
+            autohideSidebar = !!window.AphWorkspaces.isAutohideSidebar();
+          } else if (typeof Services !== "undefined" && Services?.prefs?.getBoolPref) {
+            autohideSidebar = !!Services.prefs.getBoolPref("aph.sidebar.autohide", false);
+          }
+        } catch (e) {}
+        out.push({
+          section: "Settings",
+          kind: "action",
+          title: autohideSidebar ? "✓ Auto-Hide Sidebar: Enabled" : "○ Auto-Hide Sidebar: Disabled",
+          hint: autohideSidebar ? "Hover Peek" : "Always Visible",
+          sub: autohideSidebar
+            ? "Sidebar collapses off-screen to 0px; hover left edge reveals (Enter toggles)"
+            : "Sidebar remains visible (Enter toggles hover peek mode)",
+          keepOpen: true,
+          run: () => {
+            try {
+              if (typeof window !== "undefined" && window.AphWorkspaces?.toggleAutohideSidebar) {
+                window.AphWorkspaces.toggleAutohideSidebar();
+              } else if (typeof Services !== "undefined" && Services?.prefs?.setBoolPref) {
+                Services.prefs.setBoolPref("aph.sidebar.autohide", !autohideSidebar);
+              }
+            } catch (e) {}
+          },
+        });
+
+        // 5. Sidebar Footer
+        let footerHidden = true;
+        try {
+          if (typeof sidebarFooterHidden === "function") {
+            footerHidden = sidebarFooterHidden();
+          } else if (typeof Services !== "undefined" && Services?.prefs?.getBoolPref) {
+            footerHidden = Services.prefs.getBoolPref("aph.sidebar.hideFooter", true);
+          }
+        } catch (e) {}
+        out.push({
+          section: "Settings",
+          kind: "action",
+          title: !footerHidden ? "✓ Sidebar Settings Footer: Visible" : "○ Sidebar Settings Footer: Hidden",
+          hint: !footerHidden ? "Visible" : "Hidden",
+          sub: !footerHidden
+            ? "Settings gear shown at bottom of sidebar (Enter hides)"
+            : "Settings gear hidden for maximum tab strip height (Enter shows)",
+          keepOpen: true,
+          run: () => {
+            try {
+              if (typeof Services !== "undefined" && Services?.prefs?.setBoolPref) {
+                Services.prefs.setBoolPref("aph.sidebar.hideFooter", !footerHidden);
+              }
+            } catch (e) {}
+          },
+        });
+
+        // 6. Theme Preset
+        let currentTheme = "Auto";
+        try {
+          const tp = typeof window !== "undefined" ? window.AphThemePreset : null;
+          if (tp && typeof tp.getThemePreset === "function") {
+            const key = tp.getThemePreset() || "";
+            const nameMap = {
+              "": "Auto",
+              auto: "Auto",
+              midnight: "Midnight",
+              paper: "Paper",
+              nord: "Nord",
+              mocha: "Mocha",
+              espresso: "Espresso",
+            };
+            currentTheme = nameMap[key.toLowerCase()] || key;
+          }
+        } catch (e) {}
+        out.push({
+          section: "Settings",
+          kind: "action",
+          title: `Theme Preset: ${currentTheme}…`,
+          hint: currentTheme,
+          sub: "Auto, Midnight, Paper, Nord, Mocha, Espresso (Enter opens picker)",
+          keepOpen: true,
+          run: () => typeof pushView === "function" && pushView(switchThemeView()),
+        });
+
+        return out;
+      },
+    };
+  }
+
+  if (typeof window !== "undefined") {
+    window.__aphViews = {
+      cleanDomainInput,
+      aphSettingsView,
+      manageRoutesView,
+      routeDomainWorkspaceView,
+    };
+  }
+
+  function commands() {
+    const api = ws();
+    const cmds = [];
+    // Workspaces: parent drill-down commands keep the root list clean.
+    cmds.push(
+      {
+        section: "Workspaces",
+        title: "Switch to Last Workspace",
+        hint: "Alt+`",
+        sub: "Bounce back to your previous workspace",
+        run: () => api && api.switchToLastWorkspace && api.switchToLastWorkspace(),
+      },
+      {
+        section: "Workspaces",
+        title: "Switch Workspace…",
+        hint: "Alt+1–9",
+        sub: "Jump to any workspace by name or icon",
+        keepOpen: true,
+        run: () => typeof pushView === "function" && pushView(switchWorkspaceView(api)),
+      },
+      {
+        section: "Workspaces",
+        title: "Manage Domain Routes…",
+        hint: "Routes",
+        sub: "Route websites to workspaces or remove routing rules",
+        keepOpen: true,
+        run: () => typeof pushView === "function" && pushView(manageRoutesView(api)),
+      },
+      {
+        section: "Workspaces",
+        title: sendGroupSize() > 1 ? "Move Group to Workspace…" : "Move Tab to Workspace…",
+        hint: "Ctrl+Alt+1–9",
+        sub: "Send the active tab or group to another workspace",
+        keepOpen: true,
+        run: () => typeof pushView === "function" && pushView(moveTabWorkspaceView(api)),
       }
-    } catch (e) {}
+    );
     // Cross-window moves (window-scoped model — the only path that
     // touches another window). Arrivals join the destination's current
     // workspace. Listed per live window; hidden when alone.
@@ -1144,7 +1537,23 @@
         hint: "Ctrl+Alt+T",
         run: () => api && api.openTempTab(),
       },
-      ...bindCommands(api),
+      ...(api && !isPrivatePaletteWindow()
+        ? [
+            {
+              section: "Workspaces",
+              title: "Bind Workspace to Container…",
+              hint: "Ctrl+Alt+B",
+              sub: "Assign a Firefox container to the current workspace",
+              keepOpen: true,
+              run: () =>
+                typeof pushView === "function" &&
+                pushView({
+                  placeholder: "Bind workspace to container…  (Esc goes back)",
+                  items: () => bindCommands(api),
+                }),
+            },
+          ]
+        : []),
       {
         title: "Close Current Tab",
         hint: "Ctrl+W",
@@ -1161,7 +1570,26 @@
       },
       ...closeDupesRows(api),
       ...splitViewRows(api),
-      ...archiveCommands(api),
+      {
+        section: "Commands",
+        title: "Aph Settings…",
+        hint: "Settings",
+        sub: "Configure auto-archive, auto-unload, pins, sidebar, and theme",
+        keepOpen: true,
+        run: () => typeof pushView === "function" && pushView(aphSettingsView(api)),
+      },
+      {
+        title: "Archive Stale Tabs…",
+        hint: "",
+        sub: "Save idle tabs into Places Bookmarks by age or workspace",
+        keepOpen: true,
+        run: () =>
+          typeof pushView === "function" &&
+          pushView({
+            placeholder: "Archive stale tabs…  (Esc goes back)",
+            items: () => archiveCommands(api),
+          }),
+      },
       {
         title: "Unload Inactive Tabs",
         hint: "",
@@ -1175,15 +1603,28 @@
         },
       },
       {
-        title: "Show Unload Candidates",
+        title: "Browse Unload Candidates…",
         hint: "",
         sub: unloadCandidatesSub(api),
-        run: () => {
-          try {
-            logUnloadCandidates(api);
-          } catch (e) {}
-        },
+        keepOpen: true,
+        run: () =>
+          typeof pushView === "function" &&
+          pushView(unloadCandidatesView(api)),
       },
+      ...(typeof window !== "undefined" &&
+      window.AphThemePreset &&
+      typeof window.AphThemePreset.setThemePreset === "function"
+        ? [
+            {
+              title: "Switch Theme…",
+              hint: "",
+              sub: "Auto, Midnight, Paper, Nord, Mocha, Espresso (live preview)",
+              keepOpen: true,
+              run: () =>
+                typeof pushView === "function" && pushView(switchThemeView()),
+            },
+          ]
+        : []),
       {
         title: "Copy Workspace Tabs as Markdown",
         hint: "",
@@ -1321,9 +1762,12 @@
       // Right-aligned badge (WS · container · pinned); the URL gets the
       // sub line so titles stay scannable without a "Go to Tab:" prefix.
       const badge = [];
+      let wsId = "";
       try {
         if (api) {
-          badge.push(`WS ${api.getWs(t)}`);
+          wsId = String(api.getWs(t) || "");
+          const wsName = api.getWsName && api.getWsName(wsId);
+          badge.push(wsName || `WS ${wsId}`);
         } else if (t.hidden) {
           badge.push("hidden");
         }
@@ -1342,22 +1786,9 @@
           badge.push("pinned");
         }
       } catch (e) {}
-      try {
-        let starred = false;
-        try {
-          if (typeof isTabStarred === "function") {
-            starred = isTabStarred(t);
-          } else if (window.AphWorkspaces && typeof window.AphWorkspaces.isTabStarred === "function") {
-            starred = window.AphWorkspaces.isTabStarred(t);
-          } else {
-            const g = t.group;
-            starred = !!(g && (g.label === "Starred" || g.name === "Starred"));
-          }
-        } catch (_e) {}
-        if (starred) {
-          badge.push("starred");
-        }
-      } catch (e) {}
+      if (checkTabStarred(t)) {
+        badge.push("starred");
+      }
       try {
         let muted = false;
         let playing = false;
@@ -1390,6 +1821,7 @@
         title: label,
         sub: url,
         hint: badge.join(" · "),
+        wsId,
         kind: "tab",
         section: "Tabs",
         icon: (typeof KIND_ICONS !== "undefined" && KIND_ICONS.tab) || "",
@@ -1507,6 +1939,7 @@
     return out;
   }
 
+
   // "Route github.com to Workspace N" × 9 for the active site. Titles
   // start with "Route" so typing `route` lists them all inline.
   function routeCommands(api, host) {
@@ -1532,6 +1965,7 @@
     }
     return out;
   }
+
 
   // One row per active rule; Enter deletes it. Titles start with "Route"
   // so typing `route`/`routes` surfaces the whole list.
@@ -1593,8 +2027,12 @@
 
   // Score a pool with multi-token matching + frecency, then group by
   // section (SECTION_ORDER) with per-section caps. Stable within sections.
-  function scoreAndGroup(pool, q) {
+  function scoreAndGroup(pool, q, opts) {
     const ql = (q || "").toLowerCase();
+    const strict = !!(opts && opts.strict);
+    const sectionCaps = (opts && opts.sectionCaps) || null;
+    const defaultSecCap = (opts && opts.sectionCap) || SECTION_CAP;
+    const maxTotal = (opts && opts.totalCap) || TOTAL_CAP;
     const scored = [];
     (pool || []).forEach((it, i) => {
       let m = null;
@@ -1602,12 +2040,17 @@
         m = typeof matchTokens === "function" ? matchTokens(it, ql) : matchItem(it, ql);
       } catch (e) {}
       if (m) {
+        if (strict && m.weak) {
+          return;
+        }
         let boost = 0;
         try {
           boost = typeof frecBoost === "function" ? frecBoost(it) : 0;
         } catch (e) {}
         scored.push({
           it,
+          rawScore: m.score,
+          weak: !!m.weak,
           score: m.score + kindWeight(it) + boost,
           order: i,
           ti: m.ti,
@@ -1656,20 +2099,24 @@
     );
     const out = [];
     for (const sec of orderedSections) {
-      const arr = bySection.get(sec).slice(0, SECTION_CAP);
+      const cap = (sectionCaps && sectionCaps[sec]) || defaultSecCap;
+      const arr = bySection.get(sec).slice(0, cap);
       for (const s of arr) {
         s.it._hl = { t: new Set(s.ti), s: new Set(s.si), h: new Set(s.hi) };
+        s.it._rawScore = s.rawScore;
+        s.it._weak = !!s.weak;
         out.push(s.it);
-        if (out.length >= TOTAL_CAP) {
+        if (out.length >= maxTotal) {
           break;
         }
       }
-      if (out.length >= TOTAL_CAP) {
+      if (out.length >= maxTotal) {
         break;
       }
     }
     return out;
   }
+
 
   function tagPlacesRows(rows) {
     try {
@@ -1695,6 +2142,23 @@
   function workspacePool(cmds, api, q) {
     const out = [];
     try {
+      for (let i = 1; i <= 9; i++) {
+        const n = String(i);
+        out.push(
+          tag(
+            {
+              title: `Switch to ${wsFull(api, n)}`,
+              hint: `Alt+${n}`,
+              run: () => api && api.switchTo && api.switchTo(n),
+            },
+            "workspace",
+            "Workspaces"
+          )
+        );
+      }
+      for (const b of bindCommands(api)) {
+        out.push(tag(b, "workspace", "Workspaces"));
+      }
       for (const c of cmds || []) {
         if (isWorkspaceCommandTitle(c && c.title)) {
           out.push(c);
@@ -1721,6 +2185,7 @@
     return out;
   }
 
+
   function allItems(filter) {
     const parsed = typeof parseMode === "function" ? parseMode(filter) : { mode: "all", q: (filter || "").trim() };
     const mode = parsed.mode || "all";
@@ -1744,6 +2209,7 @@
     // tabs stay MRU-first from openTabs().
     if (!raw) {
       if (mode === "all") {
+        // Curated zero-query home: 4 MRU tabs + 4 quick actions + active workspaces.
         let top = [];
         try {
           top = [...cmds]
@@ -1753,12 +2219,49 @@
               b: typeof frecBoost === "function" ? frecBoost(it) : 0,
             }))
             .sort((a, b) => b.b - a.b || a.i - b.i)
-            .slice(0, 20)
+            .slice(0, 4)
             .map((s) => s.it);
         } catch (e) {
-          top = cmds.slice(0, 20);
+          top = cmds.slice(0, 4);
         }
-        const home = [...tabs.slice(0, 12), ...top].slice(0, 30);
+        const wsQuick = [];
+        try {
+          if (api && api.getCurrent) {
+            const cur = api.getCurrent();
+            for (let i = 1; i <= 9; i++) {
+              const n = String(i);
+              if (n === cur) {
+                continue;
+              }
+              const hasTabs = tabs.some((t) => t.wsId === n);
+              if (!hasTabs) {
+                continue;
+              }
+              let iconSVG = "";
+              try {
+                iconSVG = api.getWsIcon ? api.getWsIcon(n) : "";
+              } catch (_e) {}
+              wsQuick.push(
+                tag(
+                  {
+                    wsId: n,
+                    iconSVG,
+                    title: wsFull(api, n),
+                    hint: `Alt+${n}`,
+                    sub: "Jump to active workspace",
+                    run: () => api.switchTo && api.switchTo(n),
+                  },
+                  "workspace",
+                  "Workspaces"
+                )
+              );
+              if (wsQuick.length >= 4) {
+                break;
+              }
+            }
+          }
+        } catch (_e) {}
+        const home = [...tabs.slice(0, 4), ...top, ...wsQuick];
         for (const it of home) {
           it._hl = { t: new Set(), s: new Set(), h: new Set() };
         }
@@ -1828,14 +2331,29 @@
         }
       }
     } catch (e) {}
-    const out = scoreAndGroup(pool, q);
-    // Places bookmarks/history join after fuzzy matches (already filtered
-    // by Places searchTerms, frecency-ordered). Above the search fallback.
+    const out = scoreAndGroup(pool, q, {
+      strict: /\s/.test(raw) || raw.length > 4,
+      totalCap: 16,
+      sectionCaps: { Tabs: 5, Commands: 5, Workspaces: 5 },
+    });
+    const hasStrongFuzzy = out.some((it) => !it._weak);
+    // Places bookmarks/history join after fuzzy matches (capped to 3 each in All mode).
+    let hasPlaces = false;
+    let bmCount = 0;
+    let histCount = 0;
     try {
       if (typeof aphPlacesRowsForQuery === "function") {
         for (const r of tagPlacesRows(aphPlacesRowsForQuery(raw))) {
+          if (r.section === "Bookmarks") {
+            if (bmCount >= 3) continue;
+            bmCount++;
+          } else if (r.section === "History") {
+            if (histCount >= 3) continue;
+            histCount++;
+          }
+          hasPlaces = true;
           out.push(r);
-          if (out.length >= TOTAL_CAP) {
+          if (out.length >= 20) {
             break;
           }
         }
@@ -1846,11 +2364,118 @@
       if (fb) {
         if (isLikelyURL(raw)) {
           out.unshift(tag(fb, "go", "Go"));
+        } else if (!hasStrongFuzzy && !hasPlaces) {
+          out.unshift(tag(fb, "search", "Search"));
         } else {
           out.push(tag(fb, "search", "Search"));
         }
       }
     } catch (e) {}
     return out;
+  }
+
+  function rowActionsView(it) {
+    const api = ws();
+    return {
+      placeholder: `Actions for “${String((it && it.title) || "").slice(0, 40)}”…  (Esc goes back)`,
+      items: () => {
+        const out = [];
+        if (!it) {
+          return out;
+        }
+        if (it.kind === "tab" && it.tabRef) {
+          const t = it.tabRef;
+          const url = it.sub || "";
+          out.push(
+            {
+              title: "Switch to Tab",
+              hint: "Enter",
+              run: () => it.run && it.run(),
+            },
+            {
+              title: "Close Tab",
+              hint: "Ctrl+W",
+              run: () => {
+                if (typeof gBrowser !== "undefined" && gBrowser && gBrowser.removeTab) {
+                  gBrowser.removeTab(t, { animate: false });
+                }
+              },
+            },
+            {
+              title: t.pinned ? "Unpin Tab" : "Pin Tab",
+              run: () => {
+                if (typeof gBrowser !== "undefined" && gBrowser) {
+                  if (t.pinned && gBrowser.unpinTab) gBrowser.unpinTab(t);
+                  else if (!t.pinned && gBrowser.pinTab) gBrowser.pinTab(t);
+                }
+              },
+            },
+            {
+              title: t.muted ? "Unmute Tab" : "Mute Tab",
+              run: () => t.toggleMuteAudio && t.toggleMuteAudio(),
+            }
+          );
+          if (api && api.unloadSingleTab) {
+            out.push({
+              title: "Unload Tab",
+              run: () => api.unloadSingleTab(t),
+            });
+          }
+          if (url) {
+            out.push({
+              title: "Copy URL",
+              run: () => copyStringToClipboard(url),
+            });
+          }
+          if (api && api.sendTabTo) {
+            out.push({
+              title: "Move to Workspace…",
+              keepOpen: true,
+              run: () => {
+                if (typeof pushView === "function") {
+                  pushView({
+                    placeholder: "Move tab to workspace…",
+                    items: () => {
+                      const list = [];
+                      for (let i = 1; i <= 9; i++) {
+                        const n = String(i);
+                        list.push({
+                          section: "Workspaces",
+                          wsId: n,
+                          title: wsFull(api, n),
+                          run: () => api.sendTabTo(n, [t]),
+                        });
+                      }
+                      return list;
+                    },
+                  });
+                }
+              },
+            });
+          }
+          return out;
+        }
+        const url = it.sub || "";
+        out.push({
+          title: "Open",
+          hint: "Enter",
+          run: () => it.run && it.run(),
+        });
+        if (it.runInTemp) {
+          out.push({
+            title: "Open in Temp Container",
+            hint: "Alt+Enter",
+            run: () => it.runInTemp(),
+          });
+        }
+        if (url && /^https?:\/\//i.test(url)) {
+          out.push({
+            title: "Copy URL",
+            run: () => copyStringToClipboard(url),
+          });
+        }
+        return out;
+      },
+    };
   }
 

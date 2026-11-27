@@ -8,19 +8,9 @@
     "DisableDefaultBrowserAgent": true,
     "DontCheckDefaultBrowser": true,
     "DisableRemoteImprovements": true,
-    "AppUpdateURL": "https://localhost",
-    "WebsiteFilter": {
-      "Block": [
-        "https://localhost/*"
-      ],
-      "Exceptions": [
-        "https://localhost/*"
-      ]
-    },
     "DisableAppUpdate": true,
     "NoDefaultBookmarks": true,
     "SkipTermsOfUse": true,
-    "HttpsOnlyMode": "enabled",
     "AIControls": {
       "Translations": {
         "Value": "available"
@@ -43,7 +33,6 @@
     },
     "FirefoxHome": {
       "Weather": false,
-      "TopSites": false,
       "SponsoredTopSites": false,
       "Highlights": false,
       "Stories": false,

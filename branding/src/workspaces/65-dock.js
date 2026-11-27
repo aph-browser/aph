@@ -152,9 +152,7 @@
       if (!dock || typeof dock.appendChild !== "function") {
         return false;
       }
-      try {
-        dock.setAttribute("data-aph-dragging", "1");
-      } catch (e) {}
+      dock.setAttribute("data-aph-dragging", "1");
       const cur = isValidId(current) ? current : "1";
       let counts = {};
       try {
@@ -287,9 +285,6 @@
         return false;
       }
       if (dest === current) {
-        try {
-          pulseWorkspaceIndicator();
-        } catch (e) {}
         return false;
       }
       if (wasGroup && typeof sendGroupTo === "function") {
@@ -300,9 +295,7 @@
       // Ingestion confirm: a 100ms micro-dip on the destination pill so
       // a drop onto an inactive workspace visibly lands. No full switch
       // — the user stays put.
-      try {
-        pulseDockPill(dest);
-      } catch (e) {}
+      pulseDockPill(dest);
       return true;
     } catch (e) {
       return false;
@@ -368,9 +361,7 @@
       try {
         dockPulseTimer = setTimeout(() => {
           dockPulseTimer = null;
-          try {
-            pill.classList.remove("aph-ws-drop-pulse");
-          } catch (e) {}
+          pill.classList.remove("aph-ws-drop-pulse");
         }, 120);
       } catch (e) {}
     } catch (e) {}
@@ -485,7 +476,6 @@
     try {
       const free = lowestInactiveId(getActiveIds());
       if (!free) {
-        pulseWorkspaceIndicator();
         return null;
       }
       switchTo(free);
@@ -550,7 +540,6 @@
           .filter((x) => x !== id)
           .sort((a, b) => Number(a) - Number(b));
         if (!others.length) {
-          pulseWorkspaceIndicator();
           return { closed: 0, reason: "only" };
         }
         // Nearest by numeric distance, ties go up.
@@ -604,9 +593,7 @@
           closed++;
         } catch (e) {}
       }
-      try {
-        renderDock();
-      } catch (e) {}
+      renderDock();
       return { closed };
     } catch (e) {
       return { closed: 0 };
@@ -621,9 +608,7 @@
       // the label + current state. No manual keydown handler — it would
       // double-fire alongside the native click.
       pill = document.createElement("button");
-      try {
-        pill.setAttribute("type", "button");
-      } catch (e) {}
+      pill.setAttribute("type", "button");
       pill.className = "aph-ws-pill";
       pill.setAttribute("data-ws", id);
       // Per-WS accent override (32): stamp data-accent="M" when WS id
@@ -643,14 +628,10 @@
       // announced by the platform. aria-current marks the readout.
       if (isCurrent) {
         pill.setAttribute("data-current", "1");
-        try {
-          pill.setAttribute("aria-current", "true");
-        } catch (e) {}
+        pill.setAttribute("aria-current", "true");
       }
       if (isEmpty) {
-        try {
-          pill.setAttribute("data-empty", "1");
-        } catch (e) {}
+        pill.setAttribute("data-empty", "1");
       }
       const glyph = dockGlyph(id);
       // Glyph is icon-only (number fallback): clear first (pooled hosts
@@ -674,13 +655,8 @@
       // Counts are per-window tab tags — this window's own set. Pills
       // stay clean (index/icon glyph only): the count rides the pill's
       // title/aria-label below, never as badge chrome.
-      let title = `Workspace ${id}`;
-      try {
-        const name = getWsName(id);
-        if (name) {
-          title += `: ${name}`;
-        }
-      } catch (e) {}
+      const wsName = getWsName(id);
+      let title = wsName ? `${wsName} (${id})` : `Workspace ${id}`;
       if (count > 0) {
         title += ` · ${count} tab${count === 1 ? "" : "s"}`;
       } else if (isEmpty) {
@@ -719,14 +695,11 @@
       } catch (e) {
         pill.title = `${title} — click to switch, right-click for actions`;
       }
-      try {
-        pill.setAttribute("aria-label", pill.title || title);
-      } catch (e) {}
+      pill.setAttribute("aria-label", pill.title || title);
       try {
         pill.addEventListener("click", () => {
           try {
             if (id === current) {
-              pulseWorkspaceIndicator();
               return;
             }
             // Window-scoped: every pill switches locally. Same-id
@@ -754,9 +727,7 @@
               if (!m) {
                 return;
               }
-              try {
-                m.setAttribute("data-ws", id);
-              } catch (err) {}
+              m.setAttribute("data-ws", id);
               if (typeof m.openPopupAtScreen === "function") {
                 m.openPopupAtScreen(e.screenX, e.screenY, true);
               } else if (typeof m.openPopup === "function") {
@@ -799,9 +770,7 @@
         pill.addEventListener("dragenter", armDrop);
         pill.addEventListener("dragover", armDrop);
         pill.addEventListener("dragleave", () => {
-          try {
-            pill.classList.remove("drop-target");
-          } catch (err) {}
+          pill.classList.remove("drop-target");
         });
         pill.addEventListener("drop", (e) => {
           try {
@@ -813,9 +782,6 @@
             } catch (err) {}
             pill.classList.remove("drop-target");
             if (id === current) {
-              try {
-                pulseWorkspaceIndicator();
-              } catch (err) {}
               return;
             }
             const wasGroup = !!dockDragGroup;
@@ -860,22 +826,16 @@
     let pill = null;
     try {
       pill = document.createElement("button");
-      try {
-        pill.setAttribute("type", "button");
-      } catch (e) {}
+      pill.setAttribute("type", "button");
       pill.className = "aph-ws-pill aph-ws-add";
       pill.textContent = "+";
       pill.title = free
         ? `Open workspace ${free} (click: switches here, opens a tab · drop: moves tab(s) here)`
         : "All 9 workspaces active";
-      try {
-        pill.setAttribute("aria-label", pill.title);
-      } catch (e) {}
+      pill.setAttribute("aria-label", pill.title);
       try {
         pill.addEventListener("click", () => {
-          try {
-            plusToWorkspace();
-          } catch (e) {}
+          plusToWorkspace();
         });
         // Native button: Enter/Space already fire click. No keydown.
       } catch (e) {}
@@ -908,9 +868,7 @@
         pill.addEventListener("dragenter", armPlus);
         pill.addEventListener("dragover", armPlus);
         pill.addEventListener("dragleave", () => {
-          try {
-            pill.classList.remove("drop-target");
-          } catch (err) {}
+          pill.classList.remove("drop-target");
         });
         pill.addEventListener("drop", (e) => {
           try {
@@ -923,9 +881,6 @@
             pill.classList.remove("drop-target");
             const dest = lowestInactiveId(getActiveIds());
             if (!dest) {
-              try {
-                pulseWorkspaceIndicator();
-              } catch (err) {}
               return;
             }
             const wasGroup = !!dockDragGroup;
@@ -1057,249 +1012,104 @@
     } catch (e) {}
   }
 
+  function appendMenuItems(menu, items) {
+    for (const it of items) {
+      if (!it) continue;
+      if (it.isSep) {
+        const sep = typeof document.createXULElement === "function"
+          ? document.createXULElement("menuseparator")
+          : document.createElement("menuseparator");
+        menu.appendChild(sep);
+        continue;
+      }
+      if (it.node) {
+        menu.appendChild(it.node);
+        continue;
+      }
+      const item = makeDockMenuItem(it.id, it.label, it.onCommand, it.disabled);
+      if (item) {
+        if (it.shortcut) item.setAttribute("shortcut", it.shortcut);
+        if (it.checked) item.setAttribute("checked", "true");
+        menu.appendChild(item);
+      }
+    }
+  }
+
+  function buildBindSubmenu(wsId, prefix, head) {
+    if (isPrivateWindow()) return null;
+    const bindMenu = typeof document.createXULElement === "function"
+      ? document.createXULElement("menu")
+      : document.createElement("menu");
+    bindMenu.id = `${prefix}-bind`;
+    bindMenu.setAttribute("label", head ? `Bind ${head} to Container…` : "Bind to Container…");
+    bindMenu.classList?.add?.("menu-iconic");
+
+    const sub = typeof document.createXULElement === "function"
+      ? document.createXULElement("menupopup")
+      : document.createElement("menupopup");
+
+    const bound = typeof getWsContainerId === "function" ? getWsContainerId(wsId) : 0;
+    const none = makeDockMenuItem(`${prefix}-bind-none`, "None (unbound)", () => {
+      setWsBinding?.(wsId, 0);
+      renderDock?.();
+    });
+    if (none) {
+      if (!bound) none.setAttribute("checked", "true");
+      sub.appendChild(none);
+    }
+    const containers = typeof listContainers === "function" ? listContainers() || [] : [];
+    for (const c of containers) {
+      const item = makeDockMenuItem(
+        `${prefix}-bind-${c.userContextId}`,
+        c.name || `Container ${c.userContextId}`,
+        () => {
+          setWsBinding?.(wsId, c.userContextId);
+          renderDock?.();
+        }
+      );
+      if (item) {
+        if (bound === c.userContextId) item.setAttribute("checked", "true");
+        sub.appendChild(item);
+      }
+    }
+    bindMenu.appendChild(sub);
+    return bindMenu;
+  }
+
   function onAphMenuShowing(e) {
     try {
       const menu = (e && (e.currentTarget || e.target)) || null;
-      if (!menu || typeof menu.appendChild !== "function") {
-        return;
-      }
-      // popupshowing BUBBLES: opening the nested Bind submenu re-fires this
-      // listener with e.target = the submenu. Only rebuild on our own popup.
-      try {
-        if (!e || e.target !== menu) {
-          return;
-        }
-      } catch (err) {
-        return;
-      }
+      if (!menu?.appendChild || (e && e.target !== menu)) return;
       clearAphMenu(menu);
+
       const cur = aphMenuCurrent();
-      let curName = "";
-      try {
-        curName = typeof getWsName === "function" ? getWsName(cur) || "" : "";
-      } catch (err) {}
+      const curName = typeof getWsName === "function" ? getWsName(cur) || "" : "";
       const head = curName ? `${cur}: ${curName}` : `Workspace ${cur}`;
-      const pal = makeDockMenuItem("aph-aph-palette", "Open Command Palette…", () => {
-        try {
-          aphDockOpenPalette();
-        } catch (err) {}
-      }, false, "palette");
-      if (pal) {
-        try {
-          pal.setAttribute("shortcut", "Ctrl+K");
-        } catch (err) {}
-        try {
-          menu.appendChild(pal);
-        } catch (err) {}
-      }
-      // In-place new tab (current workspace, bound container): the stock
-      // full-width strip row retired into the dock toolbar (§26e), so this
-      // row is the mouse path that stays — no ellipsis, it acts at once.
-      const newTab = makeDockMenuItem("aph-aph-new-tab", "New Tab", () => {
-        try {
-          aphOpenTab("about:newtab");
-        } catch (err) {}
-      }, false, "new-tab");
-      if (newTab) {
-        try {
-          newTab.setAttribute("shortcut", "Ctrl+T");
-        } catch (err) {}
-        try {
-          menu.appendChild(newTab);
-        } catch (err) {}
-      }
-      try {
-        const sep =
-          typeof document.createXULElement === "function"
-            ? document.createXULElement("menuseparator")
-            : document.createElement("menuseparator");
-        menu.appendChild(sep);
-      } catch (err) {}
-      const rename = makeDockMenuItem("aph-aph-rename", `Rename ${head}…`, () => {
-        try {
-          if (typeof promptDockRename === "function") {
-            promptDockRename(cur);
-          }
-        } catch (err) {}
-      }, false, "rename");
-      if (rename) {
-        try {
-          menu.appendChild(rename);
-        } catch (err) {}
-      }
-      // Same pair as the pill right-click menu (Rename above, Set Icon
-      // here): the Aph key is the keyboard path (Enter opens this menu),
-      // so the icon picker must live here too, not only on right-click.
-      const setIcon = makeDockMenuItem("aph-aph-set-icon", `Set Icon for ${head}…`, () => {
-        try {
-          const api = window.AphPalette;
-          if (api && typeof api.setWsIcon === "function") {
-            api.setWsIcon(cur);
-          }
-        } catch (err) {}
-      }, false, "set-icon");
-      if (setIcon) {
-        try {
-          menu.appendChild(setIcon);
-        } catch (err) {}
-      }
-      try {
-        if (typeof isPrivateWindow === "function" ? !isPrivateWindow() : true) {
-          const bindMenu =
-            typeof document.createXULElement === "function"
-              ? document.createXULElement("menu")
-              : document.createElement("menu");
-          bindMenu.setAttribute("label", `Bind ${head} to Container…`);
-          bindMenu.id = "aph-aph-bind";
-          try {
-            if (bindMenu.classList && typeof bindMenu.classList.add === "function") {
-              bindMenu.classList.add("menu-iconic");
-            }
-          } catch (err) {}
-          const sub =
-            typeof document.createXULElement === "function"
-              ? document.createXULElement("menupopup")
-              : document.createElement("menupopup");
-          let bound = 0;
-          try {
-            bound = typeof getWsContainerId === "function" ? getWsContainerId(cur) : 0;
-          } catch (err) {}
-          const none = makeDockMenuItem("aph-aph-bind-none", "None (unbound)", () => {
-            try {
-              if (typeof setWsBinding === "function") {
-                setWsBinding(cur, 0);
-              }
-              if (typeof renderDock === "function") {
-                renderDock();
-              }
-            } catch (err) {}
-          });
-          if (none) {
-            if (!bound) {
-              try {
-                none.setAttribute("checked", "true");
-              } catch (err) {}
-            }
-            sub.appendChild(none);
-          }
-          try {
-            const list = typeof listContainers === "function" ? listContainers() : [];
-            for (const c of list || []) {
-              const item = makeDockMenuItem(
-                `aph-aph-bind-${c.userContextId}`,
-                c.name || `Container ${c.userContextId}`,
-                () => {
-                  try {
-                    if (typeof setWsBinding === "function") {
-                      setWsBinding(cur, c.userContextId);
-                    }
-                    if (typeof renderDock === "function") {
-                      renderDock();
-                    }
-                  } catch (err) {}
-                }
-              );
-              if (item && bound === c.userContextId) {
-                try {
-                  item.setAttribute("checked", "true");
-                } catch (err) {}
-              }
-              if (item) {
-                sub.appendChild(item);
-              }
-            }
-          } catch (err) {}
-          bindMenu.appendChild(sub);
-          menu.appendChild(bindMenu);
-        }
-      } catch (err) {}
-      // Workspace section (merged single menu): accent picker + close
-      // live here alongside rename/icon/bind above, all targeting the
-      // current workspace. Unload stays pill-menu-only: it is disabled
-      // for the current workspace by definition, so it would be a dead
-      // row here.
-      try {
-        const accentMenu = buildAccentSubmenu(cur, "aph-aph");
-        if (accentMenu) {
-          try {
-            accentMenu.id = "aph-aph-accent";
-          } catch (err) {}
-          menu.appendChild(accentMenu);
-        }
-      } catch (err) {}
-      let curCount = 0;
-      try {
-        curCount = (typeof dockCounts === "function" ? dockCounts()[cur] : 0) || 0;
-      } catch (err) {}
-      const closeWs = makeDockMenuItem(
-        "aph-aph-close",
-        curCount > 0 ? `Close Workspace (${curCount} tab${curCount === 1 ? "" : "s"})` : "Close Workspace",
-        () => {
-          try {
-            if (typeof closeWorkspaceTabs === "function") {
-              closeWorkspaceTabs(cur);
-            }
-          } catch (err) {}
+      const count = typeof dockCounts === "function" ? dockCounts()[cur] || 0 : 0;
+
+      const accentNode = buildAccentSubmenu(cur, "aph-aph");
+      if (accentNode) accentNode.id = "aph-aph-accent";
+      const items = [
+        { id: "aph-aph-palette", label: "Open Command Palette…", shortcut: "Ctrl+K", onCommand: aphDockOpenPalette },
+        { id: "aph-aph-new-tab", label: "New Tab", shortcut: "Ctrl+T", onCommand: () => aphOpenTab("about:newtab") },
+        { isSep: true },
+        { id: "aph-aph-rename", label: `Rename ${head}…`, onCommand: () => promptDockRename?.(cur) },
+        { id: "aph-aph-set-icon", label: `Set Icon for ${head}…`, onCommand: () => window.AphPalette?.setWsIcon?.(cur) },
+        { node: buildBindSubmenu(cur, "aph-aph", head) },
+        { node: accentNode },
+        {
+          id: "aph-aph-close",
+          label: count > 0 ? `Close Workspace (${count} tab${count === 1 ? "" : "s"})` : "Close Workspace",
+          disabled: count === 0,
+          onCommand: () => closeWorkspaceTabs?.(cur),
         },
-        curCount === 0
-      );
-      if (closeWs) {
-        try {
-          menu.appendChild(closeWs);
-        } catch (err) {}
-      }
-      try {
-        const sep =
-          typeof document.createXULElement === "function"
-            ? document.createXULElement("menuseparator")
-            : document.createElement("menuseparator");
-        menu.appendChild(sep);
-      } catch (err) {}
-      const cust = makeDockMenuItem("aph-aph-customize", "Customize Sidebar…", () => {
-        try {
-          aphShowCustomizeSidebar();
-        } catch (err) {}
-      }, false, "customize");
-      if (cust) {
-        try {
-          menu.appendChild(cust);
-        } catch (err) {}
-      }
-      const fxPrefs = makeDockMenuItem("aph-aph-firefox-settings", "Firefox Settings…", () => {
-        try {
-          aphOpenFirefoxSettings();
-        } catch (err) {}
-      }, false, "firefox-settings");
-      if (fxPrefs) {
-        try {
-          menu.appendChild(fxPrefs);
-        } catch (err) {}
-      }
-      // v2 hides the hamburger button (theme.css §29) — its panel stays
-      // reachable here. PanelUI.show is the stock opener; missing API
-      // fails silent (the row still renders for tests).
-      const appMenu = makeDockMenuItem("aph-aph-appmenu", "Firefox Menu…", () => {
-        try {
-          if (window.PanelUI && typeof window.PanelUI.show === "function") {
-            window.PanelUI.show();
-          }
-        } catch (err) {}
-      }, false, "appmenu");
-      if (appMenu) {
-        try {
-          menu.appendChild(appMenu);
-        } catch (err) {}
-      }
-      const about = makeDockMenuItem("aph-aph-about", "About Aph", () => {
-        try {
-          aphOpenTab("https://aph-browser.github.io/");
-        } catch (err) {}
-      }, false, "about");
-      if (about) {
-        try {
-          menu.appendChild(about);
-        } catch (err) {}
-      }
+        { isSep: true },
+        { id: "aph-aph-customize", label: "Customize Sidebar…", onCommand: aphShowCustomizeSidebar },
+        { id: "aph-aph-firefox-settings", label: "Firefox Settings…", onCommand: aphOpenFirefoxSettings },
+        { id: "aph-aph-appmenu", label: "Firefox Menu…", onCommand: () => window.PanelUI?.show?.() },
+        { id: "aph-aph-about", label: "About Aph", onCommand: () => aphOpenTab("https://aph-browser.github.io/") },
+      ];
+      appendMenuItems(menu, items);
     } catch (e) {}
   }
 
@@ -1355,9 +1165,7 @@
         }
       } catch (_e) {}
     } catch (e) {}
-    try {
-      aphDockOpenPalette();
-    } catch (_e) {}
+    aphDockOpenPalette();
   }
 
   // Aph mark: the plain Inter Bold A from branding/aph.svg, scaled to
@@ -1405,9 +1213,7 @@
       // right-click open the same Aph menu, whose workspace section
       // targets the current workspace. No split-brain key.
       btn = document.createElement("button");
-      try {
-        btn.setAttribute("type", "button");
-      } catch (e) {}
+      btn.setAttribute("type", "button");
       btn.className = "aph-dock-aph";
       btn.setAttribute("aria-label", "Aph menu");
       try {
@@ -1469,6 +1275,68 @@
   // to both click and command — XUL activates via command, HTML via
   // click. aphDockOpenPalette is idempotent (open, not toggle), so a
   // double event cannot flip it shut.
+  const WS_HEADER_ID = "aph-ws-header";
+
+  function renderWsHeader(anchor, cur) {
+    try {
+      if (!anchor || typeof document.createElement !== "function") {
+        return;
+      }
+      let hdr = document.getElementById ? document.getElementById(WS_HEADER_ID) : null;
+      if (!hdr) {
+        hdr = document.createElement("button");
+        hdr.id = WS_HEADER_ID;
+        hdr.setAttribute("type", "button");
+        hdr.addEventListener("click", () => {
+          try {
+            window.AphPalette?.openMode?.("#");
+          } catch (_e) {}
+        });
+        hdr.addEventListener("dblclick", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          try {
+            window.AphPalette?.renameCurrent?.();
+          } catch (_e) {}
+        });
+        if (anchor.firstChild && typeof anchor.insertBefore === "function") {
+          anchor.insertBefore(hdr, anchor.firstChild);
+        } else if (typeof anchor.appendChild === "function") {
+          anchor.appendChild(hdr);
+        }
+      }
+      while (hdr.firstChild) {
+        hdr.removeChild(hdr.firstChild);
+      }
+      const iconKey = getWsIcon(cur);
+      const name = getWsName(cur) || `Workspace ${cur}`;
+      const icSpan = document.createElement("span");
+      icSpan.className = "aph-ws-header-icon";
+      const svg = iconKey ? makeWsIconSvg(iconKey, 14) : null;
+      if (svg) {
+        icSpan.appendChild(svg);
+      } else {
+        icSpan.textContent = cur;
+      }
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "aph-ws-header-name";
+      nameSpan.textContent = name;
+      hdr.appendChild(icSpan);
+      hdr.appendChild(nameSpan);
+      const bid = getWsContainerId(cur);
+      if (bid) {
+        const d = describeContainer(bid);
+        if (d && d.name) {
+          const cSpan = document.createElement("span");
+          cSpan.className = "aph-ws-header-container";
+          cSpan.textContent = d.name;
+          hdr.appendChild(cSpan);
+        }
+      }
+      hdr.title = `${name} (${cur}) — click to switch, double-click to rename`;
+    } catch (_e) {}
+  }
+
   function renderDock() {
     try {
       const anchor = dockAnchor();
@@ -1504,10 +1372,9 @@
       // independent tab sets, never shown here.
       const { ids, counts } = dockStats();
       const cur = isValidId(current) ? current : "1";
+      renderWsHeader(anchor, cur);
       if (dockDragActive) {
-        try {
-          dock.setAttribute("data-aph-dragging", "1");
-        } catch (e) {}
+        dock.setAttribute("data-aph-dragging", "1");
         for (let i = 1; i <= 9; i++) {
           const id = String(i);
           try {
@@ -1523,9 +1390,7 @@
           } catch (e) {}
         }
       } else {
-        try {
-          dock.removeAttribute("data-aph-dragging");
-        } catch (e) {}
+        dock.removeAttribute("data-aph-dragging");
         for (const id of ids) {
           try {
             const pill = makeDockPill(id, id === cur, counts[id] || 0, false);
@@ -1536,9 +1401,12 @@
         }
       }
       try {
-        const plus = makeDockPlus(lowestInactiveId(ids));
-        if (plus) {
-          dock.appendChild(plus);
+        const free = lowestInactiveId(ids);
+        if (free) {
+          const plus = makeDockPlus(free);
+          if (plus) {
+            dock.appendChild(plus);
+          }
         }
       } catch (e) {}
       // Aph key last (far end of the row). Skipped in drag mode — pills +
@@ -1554,31 +1422,15 @@
     } catch (e) {}
   }
 
-  // Aph-menu glyphs live in theme.css (§20b) as --menuitem-icon vars:
-  // stock 157 paints .menu-icon from that var (content: var), NOT the
-  // classic image attribute — bare image attrs unhide an empty slot.
-  // The iconKey below only flips the stock menuitem-iconic class (the
-  // display trigger); art + context-fill ink come from CSS, so dark /
-  // light / hover / disabled follow automatically. Dynamic or checked
-  // rows (bind list) stay text-only by passing no key.
-  function makeDockMenuItem(id, label, action, disabled, iconKey) {
+  function makeDockMenuItem(id, label, action, disabled) {
     let item = null;
     try {
-      // browser.xhtml is XHTML: createElement would build an
-      // HTML-namespaced dud inside the XUL menupopup (pinreset pattern).
       item =
         typeof document.createXULElement === "function"
           ? document.createXULElement("menuitem")
           : document.createElement("menuitem");
       item.id = id;
       item.setAttribute("label", label);
-      if (iconKey) {
-        try {
-          if (item.classList && typeof item.classList.add === "function") {
-            item.classList.add("menuitem-iconic");
-          }
-        } catch (e) {}
-      }
       if (disabled) {
         item.setAttribute("disabled", "true");
       }
@@ -1599,19 +1451,11 @@
       } catch (e) {}
     };
     try {
-      if (window.AphPalette && typeof window.AphPalette.prompt === "function") {
-        window.AphPalette.prompt({
-          title: `Rename workspace ${id} — Enter saves, Esc cancels`,
-          initial: getWsName(id) || "",
-          onCommit: commit,
-        });
-        return;
-      }
-    } catch (e) {}
-    try {
-      if (typeof window.prompt === "function") {
-        commit(window.prompt(`Rename workspace ${id}:`, getWsName(id) || ""));
-      }
+      window.AphPalette?.prompt?.({
+        title: `Rename workspace ${id} — Enter saves, Esc cancels`,
+        initial: getWsName(id) || "",
+        onCommit: commit,
+      });
     } catch (e) {}
   }
 
@@ -1648,16 +1492,6 @@
         menu.removeChild(menu.firstChild);
       }
     } catch (e) {}
-  }
-
-  function isPrivateWindow() {
-    try {
-      const pbu = window.PrivateBrowsingUtils;
-      if (pbu && typeof pbu.isWindowPrivate === "function") {
-        return !!pbu.isWindowPrivate(window);
-      }
-    } catch (e) {}
-    return false;
   }
 
   // Shared accent picker submenu: the per-pill right-click menu and the
@@ -1698,9 +1532,7 @@
       });
       if (follow) {
         if (!curHue) {
-          try {
-            follow.setAttribute("checked", "true");
-          } catch (err) {}
+          follow.setAttribute("checked", "true");
         }
         accentSub.appendChild(follow);
       }
@@ -1717,9 +1549,7 @@
             } catch (err) {}
           });
           if (item && curHue === hs) {
-            try {
-              item.setAttribute("checked", "true");
-            } catch (err) {}
+            item.setAttribute("checked", "true");
           }
           if (item) {
             accentSub.appendChild(item);
@@ -1736,162 +1566,38 @@
   function onDockMenuShowing(e) {
     try {
       const menu = (e && (e.currentTarget || e.target)) || null;
-      if (!menu || typeof menu.appendChild !== "function") {
-        return;
-      }
-      // popupshowing BUBBLES: opening the nested Bind submenu re-fires this
-      // listener with e.target = the submenu. Rebuilding here would rip the
-      // submenu out mid-open (open/close flicker, submenu never stays up).
-      // Only handle showings that originate on our own menupopup.
-      try {
-        if (!e || e.target !== menu) {
-          return;
-        }
-      } catch (err) {
-        return;
-      }
+      if (!menu?.appendChild || (e && e.target !== menu)) return;
       clearDockMenu(menu);
+
       const id = dockMenuTargetWs(menu);
-      if (!id) {
-        return;
-      }
-      // Window-scoped: every pill is local. Rename/bind stay (global
-      // prefs); unload/close act on this window's tabs only.
-      let name = "";
-      try {
-        name = getWsName(id) || "";
-      } catch (err) {}
+      if (!id) return;
+
+      const name = typeof getWsName === "function" ? getWsName(id) || "" : "";
       const head = name ? `${id}: ${name}` : `Workspace ${id}`;
-      let count = 0;
-      try {
-        count = dockCounts()[id] || 0;
-      } catch (err) {}
-      const rename = makeDockMenuItem(
-        "aph-dock-rename",
-        `Rename ${head}…`,
-        () => {
-          try {
-            promptDockRename(id);
-          } catch (err) {}
-        }
-      );
-      if (rename) {
-        try {
-          menu.appendChild(rename);
-        } catch (err) {}
-      }
-      const setIcon = makeDockMenuItem(
-        "aph-dock-set-icon",
-        `Set Icon for ${head}…`,
-        () => {
-          try {
-            if (window.AphPalette && typeof window.AphPalette.setWsIcon === "function") {
-              window.AphPalette.setWsIcon(id);
-            }
-          } catch (err) {}
-        }
-      );
-      if (setIcon) {
-        try {
-          menu.appendChild(setIcon);
-        } catch (err) {}
-      }
-      if (!isPrivateWindow()) {
-        try {
-          const bindMenu =
-            typeof document.createXULElement === "function"
-              ? document.createXULElement("menu")
-              : document.createElement("menu");
-          bindMenu.setAttribute("label", "Bind to Container…");
-          const sub =
-            typeof document.createXULElement === "function"
-              ? document.createXULElement("menupopup")
-              : document.createElement("menupopup");
-          const bound = getWsContainerId(id);
-          const none = makeDockMenuItem("aph-dock-bind-none", "None (unbound)", () => {
-            try {
-              setWsBinding(id, 0);
-              renderDock();
-            } catch (err) {}
-          });
-          if (none) {
-            if (!bound) {
-              try {
-                none.setAttribute("checked", "true");
-              } catch (err) {}
-            }
-            sub.appendChild(none);
-          }
-          try {
-            for (const c of listContainers()) {
-              const item = makeDockMenuItem(
-                `aph-dock-bind-${c.userContextId}`,
-                c.name || `Container ${c.userContextId}`,
-                () => {
-                  try {
-                    setWsBinding(id, c.userContextId);
-                    renderDock();
-                  } catch (err) {}
-                }
-              );
-              if (item && bound === c.userContextId) {
-                try {
-                  item.setAttribute("checked", "true");
-                } catch (err) {}
-              }
-              if (item) {
-                sub.appendChild(item);
-              }
-            }
-          } catch (err) {}
-          bindMenu.appendChild(sub);
-          menu.appendChild(bindMenu);
-        } catch (err) {}
-      }
-      try {
-        const accentMenu = buildAccentSubmenu(id, "aph-dock");
-        if (accentMenu) {
-          menu.appendChild(accentMenu);
-        }
-      } catch (err) {}
-      const unload = makeDockMenuItem(
-        "aph-dock-unload",
-        "Unload Inactive Tabs",
-        () => {
-          try {
-            unloadEligibleTabs({ scope: "workspace", ws: id });
-            renderDock();
-          } catch (err) {}
+      const count = typeof dockCounts === "function" ? dockCounts()[id] || 0 : 0;
+
+      appendMenuItems(menu, [
+        { id: "aph-dock-rename", label: `Rename ${head}…`, onCommand: () => promptDockRename?.(id) },
+        { id: "aph-dock-set-icon", label: `Set Icon for ${head}…`, onCommand: () => window.AphPalette?.setWsIcon?.(id) },
+        { node: buildBindSubmenu(id, "aph-dock", "") },
+        { node: buildAccentSubmenu(id, "aph-dock") },
+        {
+          id: "aph-dock-unload",
+          label: "Unload Inactive Tabs",
+          disabled: id === current,
+          onCommand: () => {
+            unloadEligibleTabs?.({ scope: "workspace", ws: id });
+            renderDock?.();
+          },
         },
-        id === current
-      );
-      if (unload) {
-        try {
-          menu.appendChild(unload);
-        } catch (err) {}
-      }
-      try {
-        const sep =
-          typeof document.createXULElement === "function"
-            ? document.createXULElement("menuseparator")
-            : document.createElement("menuseparator");
-        menu.appendChild(sep);
-      } catch (err) {}
-      const close = makeDockMenuItem(
-        "aph-dock-close",
-        count > 0 ? `Close Workspace (${count} tab${count === 1 ? "" : "s"})` : "Close Workspace",
-        () => {
-          try {
-            closeWorkspaceTabs(id);
-          } catch (err) {}
+        { isSep: true },
+        {
+          id: "aph-dock-close",
+          label: count > 0 ? `Close Workspace (${count} tab${count === 1 ? "" : "s"})` : "Close Workspace",
+          disabled: count === 0,
+          onCommand: () => closeWorkspaceTabs?.(id),
         },
-        count === 0
-      );
-      if (close) {
-        try {
-          menu.appendChild(close);
-        } catch (err) {}
-      }
+      ]);
     } catch (e) {}
   }
 
@@ -2098,9 +1804,7 @@
       dock.title = "Workspaces — click to switch · scroll or swipe to cycle";
       // Marker for Browser Console diagnosis (the listeners are
       // invisible otherwise): both gestures attach once, at creation.
-      try {
-        dock.setAttribute("data-aph-dock-wheel", "1");
-      } catch (e) {}
+      dock.setAttribute("data-aph-dock-wheel", "1");
       // Dock gaps (padding between pills) sit inside #vertical-tabs: a tab
       // drag hovering the gap would otherwise bubble to the strip's own
       // dragover and animate tab shoves with no pill in play. Swallow it.
@@ -2126,9 +1830,7 @@
       try {
         dock.addEventListener("wheel", onDockWheel, { passive: false });
       } catch (e) {
-        try {
-          dock.addEventListener("wheel", onDockWheel);
-        } catch (_e) {}
+        dock.addEventListener("wheel", onDockWheel);
       }
       anchor.appendChild(dock);
       // Sidebar swipe lives on the strip itself (once per window: this
@@ -2137,17 +1839,11 @@
       try {
         anchor.addEventListener("wheel", onStripSwipe, { passive: false });
       } catch (e) {
-        try {
-          anchor.addEventListener("wheel", onStripSwipe);
-        } catch (_e) {}
+        anchor.addEventListener("wheel", onStripSwipe);
       }
-      try {
-        anchor.setAttribute("data-aph-swipe", "1");
-      } catch (e) {}
+      anchor.setAttribute("data-aph-swipe", "1");
       // Shared right-click menu must exist before pills reference it.
-      try {
-        ensureDockMenu();
-      } catch (e) {}
+      ensureDockMenu();
       return dock;
     } catch (e) {
       return null;
@@ -2263,9 +1959,7 @@
     // A drop during a live tab drag only records dockPendingDrop (strip
     // session still active). Now the session has unwound — execute the move
     // against a settled strip, then collapse the drag UI.
-    try {
-      flushDockPendingDrop();
-    } catch (err) {}
+    flushDockPendingDrop();
     try {
       dockPendingDrop = null;
     } catch (err) {}
@@ -2275,17 +1969,13 @@
       const dock = document.getElementById(DOCK_ID);
       if (dock && typeof dock.querySelectorAll === "function") {
         for (const p of Array.from(dock.querySelectorAll(".drop-target"))) {
-          try {
-            p.classList.remove("drop-target");
-          } catch (err) {}
+          p.classList.remove("drop-target");
         }
       }
     } catch (e) {}
     // Collapse back to active-only pills after the drag (drop handlers run
     // before dragend; deferred sends complete in flush above).
-    try {
-      exitDockDragMode();
-    } catch (e) {}
+    exitDockDragMode();
   }
 
   function cleanupDock() {
@@ -2328,18 +2018,12 @@
         gBrowser.tabContainer.removeEventListener("dragstart", onDockDragStart);
       }
     } catch (e) {}
-    try {
-      window.removeEventListener("dragstart", onDockDragStart, true);
-    } catch (e) {}
-    try {
-      window.removeEventListener("dragend", onDockDragEnd);
-    } catch (e) {}
+    window.removeEventListener("dragstart", onDockDragStart, true);
+    window.removeEventListener("dragend", onDockDragEnd);
   }
 
   function initDock() {
-    try {
-      renderDock();
-    } catch (e) {}
+    renderDock();
     // Capture phase: the strip's own tab element handles dragstart with
     // capture=true and may stop propagation, which would starve a bubble
     // listener on the container (no tracking → no expansion, no indicator).
@@ -2349,15 +2033,9 @@
         gBrowser.tabContainer.addEventListener("dragstart", onDockDragStart, true);
       }
     } catch (e) {}
-    try {
-      window.addEventListener("dragstart", onDockDragStart, true);
-    } catch (e) {}
-    try {
-      window.addEventListener("dragend", onDockDragEnd);
-    } catch (e) {}
-    try {
-      window.addEventListener("unload", cleanupDock, { once: true });
-    } catch (e) {}
+    window.addEventListener("dragstart", onDockDragStart, true);
+    window.addEventListener("dragend", onDockDragEnd);
+    window.addEventListener("unload", cleanupDock, { once: true });
   }
 
   if (document.readyState === "complete") {
